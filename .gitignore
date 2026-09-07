@@ -1,0 +1,15 @@
+# Build output
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Generated reports (committed selectively, not the whole folder)
+coverage/*.html
+static_analysis/*.txt
