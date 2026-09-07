@@ -95,6 +95,26 @@ static_analysis/ ← Generated cppcheck reports
 - **Fixed-rate timing with clock_nanosleep:** Absolute-time scheduling, not relative sleep. Jitter logged per cycle.
 - **Fault detection → DEGRADED state:** Failed sensors don't crash the system. Channel is marked DEGRADED, fault is logged, remaining sensors continue processing.
 
+## Scope Discipline
+
+This project is built incrementally, topic by topic, following the Sprint 1 Plan. When editing files:
+
+- **Only touch what you're asked to touch.** If asked to review `fault_model.md`, don't also rewrite `requirements.md`. Stay in scope.
+- **Don't add features, requirements, or code that haven't been discussed.** The brainstorm doc defines the full scope. If something isn't in there, don't add it.
+- **Don't restructure the project.** Folder structure and architecture are decided. Improvements to existing files are welcome. Reorganizing everything is not.
+- **Review and refine, don't rewrite from scratch.** If a file is 90% good, fix the 10%. Don't delete and start over.
+- **Flag issues, don't silently fix them.** If you spot a discrepancy between documents, tell Derek so he understands. Don't quietly align them.
+- **Cross-document consistency matters.** Requirement IDs, fault IDs, terminology, and technical details should match across all docs. When reviewing, check that references between documents are consistent.
+
+## Two-Session Workflow
+
+This project runs two Claude sessions in parallel:
+
+- **Claude.ai chat (Opus):** Main session for building, learning, architecture decisions, cold drills, writing new code. This is where Derek learns and decides.
+- **Claude Code (Fable):** Review session before commits. Checks cross-document consistency, catches discrepancies, improves wording, validates requirement IDs and traceability. Does NOT add new scope or make architectural changes without asking.
+
+Files are written in the chat session, then reviewed in Claude Code before committing. Claude Code should treat existing files as intentional — they were discussed and decided on in the chat session.
+
 ## What NOT to Do
 
 - Don't write code without a requirement in `docs/requirements.md`
@@ -104,6 +124,9 @@ static_analysis/ ← Generated cppcheck reports
 - Don't generate code without Derek understanding every line — he needs to explain any line cold in an interview
 - Don't skip Google Test for any new C++ module
 - Don't mix build artifacts with source (out-of-source build in `build/`)
+- Don't go beyond the scope of what's being worked on in the current session
+- Don't rewrite files that aren't part of the current task
+- Don't add requirements, features, or architecture changes without discussion
 
 ## Derek's Learning Context
 
