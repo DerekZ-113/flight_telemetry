@@ -9,9 +9,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Compiler warnings — catch problems early, not at runtime
 add_compile_options(-Wall -Wextra -Wpedantic)
 
-# Main executable — we'll add more source files as we build
+# Main executable — add source files as we build each component
 add_executable(telemetry
     src/main.cpp
+    src/processing/altitude.cpp
 )
 
 # Include directories — so #include "processing/kalman.h" works

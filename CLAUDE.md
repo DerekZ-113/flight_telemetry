@@ -127,6 +127,7 @@ Files are written in the chat session, then reviewed in Claude Code before commi
 - Don't go beyond the scope of what's being worked on in the current session
 - Don't rewrite files that aren't part of the current task
 - Don't add requirements, features, or architecture changes without discussion
+- Don't add co-authored-by or co-author tags to commits
 
 ## Derek's Learning Context
 
