@@ -12,7 +12,9 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 # Main executable — add source files as we build each component
 add_executable(telemetry
     src/main.cpp
+    src/telemetry_frame.cpp
     src/processing/altitude.cpp
+    src/drivers/simulated_data.cpp
 )
 
 # Include directories — so #include "processing/kalman.h" works
