@@ -1,5 +1,4 @@
 #include "drivers/simulated_data.h"
-#include "processing/altitude.h"
 
 // Constructor — sets up the random engine and noise distributions.
 //
@@ -35,7 +34,11 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     // Base pressure slightly below standard (1013.25 hPa) to get ~2m altitude
     frame.pressure_hpa = 1013.00f + pressure_noise_(rng_);
     frame.temperature_c = 21.0f + temperature_noise_(rng_);
-    frame.baro_altitude_m = pressure_to_altitude(frame.pressure_hpa);
+
+    // Raw source only: the processing pipeline computes baro_altitude_m
+    // from pressure_hpa (REQ-PROC-001). Computing it here would make the
+    // simulator a source and a pipeline at once, which breaks REQ-LOG-004.
+    frame.baro_altitude_m = 0.0f;
 
     // MPU6050 simulation — board sitting flat on a desk
     // Gravity is ~9.81 m/s² on the z-axis, other axes near zero
@@ -58,8 +61,8 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.ground_speed_mps = 0.0f;
     frame.heading_deg = 0.0f;
 
-    // Fused outputs — Kalman filter replaces these (REQ-PROC-003)
-    frame.fused_altitude_m = frame.baro_altitude_m;
+    // Fused outputs — pipeline's Kalman filter fills these (REQ-PROC-003)
+    frame.fused_altitude_m = 0.0f;
     frame.vertical_speed_mps = 0.0f;
 
     // All channels healthy in simulation mode

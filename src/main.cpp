@@ -1,7 +1,12 @@
 #include <iostream>
+#include <memory>
 #include "telemetry_frame.h"
+#include "data_source.h"
 #include "processing/altitude.h"
-#include "drivers/simulated_data.h"
+
+// The only place that knows a concrete source type exists. Everything
+// below create_source() sees DataSource and nothing else.
+#include "drivers/simulated_source.h"
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -27,23 +32,48 @@ void print_frame(const TelemetryFrame& frame) {
               << " gps=" << status_name(frame.gps_status) << std::endl;
 }
 
-int main() {
-    std::cout << "flight-telemetry v0.1.0\n" << std::endl;
+// Factory: decides which concrete DataSource to build. Later this reads
+// the YAML config (REQ-CFG-001) and returns a live-sensor source, the
+// simulator, or a log replay source. The return type is the base class,
+// so callers cannot tell which one they got. That is the point.
+//
+// std::make_unique constructs a SimulatedSource on the heap and wraps the
+// pointer in a std::unique_ptr<SimulatedSource>, which converts implicitly
+// to std::unique_ptr<DataSource> because SimulatedSource is-a DataSource.
+std::unique_ptr<DataSource> create_source() {
+    // 20 ms interval = 50 Hz. Seed 42 keeps the run reproducible (REQ-SENS-006).
+    // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
+    // which comes from feeding logged frames back through the pipeline.
+    return std::make_unique<SimulatedSource>(20, 42);
+}
 
-    // Create a simulated data source with a fixed seed (REQ-SENS-006).
-    // Same seed = same noise sequence, so tests are reproducible.
-    // This is separate from deterministic replay (REQ-LOG-003), which
-    // comes from feeding logged frames back through the pipeline.
-    SimulatedDataGenerator sim(42);
-
-    // Generate 5 frames at 20ms intervals (50 Hz)
-    // Each frame has different noise but the same base values
-    for (int i = 0; i < 5; i++) {
-        uint64_t timestamp = i * 20;  // 50 Hz = 20ms between frames
-        TelemetryFrame frame = sim.generate(timestamp);
+// The processing loop. Takes the base class by reference and never learns
+// the concrete type. Swapping the simulator for real sensors or a log
+// replay changes create_source() and nothing here (REQ-LOG-004).
+void run(DataSource& source, int frame_count) {
+    for (int i = 0; i < frame_count; i++) {
+        // Virtual dispatch: the compiler emits a lookup through the object's
+        // vtable, so this line runs SimulatedSource::read_frame() today and
+        // would run Bmp280Source::read_frame() or LogReplaySource::read_frame()
+        // tomorrow, with no change to this code.
+        TelemetryFrame frame = source.read_frame();
         print_frame(frame);
         std::cout << std::endl;
     }
+}
+
+int main() {
+    std::cout << "flight-telemetry v0.1.0\n" << std::endl;
+
+    // unique_ptr owns the source. When `source` goes out of scope at the end
+    // of main, its destructor deletes the object through the DataSource
+    // pointer, which is why ~DataSource must be virtual.
+    std::unique_ptr<DataSource> source = create_source();
+
+    // Computed fields (baro alt, pitch/roll, fused alt, vert speed) print as
+    // 0 here by design: the source is raw-only, and the pipeline that fills
+    // them is not built yet.
+    run(*source, 5);
 
     // Sanity checks
     std::cout << "Sanity check: pressure_to_altitude(1013.25) = "

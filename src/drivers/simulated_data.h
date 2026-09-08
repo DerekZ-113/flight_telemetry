@@ -27,9 +27,11 @@ public:
     explicit SimulatedDataGenerator(uint32_t seed = 42);
 
     // Produce one frame stamped with the caller's timestamp. The generator
-    // does not track time itself; the fixed-rate loop owns the clock.
+    // does not track time itself; SimulatedSource owns the clock.
     // Base values simulate a board sitting stationary in Foster City.
     // Noise is Gaussian, drawn independently per sensor channel.
+    // Only RAW sensor fields are populated. Computed fields are left at
+    // 0.0 for the processing pipeline (see DataSource contract).
     TelemetryFrame generate(uint64_t timestamp_ms);
 
 private:

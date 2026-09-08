@@ -15,6 +15,7 @@ add_executable(telemetry
     src/telemetry_frame.cpp
     src/processing/altitude.cpp
     src/drivers/simulated_data.cpp
+    src/drivers/simulated_source.cpp
 )
 
 # Include directories — so #include "processing/kalman.h" works
