@@ -1,0 +1,227 @@
+# Flight Telemetry System — Software Test Plan
+
+> **Document ID:** FTS-TP-001
+> **Version:** 0.1.0
+> **Status:** Draft
+> **Last Updated:** 2026-09-07
+> **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), traceability_matrix.md
+
+This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
+
+---
+
+## 1. Test Objectives
+
+Verification has two objectives, mirroring DO-178C Section 6.
+
+**Requirements-based verification.** Every test traces to a requirement in FTS-SRD-001. The purpose of a test is to demonstrate that the implementation satisfies its requirement under normal and abnormal conditions. A test that does not trace to a requirement is either evidence of a missing requirement or does not belong in the suite.
+
+**Structural coverage.** Requirements-based tests are executed under coverage instrumentation to show that they exercise the code. Uncovered code indicates one of three things: a missing requirement, a missing test, or dead code. Each uncovered region shall be resolved into one of those categories before release.
+
+The two objectives work in opposite directions. Requirements-based testing starts from what the system must do and confirms the code does it. Structural coverage starts from what the code does and confirms a requirement asked for it. Together they close the loop that bidirectional traceability depends on.
+
+**Out of scope.** Hardware qualification of the BMP280, MPU6050, and NEO-6M is not performed. Sensor behavior is taken from manufacturer datasheets and from the noise characterization in docs/noise_profile.md. Environmental testing (temperature, vibration, EMI) is not performed.
+
+---
+
+## 2. Test Levels
+
+### 2.1 Unit Tests
+
+- **Scope:** Individual C++ functions and classes in isolation. Drivers, processing, timing, logging, and transport modules.
+- **Framework:** Google Test.
+- **Isolation:** Hardware dependencies are replaced with test doubles. The `DataSource` abstraction is the primary seam: a test-only `FakeSource` returns hand-built frames, so the pipeline can be exercised without sensors or the simulator. Time-dependent logic (fault timeouts, fixed-rate scheduling) shall accept an injectable clock so tests do not sleep.
+- **Location:** `tests/unit/`, one test file per module (`test_altitude.cpp`, `test_fault_detection.cpp`, and so on).
+- **Executed:** Every commit, in CI and locally.
+
+### 2.2 Integration Tests
+
+- **Scope:** The full pipeline across the C++/Python boundary. C++ processing publishes over ZeroMQ and UDP; the Python receiver consumes and validates.
+- **Framework:** pytest.
+- **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible.
+- **Location:** `tests/integration/`.
+- **Executed:** Every commit, in CI.
+
+### 2.3 Fault Injection Tests
+
+- **Scope:** System behavior under the failure modes in FTS-FM-001. Each FAULT entry maps to at least one injected scenario.
+- **Framework:** Parameterized Google Test harness for single faults; pytest scenarios for multi-fault and recovery sequences.
+- **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scripted or seeded fault schedule: dropped reads, repeated values, out-of-range values, and recovery after a configurable interval.
+- **Randomization:** Randomized schedules use a logged seed so any failing run can be reproduced exactly. A randomized test that cannot be replayed is not evidence.
+- **Location:** `tests/fault_injection/`.
+- **Executed:** Every commit for the deterministic scenarios. Randomized sweeps run nightly.
+
+---
+
+## 3. Test Tools
+
+| Tool | Role | Why this tool |
+|---|---|---|
+| Google Test | C++ unit and fault injection tests | The de facto C++ test framework. Parameterized tests (`TEST_P`) map directly onto the fault model's "for each sensor, for each fault type" structure. Integrates with CMake through CTest. |
+| pytest | Integration tests | The Python receiver and analysis scripts are already Python. pytest fixtures manage the lifecycle of the C++ process cleanly, and parametrize handles frame-count and rate sweeps. |
+| gcov / lcov | Structural coverage | gcov is built into GCC and produces per-line and per-branch execution counts with no source changes. lcov aggregates gcov output into HTML reports and enforces thresholds in CI. Required by REQ-TEST-003. |
+| cppcheck | Static analysis | Detects undefined behavior, uninitialized members, and resource leaks without executing the code. Fast enough to run on every build. Required by REQ-TEST-004. |
+| CTest | Test runner | Ships with CMake. Runs the Google Test binaries and reports results in a form GitHub Actions can consume. |
+
+Compiler warnings (`-Wall -Wextra -Wpedantic`) are treated as a static analysis layer of their own. A warning is a failed build.
+
+---
+
+## 4. Pass/Fail Criteria
+
+A build passes when all of the following hold. Any single failure fails the build.
+
+1. All Google Test cases shall pass. There is no allowance for known failures or skipped tests in the main branch.
+2. All pytest integration tests shall pass.
+3. Branch coverage, measured by gcov/lcov over all C++ source under `src/`, shall meet the thresholds in Section 6.3.
+4. cppcheck shall report zero warnings at the `--enable=warning,style,performance,portability` level on any release-tagged build. Non-release builds report but do not block.
+5. Every requirement in the traceability matrix shall trace to at least one test. A requirement with an empty test column fails the build once that requirement's implementation column is filled.
+6. The compiler shall emit zero warnings.
+
+A release is a passing build on a tagged commit, with the coverage and cppcheck reports committed under `coverage/` and `static_analysis/` and summarized in docs/verification_results.md.
+
+---
+
+## 5. Test Cards
+
+Test cards are the individual test procedures. Each card is executed by one or more automated test functions named in the traceability matrix. The card is the human-readable procedure; the test function is the executable evidence.
+
+### TC-001: Altitude Conversion Accuracy
+
+- **Requirement:** REQ-PROC-001
+- **Level:** Unit
+- **Objective:** Verify that `pressure_to_altitude()` matches the ISA standard atmosphere table across the BMP280 operating range.
+- **Preconditions:** None. Pure function, no state.
+- **Steps:**
+  1. Call `pressure_to_altitude(1013.25f)` with the default reference. Record the result.
+  2. Call `pressure_to_altitude(898.76f)`. Record the result.
+  3. Call `pressure_to_altitude(795.01f)`. Record the result.
+  4. Call `pressure_to_altitude(300.0f)`. Record the result.
+  5. Call `pressure_to_altitude(1013.25f, 1023.25f)` to verify the reference is honored.
+  6. Call `pressure_to_altitude(1012.25f, 1013.25f)` to verify sensitivity near sea level.
+- **Expected result:**
+
+  | Step | Input (hPa) | Reference (hPa) | Expected (m) | Tolerance (m) |
+  |---|---|---|---|---|
+  | 1 | 1013.25 | 1013.25 | 0.0 | 0.01 |
+  | 2 | 898.76 | 1013.25 | 1000.0 | 1.0 |
+  | 3 | 795.01 | 1013.25 | 2000.0 | 2.0 |
+  | 4 | 300.00 | 1013.25 | 9164.0 | 20.0 |
+  | 5 | 1013.25 | 1023.25 | -82.8 | 1.0 |
+  | 6 | 1012.25 | 1013.25 | 8.3 | 0.2 |
+
+- **Pass/fail:** All six results within tolerance. Tolerance grows with altitude because the formula's 0.1903 exponent is a four-digit rounding of the exact value, and the error scales with the pressure ratio.
+
+### TC-002: Sensor Communication Failure Detected Within Bound
+
+- **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004)
+- **Level:** Fault injection
+- **Objective:** Verify that a sensor that stops responding is marked DEGRADED within the required detection bound, and not before.
+- **Preconditions:** Fault detector constructed with an injectable clock. I2C bound configured at 500 ms. UART bound configured at 2000 ms. A `FaultInjectingSource` wrapping a `FakeSource` at 50 Hz.
+- **Steps:**
+  1. Feed 10 healthy frames. Assert all channels NOMINAL.
+  2. Configure the injector to return a read error for the barometer on every subsequent frame.
+  3. Advance the clock in 20 ms steps, feeding one frame per step. After each step, read the barometer channel status.
+  4. Record the clock time at which the status first reads DEGRADED.
+  5. Repeat steps 2 through 4 for the IMU channel.
+  6. Repeat steps 2 through 4 for the GPS channel, using the 2000 ms UART bound.
+  7. For each channel, assert that exactly one fault event was logged, carrying the channel, the fault type, and a timestamp.
+- **Expected result:** Barometer and IMU transition to DEGRADED at a clock time greater than 480 ms and no greater than 500 ms after the first failed read. GPS transitions at a time greater than 1980 ms and no greater than 2000 ms. Healthy channels remain NOMINAL throughout. Processing continues for every frame; no frame is dropped.
+- **Pass/fail:** All three channels detected within their bound and not more than one frame period early. Any detection before 480 ms (or 1980 ms for GPS) fails, because it would false-alarm on a single transient error. Any missing or duplicated fault event fails.
+
+### TC-003: Stuck Sensor Detection
+
+- **Requirement:** REQ-FAULT-002 (also exercises REQ-FAULT-004)
+- **Level:** Fault injection
+- **Objective:** Verify that N consecutive identical raw readings on any axis mark the channel DEGRADED, and that N-1 do not.
+- **Preconditions:** Fault detector configured with N = 10. Test frames are built by hand so raw register values are controlled exactly.
+- **Steps:**
+  1. Feed 9 frames with an identical pressure value. Assert barometer NOMINAL.
+  2. Feed a 10th identical frame. Assert barometer DEGRADED and one fault event logged carrying the stuck value.
+  3. Reset. Feed 9 identical accelerometer X values while Y and Z vary each frame. Assert IMU NOMINAL.
+  4. Feed a 10th. Assert IMU DEGRADED.
+  5. Reset. Feed 10 frames where each axis repeats its previous value exactly once, then changes (no run longer than 2). Assert IMU NOMINAL.
+  6. Reset. Feed 9 identical gyroscope Z values, then one different value, then 9 identical. Assert IMU NOMINAL throughout (the run counter must reset on a differing value).
+- **Expected result:** DEGRADED exactly on the Nth identical reading, never on the (N-1)th. A single differing value resets the count. A stuck single axis is sufficient; other axes varying does not mask it.
+- **Pass/fail:** All six assertions hold. Detection on frame 9 (too early) or frame 11 (too late) fails.
+
+### TC-004: Deterministic Replay Produces Identical Output
+
+- **Requirement:** REQ-LOG-003 (also exercises REQ-LOG-004)
+- **Level:** Integration
+- **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
+- **Preconditions:** Binary logger and log replay `DataSource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs.
+- **Steps:**
+  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `session_a.bin`.
+  2. Run the pipeline in replay mode with `session_a.bin` as the data source. Log every processed frame to `session_b.bin`.
+  3. Parse both logs in Python. For each frame index, compare every field.
+  4. Assert the frame counts are equal.
+  5. Assert every raw field is identical (replay must not alter its input).
+  6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status) is identical, compared as raw bytes rather than with a floating-point tolerance.
+- **Expected result:** 500 frames in each log. Zero field differences.
+- **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
+
+### TC-005: Pipeline Data Integrity over ZeroMQ
+
+- **Requirement:** REQ-TRANS-001 (also exercises REQ-TEST-002)
+- **Level:** Integration
+- **Objective:** Verify that every frame published by the C++ process arrives at the Python receiver intact, in order, and without loss under normal conditions.
+- **Preconditions:** C++ binary built with the ZeroMQ publisher. Python receiver subscribed on the configured local endpoint. Simulated source with seed 42 so the expected frame sequence is known in advance.
+- **Steps:**
+  1. Start the Python subscriber and allow 200 ms for the subscription to settle. ZeroMQ pub/sub drops messages sent before a subscriber is connected, so the settle delay is part of the procedure, not a workaround.
+  2. Start the C++ process configured for 200 frames at 50 Hz, then exit.
+  3. Collect all received messages until the publisher exits or 5 s elapses.
+  4. Deserialize each message into the frame layout defined in `telemetry_frame.h`.
+  5. Assert 200 frames were received.
+  6. Assert timestamps are strictly increasing in steps of 20 ms.
+  7. Compare each received frame against the binary log written by the C++ process during the same run. Assert every received frame is byte-identical to the corresponding logged frame. (Python cannot regenerate the expected frames from the seed, because its random number generator differs from the C++ one, so the C++ log is the reference.)
+- **Expected result:** 200 frames received, ordered, byte-identical to the log.
+- **Pass/fail:** Any missing, reordered, or altered frame fails. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is a separate card.
+
+---
+
+## 6. Coverage Strategy
+
+### 6.1 Statement versus Branch Coverage
+
+**Statement coverage** reports whether each executable line ran at least once. It is necessary but weak: an `if` with no `else` reaches 100% statement coverage when the condition is true once, even though the false path was never exercised.
+
+**Branch coverage** reports whether each decision outcome ran. Every `if`, loop condition, and ternary counts as two branches, and both must execute. For a fault detector, the false path is the interesting one: "sensor is healthy, do nothing" is the branch most likely to hide a bug that only appears when the condition flips.
+
+This project measures both and gates on branch coverage. Statement coverage is reported for completeness but does not block a build.
+
+### 6.2 Why Not 100%
+
+Some branches cannot be reached from automated tests in CI:
+
+- Hardware error paths in the I2C and UART drivers (a failed `ioctl`, a bus that returns garbage) need physical hardware to trigger. They are exercised on the Raspberry Pi manually and documented in verification_results.md, but CI runs on a machine with no sensors.
+- Defensive branches that guard against conditions the type system already excludes.
+- `main()` argument handling and startup error exits.
+
+Chasing these to 100% produces tests that exist to satisfy the metric rather than to verify a requirement. Each uncovered branch shall instead be listed in verification_results.md with a justification. That list is itself a review artifact.
+
+### 6.3 Thresholds
+
+| Scope | Branch coverage target |
+|---|---|
+| `src/processing/` (filters and fault detection) | 90% |
+| `src/timing/`, `src/logging/`, `src/transport/`, `src/replay/` | 80% |
+| `src/drivers/` | 70% |
+| Overall | 80% |
+
+Processing carries the highest target because filters and fault detection are pure logic with no hardware dependency, so every branch is reachable from a unit test. Drivers carry the lowest because their error branches are hardware-bound. The overall figure is a floor, not a goal.
+
+### 6.4 MC/DC
+
+Modified Condition/Decision Coverage is the structural coverage criterion DO-178C requires for Level A software. It extends branch coverage to compound conditions: for a decision such as `if (a && b)`, MC/DC requires test cases showing that each of `a` and `b` independently changes the outcome while the other is held fixed. Branch coverage is satisfied by two test cases (true, false). MC/DC needs at least three for two conditions, and N+1 for N conditions.
+
+MC/DC is out of scope for this project. It requires tool support (gcov does not report it) and the DAL A rigor is not proportionate to a development system. Where compound conditions appear in fault detection logic, they are kept short and each operand is tested in isolation, which approaches MC/DC intent without claiming the criterion.
+
+---
+
+## 7. Open Items
+
+- The traceability matrix does not exist yet. Section 4 criterion 5 cannot be enforced until it does.
+- The fault detector, logger, replay source, and transports are not implemented. TC-002 through TC-005 describe the intended procedure and will be revised when the interfaces are final.
+- An injectable clock interface has not been designed. TC-002 depends on it.
+- cppcheck is not yet installed in the development environment or CI.
