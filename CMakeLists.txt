@@ -14,6 +14,7 @@ add_executable(telemetry
     src/main.cpp
     src/telemetry_frame.cpp
     src/processing/altitude.cpp
+    src/processing/processor.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
 )

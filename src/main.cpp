@@ -3,6 +3,7 @@
 #include "telemetry_frame.h"
 #include "data_source.h"
 #include "processing/altitude.h"
+#include "processing/processor.h"
 
 // The only place that knows a concrete source type exists. Everything
 // below create_source() sees DataSource and nothing else.
@@ -47,17 +48,29 @@ std::unique_ptr<DataSource> create_source() {
     return std::make_unique<SimulatedSource>(20, 42);
 }
 
-// The processing loop. Takes the base class by reference and never learns
-// the concrete type. Swapping the simulator for real sensors or a log
-// replay changes create_source() and nothing here (REQ-LOG-004).
-void run(DataSource& source, int frame_count) {
+// The processing loop: source -> processor -> output.
+//
+// Takes the source as the base class by reference and never learns the
+// concrete type. Swapping the simulator for real sensors or a log replay
+// changes create_source() and nothing here (REQ-LOG-004).
+//
+// The processor is passed by non-const reference because process() will
+// mutate filter state on every call once the Kalman and complementary
+// filters exist. The same processor instance must see every frame in
+// order, which is why it is created once outside the loop, not per frame.
+void run(DataSource& source, TelemetryProcessor& processor, int frame_count) {
     for (int i = 0; i < frame_count; i++) {
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
         // would run Bmp280Source::read_frame() or LogReplaySource::read_frame()
         // tomorrow, with no change to this code.
-        TelemetryFrame frame = source.read_frame();
-        print_frame(frame);
+        TelemetryFrame raw = source.read_frame();
+
+        // Non-virtual call: there is one TelemetryProcessor, and its
+        // behavior is configured, not substituted.
+        TelemetryFrame processed = processor.process(raw);
+
+        print_frame(processed);
         std::cout << std::endl;
     }
 }
@@ -70,10 +83,13 @@ int main() {
     // pointer, which is why ~DataSource must be virtual.
     std::unique_ptr<DataSource> source = create_source();
 
-    // Computed fields (baro alt, pitch/roll, fused alt, vert speed) print as
-    // 0 here by design: the source is raw-only, and the pipeline that fills
-    // them is not built yet.
-    run(*source, 5);
+    // The processor lives on the stack: main owns it for the whole run and
+    // nothing else needs to share it, so there is no reason for the heap.
+    TelemetryProcessor processor;
+
+    // Baro Alt and Fused Alt are now computed (REQ-PROC-001). Pitch/roll and
+    // vertical speed still print 0 until their filters exist.
+    run(*source, processor, 5);
 
     // Sanity checks
     std::cout << "Sanity check: pressure_to_altitude(1013.25) = "
