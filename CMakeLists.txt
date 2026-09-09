@@ -15,6 +15,7 @@ add_executable(telemetry
     src/telemetry_frame.cpp
     src/processing/altitude.cpp
     src/processing/processor.cpp
+    src/processing/kalman_filter.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
 )

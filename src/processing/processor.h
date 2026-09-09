@@ -1,16 +1,20 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
+
 #include "telemetry_frame.h"
+#include "processing/kalman_filter.h"
 
 // The processing pipeline. Sits between a DataSource (raw frames) and the
 // outputs (logger, transports, display). Fills every computed field of a
 // TelemetryFrame from the raw fields (REQ-PROC-005).
 //
-// Why a class and not a free function: the pipeline will hold state that
-// persists across frames. Kalman filter estimates and covariance
-// (REQ-PROC-003), complementary filter angles (REQ-PROC-002), and fault
-// detection counters (REQ-FAULT-002) all depend on the previous frame.
-// A free function would have to be handed that state on every call.
+// Why a class and not a free function: the pipeline holds state that
+// persists across frames. The Kalman filter's estimate and covariance
+// (REQ-PROC-003) depend on every frame that came before; complementary
+// filter angles (REQ-PROC-002) and fault detection counters (REQ-FAULT-002)
+// will too. A free function would have to be handed that state on every call.
 //
 // Why process() takes const& and returns a new frame: the raw frame is
 // the source's record of what the sensors said. Leaving it untouched
@@ -22,10 +26,22 @@ public:
     // filter tuning, and fault thresholds (REQ-CFG-001).
     TelemetryProcessor() = default;
 
-    // Copies all raw fields from `raw`, then fills the computed fields.
-    // Today only barometric altitude is computed (REQ-PROC-001). Attitude,
-    // fused altitude, and vertical speed are placeholders until their
-    // filters exist. Channel status passes through unchanged until the
-    // fault detection module owns it.
+    // Copies all raw fields from `raw`, then fills the computed fields:
+    // barometric altitude (REQ-PROC-001), fused altitude and vertical
+    // speed from the Kalman filter (REQ-PROC-003). Attitude is a
+    // placeholder until the complementary filter exists. Channel status
+    // passes through unchanged until the fault detection module owns it.
     TelemetryFrame process(const TelemetryFrame& raw);
+
+private:
+    // std::optional because the filter cannot be built until the first
+    // frame arrives: its initial altitude is the first barometric reading.
+    // Empty means "no frame seen yet". Constructing it with a made-up
+    // altitude and overwriting later would work, but would leave a window
+    // where the filter holds a value nobody chose.
+    std::optional<KalmanFilter1D> altitude_filter_;
+
+    // Timestamp of the previous frame, used to compute dt for predict().
+    // Only meaningful once altitude_filter_ has a value.
+    uint64_t previous_timestamp_ms_ = 0;
 };

@@ -87,8 +87,9 @@ int main() {
     // nothing else needs to share it, so there is no reason for the heap.
     TelemetryProcessor processor;
 
-    // Baro Alt and Fused Alt are now computed (REQ-PROC-001). Pitch/roll and
-    // vertical speed still print 0 until their filters exist.
+    // Baro Alt (REQ-PROC-001), Fused Alt and Vert Speed (REQ-PROC-003) are
+    // now computed. Pitch/roll still print 0 until the complementary
+    // filter exists.
     run(*source, processor, 5);
 
     // Sanity checks
