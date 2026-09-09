@@ -97,7 +97,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   2. Call `pressure_to_altitude(898.76f)`. Record the result.
   3. Call `pressure_to_altitude(795.01f)`. Record the result.
   4. Call `pressure_to_altitude(300.0f)`. Record the result.
-  5. Call `pressure_to_altitude(1013.25f, 1023.25f)` to verify the reference is honored.
+  5. Call `pressure_to_altitude(1013.25f, 1023.25f)` to verify the reference is honored. Measured pressure below the reference places the sensor above the reference level, so the result is positive.
   6. Call `pressure_to_altitude(1012.25f, 1013.25f)` to verify sensitivity near sea level.
 - **Expected result:**
 
@@ -107,7 +107,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 2 | 898.76 | 1013.25 | 1000.0 | 1.0 |
   | 3 | 795.01 | 1013.25 | 2000.0 | 2.0 |
   | 4 | 300.00 | 1013.25 | 9164.0 | 20.0 |
-  | 5 | 1013.25 | 1023.25 | -82.8 | 1.0 |
+  | 5 | 1013.25 | 1023.25 | 82.8 | 1.0 |
   | 6 | 1012.25 | 1013.25 | 8.3 | 0.2 |
 
 - **Pass/fail:** All six results within tolerance. Tolerance grows with altitude because the formula's 0.1903 exponent is a four-digit rounding of the exact value, and the error scales with the pressure ratio.
