@@ -59,16 +59,28 @@ jobs:
           # from the report on the next line anyway, so the check adds
           # nothing here. 'inconsistent' and 'unused' cover the same
           # class of strictness on library headers and unmatched patterns.
-          lcov --rc branch_coverage=1 --directory build --capture \
+          #
+          # --rc no_exception_branch=1: drop the branches GCC emits for
+          # C++ exception unwinding (verification_results.md, Entry 1
+          # section 1.3 states the policy; Entry 5 section 5.4 shows the
+          # sixteen such edges GCC kept). '--filter branch' alone only
+          # strips them from lines with no conditional, so an `if` on a
+          # line with a std::string temporary kept ten of them. Ubuntu's
+          # lcov 2.0 has no 'exception' filter keyword; the rc option is
+          # the form both 2.0 and the Mac's 2.5 understand.
+          # --filter brace: ignore the closing-brace lines GCC reports as
+          # unexecuted (function-exit landing pads). Line coverage only.
+          lcov --rc branch_coverage=1 --rc no_exception_branch=1 \
+               --directory build --capture \
                --ignore-errors mismatch,inconsistent,unused \
                --output-file coverage/raw.info
-          lcov --rc branch_coverage=1 \
+          lcov --rc branch_coverage=1 --rc no_exception_branch=1 \
                --ignore-errors inconsistent,unused \
                --remove coverage/raw.info '*/_deps/*' '*/tests/*' '*/src/main.cpp' '/usr/*' \
-               --filter branch \
+               --filter branch,brace \
                --output-file coverage/lcov.info
-          lcov --rc branch_coverage=1 --summary coverage/lcov.info
-          genhtml --rc branch_coverage=1 --branch-coverage \
+          lcov --rc branch_coverage=1 --rc no_exception_branch=1 --summary coverage/lcov.info
+          genhtml --rc branch_coverage=1 --rc no_exception_branch=1 --branch-coverage \
                   coverage/lcov.info --output-directory coverage/html
 
       - name: Coverage thresholds

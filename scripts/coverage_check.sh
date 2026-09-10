@@ -14,7 +14,9 @@ info="${1:?usage: coverage_check.sh <lcov.info>}"
 # Same strictness relaxations as the CI capture step: lcov 2.x otherwise
 # aborts --extract and --summary on consistency checks that do not affect
 # the percentages (see .github/workflows/ci.yml).
-rc="--rc branch_coverage=1 --ignore-errors inconsistent,unused,empty,mismatch,format,unsupported"
+# no_exception_branch mirrors the capture step: exception-unwind edges are
+# policy-excluded (verification_results.md Entry 1 section 1.3).
+rc="--rc branch_coverage=1 --rc no_exception_branch=1 --ignore-errors inconsistent,unused,empty,mismatch,format,unsupported"
 
 # scope pattern | threshold | label
 scopes=(

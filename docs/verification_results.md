@@ -220,7 +220,51 @@ This is the same defect class as Entry 4's uninitialized frame, one struct over,
 
 Fix: `FaultDetector::record_event` is now the only place an event is constructed; it value-initializes `FaultEvent event{}` and assigns the four fields. Guard added: `FaultDetectionTest.EventPaddingBytesAreZero` reads the padding bytes of produced events directly through `offsetof` and asserts zero, so it fails on any toolchain that leaves them unspecified, without depending on stack coincidences. 106 tests.
 
-### 5.3 Open
+### 5.3 Measurement of record — GitHub Actions run 34443038655, commit `2083343`, Ubuntu, GCC 13
 
-- Confirm the rerun on this commit is green on GCC and record its run number and coverage numbers here, replacing the macOS previews in Entries 1 through 4.
+First green run. This supersedes the macOS preview tables in Entries 1 through 4 as the coverage measurement of record; those entries remain as the per-commit history.
+
+| Item | Value |
+|---|---|
+| Tests passed | 106 of 106 |
+| Compiler warnings under `-Werror` | 0 |
+| cppcheck findings | 0 |
+
+| Scope | Branches (GCC) | Branches (Mac preview, Entry 4) | Threshold | Result |
+|---|---|---|---|---|
+| `src/processing/` | 98.6% | 100.0% | 90% | pass |
+| `src/timing/` | 100.0% | 100.0% | 80% | pass |
+| `src/logging/` | 80.6% | 83.3% | 80% | pass, 0.6 points of margin |
+| `src/replay/` | 93.8% | 100.0% | 80% | pass |
+| `src/drivers/` | 100.0% | 100.0% | 70% | pass |
+| **Overall** | **91.6%** (174/190) | 93.8% (167/178) | 80% | **pass** |
+
+Lines 99.7% (575/577), functions 97.4% (76/78). The two toolchains do not count the same things: GCC reports 190 branches and 577 lines where clang reported 178 and 670, because they differ in how they split compound conditions, attribute multi-line statements, and treat compiler-generated code. The threshold rule is evaluated against GCC only.
+
+**Logging margin.** 80.6% against an 80% threshold means one more untaken branch in `src/logging/` fails the build. The GCC-only untaken branches are listed in 5.4 so the next logging change knows where it stands.
+
+### 5.4 GCC-only untaken branches (from the run's coverage artifact)
+
+Sixteen branch outcomes untaken, on eight lines, plus two closing braces GCC marks as unexecuted lines:
+
+| File:line | Source | Marks | Reading |
+|---|---|---|---|
+| `log_reader.cpp:17` | `if (!header_is_valid(header_))` | `+-++` | both `if` outcomes taken (`ReaderRejectsBadMagic` and the happy path); the untaken edge is the exception path of the `std::string` assignment that follows |
+| `log_reader.cpp:64` | `while (next(record))` | `+-++` | loop enters and exits; untaken edge is an exception path |
+| `log_reader.cpp:76` | `for (... directory_iterator(directory, ec))` | `+-+-++` | iterator begin/end taken; two untaken edges are exception paths of iterator construction |
+| `log_reader.cpp:78` | `if (name.rfind(prefix + "_", 0) == 0 && ... == ".bin")` | 24 outcomes, 10 untaken | both operands true and false are tested (`ListLogFilesIsSortedAndFiltered` has a wrong-prefix file and a wrong-extension file); the ten untaken edges belong to the `std::string` temporaries and comparisons on that line |
+| `log_reader.cpp:22`, `:84` | `}` | line not executed | function-exit cleanup landing pads GCC emits for the exception path |
+| `fault_detector.cpp:110` | `std::find_if(...)` | `+-` | both find/no-find outcomes taken by tests; untaken edge is the exception path through the iterator call |
+| `log_replay_source.cpp:36` | `if (!reader_.has_value() && !open_next_file())` | `+++-++++` | all three real outcomes taken (`ReplaySpansRotatedFiles`, `EmptyFileListIsExhaustedImmediately`); untaken edge is an exception path |
+
+Every real decision outcome on these lines is exercised by a named test. The untaken outcomes are compiler-generated exception-handling edges that `lcov --filter branch` removes on clang but not fully on GCC 13. This is the category Entry 1 §1.3 already excludes by policy; the tool is not applying the policy completely on the Linux toolchain. Consequence: `src/logging/` reads 80.6% for reasons unrelated to its tests, with 0.6 points of headroom before a build fails on noise.
+
+### 5.5 Action taken on the noise
+
+`--filter branch` removes branches only from lines that contain no conditional, so exception-unwind edges on `if`, `while`, and `for` lines survive it on GCC (5.4). lcov's documented way to remove all identified exception branches is the `no_exception_branch` setting, present in both the runner's lcov 2.0 and the Mac's 2.5 (the `exception` filter keyword exists only in 2.5). The workflow and `scripts/coverage_check.sh` now pass `--rc no_exception_branch=1`, and `--filter brace` drops the closing-brace lines GCC reports as unexecuted. No threshold and no exclusion policy changed; the tool now applies the policy Entry 1 §1.3 stated. The next CI run re-measures; its numbers replace 5.3 as the record.
+
+### 5.6 Open
+
+- Re-record 5.3 from the first run with `no_exception_branch` enabled.
 - Design decision recorded: replace implicit padding with explicit reserved fields at the next format version (FTS-DD-001 Section 12).
+- REQ-TIME-003 remains judged on the Pi (TC-009 step 7); CI measures jitter nowhere.

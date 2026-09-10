@@ -94,8 +94,8 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 |---|---|---|---|---|---|
 | REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp` | — | Partial | Drivers (simulator, fault injector), processing, logging, replay, and timing all have unit tests. Transport does not exist yet; the live sensor drivers do not exist yet. |
 | REQ-TEST-002 | — | — | — | Not started | |
-| REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Results recorded in FTS-VR-001; first CI-run numbers pending. |
-| REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings at this commit; "final release" not yet reached. |
+| REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Measurement of record: CI run 34443038655, 91.6% overall, recorded in FTS-VR-001 Entry 5. Still Partial only because pytest integration coverage (REQ-TEST-002) is not yet part of the run. |
+| REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings on CI run 34443038655; no release-tagged build has been made yet, so the gate has not been exercised. |
 
 ---
 
