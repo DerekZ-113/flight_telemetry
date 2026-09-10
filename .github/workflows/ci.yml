@@ -53,9 +53,17 @@ jobs:
           # test_plan.md 6.2). --filter branch removes compiler-generated
           # exception-handling branches so the number reflects our
           # decisions, not the standard library's unwind paths.
+          # --ignore-errors: lcov 2.x validates gcov's per-function line
+          # ranges and rejects the bodies Google Test's TEST() macro
+          # generates ("mismatched end line"). Those files are removed
+          # from the report on the next line anyway, so the check adds
+          # nothing here. 'inconsistent' and 'unused' cover the same
+          # class of strictness on library headers and unmatched patterns.
           lcov --rc branch_coverage=1 --directory build --capture \
+               --ignore-errors mismatch,inconsistent,unused \
                --output-file coverage/raw.info
           lcov --rc branch_coverage=1 \
+               --ignore-errors inconsistent,unused \
                --remove coverage/raw.info '*/_deps/*' '*/tests/*' '*/src/main.cpp' '/usr/*' \
                --filter branch \
                --output-file coverage/lcov.info
