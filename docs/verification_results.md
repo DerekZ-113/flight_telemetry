@@ -170,3 +170,36 @@ cppcheck 2.21.0, same flags as Entry 1: 0 findings.
 
 - Replace preview numbers with the first CI run after this commit (Linux; first execution of the `clock_nanosleep` path).
 - TC-009 step 7 on the Pi: 60 s at 50 Hz, max jitter below 1 ms, `missed_cycles` 0. Until then REQ-TIME-003 stays Partial.
+
+---
+
+## Entry 4 — 2026-09-09, requirements revision commit (FTS-SRD-001 v0.2.0)
+
+### 4.1 Test results
+
+| Item | Value |
+|---|---|
+| Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
+| Compiler warnings | 0 |
+| Test suites | as Entry 3 plus SimulatedDataTest (5), SimulatedSourceTest (2) |
+| Tests passed | 105 of 105 |
+
+### 4.2 Structural coverage
+
+Unchanged from Entry 3 in every scope: lines 100.0% (670/670), branches 93.8% (167/178), all thresholds met. The one source change (below) adds no branch.
+
+### 4.3 Finding: uninitialized padding in simulated frames
+
+The requirements revision reworded REQ-SENS-006 to say the simulator produces frames of raw sensor readings, and a direct test of that contract was added. `SimulatedDataTest.SameSeedSameSequence` compares two same-seed frames with `memcmp` and failed on first run: bytes 98 and 99 differed. Those are tail padding after `gps_read_ok` (offset 97) in the 104-byte `TelemetryFrame`. The simulator declared its frame without an initializer, assigned every field, and left the compiler's padding bytes holding stack garbage, which the binary logger then wrote verbatim.
+
+Consequence before the fix: two identical sessions could produce logs differing in bytes that carry no data. In practice two live runs of the binary compared identical, because both processes happened to see the same stack contents; that is luck, not a property. Every field-level comparison in the suite passed throughout, which is why the defect survived until a byte-level test existed.
+
+Fix: `TelemetryFrame frame{};` in `SimulatedDataGenerator::generate` (one token). Value-initialization zeroes the whole object, padding included, before the fields are assigned. No data value changes; every existing numeric assertion is unaffected. Verified after the fix: the padding probe reports no differing bytes; two separate live runs produce byte-identical logs; the live and replay logs remain identical. The rule "sources value-initialize their frames" is recorded in FTS-DD-001 Section 9 and this test is its guard on both toolchains.
+
+### 4.4 Static analysis
+
+cppcheck 2.21.0, same flags as Entry 1: 0 findings.
+
+### 4.5 Open
+
+- Replace preview numbers with the first CI run after this commit.

@@ -27,7 +27,14 @@ SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed)
 }
 
 TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
-    TelemetryFrame frame;
+    // Value-initialized, not default-initialized. Every field is assigned
+    // below, but the struct also has padding bytes (after roll_deg and
+    // after gps_read_ok) that no assignment touches. Left uninitialized
+    // they carry stack garbage into the binary log, and two identical
+    // sessions could then differ in bytes that mean nothing. Zeroing the
+    // whole object makes a frame's bytes a function of its fields alone.
+    // SimulatedDataTest.SameSeedSameSequence guards this with memcmp.
+    TelemetryFrame frame{};
     frame.timestamp_ms = timestamp_ms;
 
     // BMP280 simulation — stationary at ~2m above sea level

@@ -96,7 +96,7 @@ The processor itself is a class rather than a free function because both filters
 
 Channel health is a `ChannelStatus` enum (NOMINAL, DEGRADED) per sensor inside `TelemetryFrame`. This is deliberately minimal: it is what the filters need to gate on, and nothing more. Only the fault detector writes it.
 
-Alongside status, each channel carries a `read_ok` flag. This is not health. It says whether the driver obtained a fresh reading this cycle; `false` means the channel's fields are stale from the previous cycle. One failed I2C transaction is normal, so a source reports the fact and the detector decides when staleness has lasted long enough (500 ms for I2C, longer for the 1 Hz GPS) to be a fault. Keeping the two separate is what lets the transient tolerance of REQ-FAULT-001 live in one place instead of in every driver.
+Alongside status, each channel carries a `read_ok` flag. This is not health. It says whether the driver obtained a fresh reading this cycle; `false` means the channel's fields are stale from the previous cycle. One failed I2C transaction is normal, so a source reports the fact and the detector decides when staleness has lasted long enough (the I2C timeout, 500 ms by default; longer for the 1 Hz GPS) to be a fault. Keeping the two separate is what lets the transient tolerance of REQ-FAULT-001 live in one place instead of in every driver.
 
 Fault events (REQ-FAULT-004: timestamp, channel, type, value) are `FaultEvent` structs the detector accumulates and hands out through `take_events()`. Tests assert on the structs and `main` prints them; the binary logger will persist the same structs when it exists.
 
@@ -123,6 +123,8 @@ LogFileHeader (16 bytes): magic "FTLG", format version, sizeof(TelemetryFrame),
 ```
 
 **Raw struct records.** Both record types are written as their in-memory bytes. That is licensed by `static_assert(std::is_trivially_copyable)` on each: the bytes are the value. It is the simplest correct format for the scope this project claims (Section 8: same platform, same build), and it costs nothing per frame. Field-by-field serialization with fixed widths would be portable across compilers and byte orders and is the right answer for a shipped product; it was considered and deferred as roughly three times the code for a property the project does not claim.
+
+**Padding bytes.** `TelemetryFrame` is 104 bytes and contains padding the compiler inserts for alignment (four bytes before `latitude`, six after `gps_read_ok`). Nothing assigns those bytes, so a frame declared without an initializer carries stack garbage in them, and the logger writes them verbatim. Rule: every source value-initializes its frames (`TelemetryFrame frame{};`) so padding is zero and a frame's bytes are a function of its fields alone. `SimulatedDataTest.SameSeedSameSequence` compares two same-seed frames with `memcmp` and is the guard; it is what found the uninitialized declaration in the simulator on 9/9.
 
 **Header guards.** The header carries everything a reader needs to refuse a file rather than misread it: magic so a wrong file fails instantly, a version so the format can evolve, both record sizes so a frame-layout change is caught at open time, and an endianness marker for honesty about the platform limit. **Rule: any change to `TelemetryFrame` or `FaultEvent` bumps `kLogFormatVersion` in the same commit.** The `read_ok` flags added on 9/9 were the last free frame change.
 

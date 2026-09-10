@@ -18,7 +18,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** BMP280 stops responding to I2C reads (no ACK on the bus)
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
-- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within 500 ms, allowing transient errors to be retried.
+- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default), allowing transient errors to be retried.
 - **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver-level I2C error handling is tested with the BMP280 driver.
@@ -28,7 +28,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** MPU6050 stops responding to I2C reads
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
-- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within 500 ms.
+- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default).
 - **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver-level I2C error handling is tested with the MPU6050 driver.
@@ -48,7 +48,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Entire I2C bus becomes unresponsive — both BMP280 and MPU6050 fail simultaneously
 - **Cause:** SDA or SCL wire disconnected, bus lockup, electrical issue
 - **Likelihood:** Very low
-- **Detection:** Both I2C devices time out within the same 500 ms window
+- **Detection:** Both I2C devices time out within the same I2C timeout window (500 ms by default)
 - **Response:** Mark barometer and IMU channels DEGRADED. Log a single bus-level fault event rather than two separate sensor faults. Continue processing with GPS only. System is heavily degraded but still running — altitude from GPS only, no attitude data.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BusFailureDegradesBothI2cChannels`. Both channels degrade on the same frame. The single bus-level event is deferred: the detector sees two device timeouts and logs two events, because telling a bus fault from two device faults needs driver error codes that do not exist yet.

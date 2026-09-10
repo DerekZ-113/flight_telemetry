@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-09-09
-> **Related:** FTS-SRD-001 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
+> **Related:** FTS-SRD-001 v0.2.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -34,7 +34,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-SENS-003 | — | — | — | Not started | MPU6050 driver |
 | REQ-SENS-004 | — | — | — | Not started | MPU6050 driver, shared sample-rate divider |
 | REQ-SENS-005 | — | — | — | Not started | NEO-6M driver, NMEA parsing |
-| REQ-SENS-006 | `src/drivers/simulated_data.cpp` (`SimulatedDataGenerator`), `src/drivers/simulated_source.cpp` (`SimulatedSource`) | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `KalmanTest.DeterministicOutput` (indirect) | — | Partial | Noise sigmas are hardcoded in the generator constructor, not configurable. No direct driver test asserts the distributions or the seed behavior. |
+| REQ-SENS-006 | `src/drivers/simulated_data.cpp` (`SimulatedDataGenerator`), `src/drivers/simulated_source.cpp` (`SimulatedSource`) | `test_simulated_data.cpp: SimulatedDataTest.ProducesRawReadingsOnly`, `SameSeedSameSequence`, `DifferentSeedDifferentSequence`, `NoiseIsCenteredOnBaseValues`, `PressureNoiseHasStatedSpread`; `SimulatedSourceTest.TimestampsAdvanceByInterval`, `SourceMatchesGeneratorWithSameSeed` | — | Partial | Raw-only contract, seed reproducibility, and the stated noise level are tested directly. Noise sigmas are still hardcoded in the generator constructor; "configurable noise" waits on REQ-CFG-001. |
 
 ## 2. Data Processing
 
@@ -50,7 +50,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-FAULT-001 | `src/processing/fault_detector.cpp` (`FaultDetector::comm_timed_out`) | `test_fault_detection.cpp: FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `ImuTimeoutDetectedWithinBound`, `GpsTimeoutUsesUartBound`, `TransientReadErrorDoesNotFault`, `TimeoutViaInjector` | TC-002 | Verified | Time is `frame.timestamp_ms`; no wall clock. Driver-level I2C/UART error reporting lands with the drivers. |
+| REQ-FAULT-001 | `src/processing/fault_detector.cpp` (`FaultDetector::comm_timed_out`, `FaultDetectorConfig::i2c_timeout_ms` default 500) | `test_fault_detection.cpp: FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `ImuTimeoutDetectedWithinBound`, `GpsTimeoutUsesUartBound`, `TransientReadErrorDoesNotFault`, `TimeoutViaInjector` | TC-002 | Verified | Time is `frame.timestamp_ms`; no wall clock. Driver-level I2C/UART error reporting lands with the drivers. |
 | REQ-FAULT-002 | `src/processing/fault_detector.cpp` (`StuckTracker::push`) | `test_fault_detection.cpp: FaultDetectionTest.TenthIdenticalPressureIsStuck`, `StuckAccelXWithOtherAxesVarying`, `RepeatsOfTwoAreNotStuck`, `DifferingValueResetsRun`, `StuckGyroZ`, `StaleValuesDuringDropoutAreNotStuck` | TC-003 | Verified | GPS channel has no stuck detection: no FAULT entry covers it and a stationary receiver legitimately repeats. |
 | REQ-FAULT-003 | `src/processing/fault_detector.cpp` (`observe_baro`, `observe_imu`) | `test_fault_detection.cpp: FaultDetectionTest.PressureBelowRange`, `PressureAboveRange`, `TemperatureOutOfRangeDegradesBaro`, `AccelSaturationDegradesImu`, `BoundaryValuesAreValid` | — | Partial | GPS fix quality (FAULT-003b) deferred until the frame carries the field. |
 | REQ-FAULT-004 | `src/processing/fault_detector.cpp` (`FaultDetector::transition`, `FaultEvent`), `src/main.cpp` (`run`) | `test_fault_detection.cpp: FaultDetectionTest.ProcessingContinuesOnDegradedChannel`, `OtherChannelsStayNominalDuringTimeout`, `BusFailureDegradesBothI2cChannels` | — | Verified | Events are `FaultEvent` structs persisted by `BinaryLogger::log_event` as tagged records in the telemetry log. FAULT-004 single bus-level event deferred. |
@@ -92,7 +92,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp` | — | Partial | Processing, logging, replay, timing, and the fault-injecting source. Simulator driver and transport have no unit tests. |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp` | — | Partial | Drivers (simulator, fault injector), processing, logging, replay, and timing all have unit tests. Transport does not exist yet; the live sensor drivers do not exist yet. |
 | REQ-TEST-002 | — | — | — | Not started | |
 | REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Results recorded in FTS-VR-001; first CI-run numbers pending. |
 | REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings at this commit; "final release" not yet reached. |
