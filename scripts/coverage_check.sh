@@ -14,9 +14,7 @@ info="${1:?usage: coverage_check.sh <lcov.info>}"
 # Same strictness relaxations as the CI capture step: lcov 2.x otherwise
 # aborts --extract and --summary on consistency checks that do not affect
 # the percentages (see .github/workflows/ci.yml).
-# no_exception_branch mirrors the capture step: exception-unwind edges are
-# policy-excluded (verification_results.md Entry 1 section 1.3).
-rc="--rc branch_coverage=1 --rc no_exception_branch=1 --ignore-errors inconsistent,unused,empty,mismatch,format,unsupported"
+rc="--rc branch_coverage=1 --ignore-errors inconsistent,unused,empty,mismatch,format,unsupported"
 
 # scope pattern | threshold | label
 scopes=(
@@ -61,7 +59,12 @@ for entry in "${scopes[@]}"; do
 done
 
 overall="$(branch_pct "$info")"
-if awk -v p="$overall" 'BEGIN { exit !(p+0 >= 80) }'; then
+if [[ "$overall" == "none" ]]; then
+  # No branch data at all is a tooling failure (wrong flags, wrong lcov
+  # version), not a coverage result. Say so instead of "none%".
+  printf '%-12s %8s %9s%%  %s\n' "overall" "-" "80" "NO BRANCH DATA: check lcov flags/version"
+  fail=1
+elif awk -v p="$overall" 'BEGIN { exit !(p+0 >= 80) }'; then
   printf '%-12s %7s%% %9s%%  %s\n' "overall" "$overall" "80" "ok"
 else
   printf '%-12s %7s%% %9s%%  %s\n' "overall" "$overall" "80" "BELOW THRESHOLD"

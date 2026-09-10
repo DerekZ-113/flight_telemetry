@@ -259,12 +259,19 @@ Sixteen branch outcomes untaken, on eight lines, plus two closing braces GCC mar
 
 Every real decision outcome on these lines is exercised by a named test. The untaken outcomes are compiler-generated exception-handling edges that `lcov --filter branch` removes on clang but not fully on GCC 13. This is the category Entry 1 §1.3 already excludes by policy; the tool is not applying the policy completely on the Linux toolchain. Consequence: `src/logging/` reads 80.6% for reasons unrelated to its tests, with 0.6 points of headroom before a build fails on noise.
 
-### 5.5 Action taken on the noise
+### 5.5 Attempted fix for the noise, and its reversal
 
-`--filter branch` removes branches only from lines that contain no conditional, so exception-unwind edges on `if`, `while`, and `for` lines survive it on GCC (5.4). lcov's documented way to remove all identified exception branches is the `no_exception_branch` setting, present in both the runner's lcov 2.0 and the Mac's 2.5 (the `exception` filter keyword exists only in 2.5). The workflow and `scripts/coverage_check.sh` now pass `--rc no_exception_branch=1`, and `--filter brace` drops the closing-brace lines GCC reports as unexecuted. No threshold and no exclusion policy changed; the tool now applies the policy Entry 1 §1.3 stated. The next CI run re-measures; its numbers replace 5.3 as the record.
+`--filter branch` removes branches only from lines that contain no conditional, so exception-unwind edges on `if`, `while`, and `for` lines survive it on GCC (5.4). lcov's documented setting for removing all identified exception branches is `no_exception_branch`, present in the runner's lcov 2.0 and the Mac's 2.5 (the newer `exception` filter keyword exists only in 2.5). Commit `6ef2010` added `--rc no_exception_branch=1` to the capture, remove, summary, and report steps, plus `--filter brace` for the closing-brace lines.
+
+**Result: CI run 34444099506 failed.** Tests passed (106 of 106) and line coverage was reported (100%, 557 of 557 after the brace filter), but the branch summary read "no data found" and the threshold script found no branch data in any scope. On lcov 2.0 with GCC 13 data, the setting removed every branch, not only the exception ones. On the Mac (lcov 2.5, clang data) the same flags left the 178 branches untouched, which is why the local check passed. The runner's log does not print a per-stage branch summary, so whether the data was dropped at capture or at the remove step was not isolated.
+
+**Reverted** in the following commit to the exact flags of run 34443038655. No threshold and no exclusion policy changed at any point. The workflow comment now says not to re-add the setting without a local lcov 2.0 reproduction. The threshold script now reports "NO BRANCH DATA" explicitly instead of printing "none%", so a tooling failure is not mistaken for a coverage result.
+
+Lesson recorded: a coverage tooling change must be exercised on the toolchain that produces the measurement of record before it reaches the gate. Locally passing on clang and lcov 2.5 said nothing about GCC and lcov 2.0.
 
 ### 5.6 Open
 
-- Re-record 5.3 from the first run with `no_exception_branch` enabled.
+- **Exception-edge noise on GCC** (5.4) is still present; `src/logging/` still gates at 80.6% against 80%. Fix candidates, each to be tried in an Ubuntu container with lcov 2.0 and GCC 13 before any CI attempt: (a) `LCOV_EXCL_EXCEPTION_BR_LINE` / `_START` / `_STOP` markers, documented in lcov 2.0, on the affected lines only; (b) pin lcov 2.5 in the workflow (built from the tagged source) and use `--filter branch,exception`; (c) isolate whether `no_exception_branch` fails at capture or at remove on 2.0 and apply it at the working stage only.
+- Re-record 5.3 from the first green run after the revert to confirm the numbers are unchanged.
 - Design decision recorded: replace implicit padding with explicit reserved fields at the next format version (FTS-DD-001 Section 12).
 - REQ-TIME-003 remains judged on the Pi (TC-009 step 7); CI measures jitter nowhere.
