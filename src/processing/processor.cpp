@@ -4,6 +4,9 @@
 // Kalman filter tuning. Placeholder values until noise characterization
 // (REQ-PROC-004, docs/noise_profile.md) measures the real sensors, at
 // which point these move to config/telemetry_config.yaml (REQ-CFG-001).
+// The complementary filter's alpha lives with the filter itself
+// (ComplementaryFilter::kDefaultAlpha): it is a time constant, not a
+// noise parameter, and REQ-PROC-004 does not govern it.
 //
 // All are variances (sigma squared), so units are m^2, (m/s)^2, (m/s^2)^2.
 namespace {
@@ -44,30 +47,42 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // reference is the ISA default until config supplies it (REQ-CFG-001).
     out.baro_altitude_m = pressure_to_altitude(raw.pressure_hpa);
 
-    // REQ-PROC-002: complementary filter not implemented yet.
-    out.pitch_deg = 0.0f;
-    out.roll_deg = 0.0f;
+    // Time since the previous frame, shared by both filters. Timestamps
+    // are integer ms; the filters work in seconds. On the first frame
+    // there is no previous timestamp, and neither filter integrates.
+    const bool first_frame = !altitude_filter_.has_value();
+    float dt = 0.0f;
+    if (!first_frame) {
+        dt = static_cast<float>(raw.timestamp_ms - previous_timestamp_ms_) / 1000.0f;
+    }
+
+    // REQ-PROC-002: pitch and roll from the complementary filter.
+    // A DEGRADED IMU contributes nothing and the last angles are held.
+    // FAULT-006 says attitude must be marked invalid rather than held;
+    // that needs a validity marker the frame does not carry yet (sidecar
+    // decision, Sprint 2), so hold is the interim behavior.
+    if (raw.imu_status == ChannelStatus::NOMINAL) {
+        attitude_filter_.update(raw.accel_x, raw.accel_y, raw.accel_z,
+                                raw.gyro_x, raw.gyro_y, raw.gyro_z, dt);
+    }
+    out.pitch_deg = attitude_filter_.pitch_deg();
+    out.roll_deg = attitude_filter_.roll_deg();
 
     // REQ-PROC-003: Kalman fusion of barometric and GPS altitude.
-    if (!altitude_filter_.has_value()) {
-        // First frame: there is no previous estimate to predict from, so
-        // the filter is born at the first barometric altitude with zero
-        // vertical velocity. emplace() constructs the filter in place
-        // inside the optional; the arguments go straight to the
-        // KalmanFilter1D constructor.
+    if (first_frame) {
+        // There is no previous estimate to predict from, so the filter is
+        // born at the first barometric altitude with zero vertical
+        // velocity. emplace() constructs the filter in place inside the
+        // optional; the arguments go straight to the KalmanFilter1D
+        // constructor.
         altitude_filter_.emplace(out.baro_altitude_m,
                                  0.0f,
                                  kInitialAltitudeVariance,
                                  kInitialVelocityVariance,
                                  kAccelNoiseVariance);
     } else {
-        // Every later frame: propagate the estimate across the time that
-        // passed since the previous frame. Timestamps are integer ms;
-        // the filter works in seconds.
-        const float dt = static_cast<float>(raw.timestamp_ms - previous_timestamp_ms_) / 1000.0f;
         altitude_filter_->predict(dt);
     }
-    previous_timestamp_ms_ = raw.timestamp_ms;
 
     // Measurement updates. Each sensor is applied only when its channel
     // is healthy; a DEGRADED channel contributes nothing and the filter
@@ -84,6 +99,8 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
 
     out.fused_altitude_m = altitude_filter_->altitude();
     out.vertical_speed_mps = altitude_filter_->vertical_velocity();
+
+    previous_timestamp_ms_ = raw.timestamp_ms;
 
     // Channel status (baro_status, imu_status, gps_status) is left as the
     // source set it. Fault detection (REQ-FAULT-001..005) will own these.

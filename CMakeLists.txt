@@ -18,6 +18,7 @@ add_library(telemetry_core STATIC
     src/processing/altitude.cpp
     src/processing/processor.cpp
     src/processing/kalman_filter.cpp
+    src/processing/complementary_filter.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
 )

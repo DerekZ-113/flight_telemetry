@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-07
+> **Last Updated:** 2026-09-09
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), traceability_matrix.md
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -179,6 +179,28 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Pass/fail:** Any missing, reordered, or altered frame fails. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is a separate card.
 
 ---
+
+### TC-006: Attitude Estimation Accuracy
+
+- **Requirement:** REQ-PROC-002
+- **Level:** Unit
+- **Objective:** Verify that the complementary filter recovers static tilt from the accelerometer, follows the gyroscope for short-term motion, and bounds gyroscope bias drift.
+- **Preconditions:** None. The filter is constructed with a chosen alpha; no hardware or simulator is required.
+- **Steps:**
+  1. Construct a filter with default alpha. Call `update()` once with accelerometer (0, 0, 9.81) m/s² and zero gyroscope rates. Record pitch and roll.
+  2. Construct a fresh filter. Call `update()` once with accelerometer (9.81, 0, 9.81) and zero rates. Record pitch and roll.
+  3. Construct a filter with alpha = 1.0 (gyroscope only). Seed flat as in step 1, then call `update()` 100 times with accelerometer (0, 0, 9.81), pitch rate 1.0 deg/s, dt = 0.02 s. Record pitch.
+  4. Construct a filter with alpha = 0.98. Seed flat, then call `update()` 500 times with the same inputs as step 3. Record pitch.
+- **Expected result:**
+
+  | Step | Expected pitch (deg) | Expected roll (deg) | Tolerance (deg) | Basis |
+  |---|---|---|---|---|
+  | 1 | 0.0 | 0.0 | 0.01 | gravity on z only |
+  | 2 | 45.0 | 0.0 | 0.1 | atan2(9.81, 9.81) |
+  | 3 | 2.0 | 0.0 | 0.01 | 100 × 0.02 s × 1 deg/s, pure integration |
+  | 4 | 0.98 | 0.0 | 0.05 | steady state alpha·b·dt/(1−alpha) |
+
+- **Pass/fail:** All four within tolerance. Step 3 must show the drift (pitch near 2°, not 0°) and step 4 must show it bounded (pitch below 1.5° after ten time constants). A filter that passes step 4 by ignoring the gyroscope fails step 3.
 
 ## 6. Coverage Strategy
 
