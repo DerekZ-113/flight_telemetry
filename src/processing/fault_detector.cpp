@@ -1,5 +1,6 @@
 #include "processing/fault_detector.h"
 
+#include <algorithm>
 #include <cmath>
 
 FaultDetector::FaultDetector(const FaultDetectorConfig& config)
@@ -103,14 +104,16 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
     }
 
     // FAULT-010. Any axis at or beyond full scale is a clipped reading.
+    // std::find_if names the intent: locate the first saturated axis.
     const float accel[3] = {raw.accel_x, raw.accel_y, raw.accel_z};
-    for (float a : accel) {
-        if (std::fabs(a) >= config_.accel_limit_mps2) {
-            obs.faulted = true;
-            obs.type = FaultType::OUT_OF_RANGE;
-            obs.value = a;
-            return obs;
-        }
+    const float limit = config_.accel_limit_mps2;
+    const float* saturated = std::find_if(std::begin(accel), std::end(accel),
+                                          [limit](float a) { return std::fabs(a) >= limit; });
+    if (saturated != std::end(accel)) {
+        obs.faulted = true;
+        obs.type = FaultType::OUT_OF_RANGE;
+        obs.value = *saturated;
+        return obs;
     }
 
     // FAULT-006, FAULT-007. Six independent trackers: one stuck axis is a
@@ -203,20 +206,22 @@ std::vector<FaultEvent> FaultDetector::take_events() {
 }
 
 const char* channel_name(Channel channel) {
-    switch (channel) {
+    switch (channel) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case Channel::BARO: return "BARO";
         case Channel::IMU:  return "IMU";
         case Channel::GPS:  return "GPS";
     }
-    return "UNKNOWN";
+    // Unreachable: the switch covers every enumerator. Exists only to
+    // satisfy -Wreturn-type, so it is excluded from coverage.
+    return "UNKNOWN";  // LCOV_EXCL_LINE
 }
 
 const char* fault_type_name(FaultType type) {
-    switch (type) {
+    switch (type) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case FaultType::COMM_TIMEOUT: return "COMM_TIMEOUT";
         case FaultType::STUCK:        return "STUCK";
         case FaultType::OUT_OF_RANGE: return "OUT_OF_RANGE";
         case FaultType::RECOVERY:     return "RECOVERY";
     }
-    return "UNKNOWN";
+    return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see channel_name)
 }

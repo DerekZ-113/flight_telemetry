@@ -7,7 +7,7 @@ FaultInjectingSource::FaultInjectingSource(std::unique_ptr<DataSource> inner)
 
 void FaultInjectingSource::copy_channel(Channel channel, const TelemetryFrame& from,
                                         TelemetryFrame& to) {
-    switch (channel) {
+    switch (channel) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case Channel::BARO:
             to.pressure_hpa = from.pressure_hpa;
             to.temperature_c = from.temperature_c;
@@ -73,7 +73,7 @@ TelemetryFrame FaultInjectingSource::read_frame() {
 }
 
 void FaultInjectingSource::fail_reads(Channel channel, bool enable) {
-    switch (channel) {
+    switch (channel) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case Channel::BARO: fail_baro_ = enable; break;
         case Channel::IMU:  fail_imu_ = enable; break;
         case Channel::GPS:  fail_gps_ = enable; break;
@@ -81,7 +81,7 @@ void FaultInjectingSource::fail_reads(Channel channel, bool enable) {
 }
 
 void FaultInjectingSource::hold_values(Channel channel, bool enable) {
-    switch (channel) {
+    switch (channel) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case Channel::BARO: hold_baro_ = enable; break;
         case Channel::IMU:  hold_imu_ = enable; break;
         case Channel::GPS:  hold_gps_ = enable; break;

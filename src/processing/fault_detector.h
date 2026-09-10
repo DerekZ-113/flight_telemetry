@@ -105,8 +105,10 @@ private:
 
     // Shared comm-timeout check: updates last_ok on success, reports a
     // fault when the gap since the last success exceeds timeout_ms.
-    bool comm_timed_out(ChannelState& state, bool read_ok, uint64_t now_ms,
-                        uint64_t timeout_ms, float& elapsed_out);
+    // static: everything it needs arrives as a parameter, including the
+    // channel's state, so it reads nothing from this object.
+    static bool comm_timed_out(ChannelState& state, bool read_ok, uint64_t now_ms,
+                               uint64_t timeout_ms, float& elapsed_out);
 
     // The NOMINAL <-> DEGRADED state machine, identical for every channel.
     void transition(Channel channel, ChannelState& state, const Observation& obs,

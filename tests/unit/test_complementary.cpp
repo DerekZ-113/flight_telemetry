@@ -111,3 +111,26 @@ TEST(ComplementaryTest, DegradedImuHoldsAttitude) {
     EXPECT_EQ(second.pitch_deg, first.pitch_deg);
     EXPECT_EQ(second.roll_deg, first.roll_deg);
 }
+
+// No usable gravity reference (free fall, or a dead sensor reporting
+// zeros): the filter must coast on the gyro rather than feed atan2(0, 0)
+// into the estimate. (REQ-PROC-002)
+TEST(ComplementaryTest, ZeroAccelCoastsOnGyro) {
+    ComplementaryFilter filter(0.98f);
+    filter.update(0.0f, 0.0f, kG, 0.0f, 0.0f, 0.0f, kDt);   // seed flat
+    for (int i = 0; i < 50; i++) {
+        filter.update(0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, kDt);   // 1 deg/s, no gravity
+    }
+    // Pure integration: 50 * 0.02 * 1.0 = 1.0 degree, no accel pull-back.
+    EXPECT_NEAR(filter.pitch_deg(), 1.0f, 0.01f);
+}
+
+// A filter that has never seen usable gravity stays unseeded and reports
+// zero until it does. (REQ-PROC-002)
+TEST(ComplementaryTest, UnseededUntilAccelUsable) {
+    ComplementaryFilter filter;
+    filter.update(0.0f, 0.0f, 0.0f, 0.0f, 5.0f, 0.0f, kDt);
+    EXPECT_EQ(filter.pitch_deg(), 0.0f);
+    filter.update(kG, 0.0f, kG, 0.0f, 0.0f, 0.0f, kDt);
+    EXPECT_NEAR(filter.pitch_deg(), 45.0f, 0.1f);
+}

@@ -1,0 +1,92 @@
+# Continuous integration (REQ-TEST-003, REQ-TEST-004).
+#
+# One job, one clean Ubuntu machine, every push. The steps are the six
+# pass/fail criteria in docs/test_plan.md section 4, in order: the build
+# must be warning-free, every test must pass, branch coverage must meet
+# the section 6.3 thresholds, and cppcheck must report zero findings on a
+# release tag (it reports without blocking on ordinary pushes).
+#
+# GCC + libstdc++ here, clang + libc++ on the development Mac. Tests pass
+# on both because each compares a run to itself or to physics with a
+# tolerance; the floating-point decimals differ, as design.md section 8
+# says they will.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake lcov cppcheck
+
+      - name: Configure (warnings as errors, coverage on)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DWARNINGS_AS_ERRORS=ON
+          -DENABLE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Coverage report
+        run: |
+          mkdir -p coverage
+          # Capture everything the tests touched, then drop what is not
+          # ours to measure: gtest sources, the tests themselves, system
+          # headers, and main.cpp (composition root, no test by design;
+          # test_plan.md 6.2). --filter branch removes compiler-generated
+          # exception-handling branches so the number reflects our
+          # decisions, not the standard library's unwind paths.
+          lcov --rc branch_coverage=1 --directory build --capture \
+               --output-file coverage/raw.info
+          lcov --rc branch_coverage=1 \
+               --remove coverage/raw.info '*/_deps/*' '*/tests/*' '*/src/main.cpp' '/usr/*' \
+               --filter branch \
+               --output-file coverage/lcov.info
+          lcov --rc branch_coverage=1 --summary coverage/lcov.info
+          genhtml --rc branch_coverage=1 --branch-coverage \
+                  coverage/lcov.info --output-directory coverage/html
+
+      - name: Coverage thresholds
+        run: scripts/coverage_check.sh coverage/lcov.info
+
+      - name: Static analysis (report)
+        run: |
+          mkdir -p static_analysis
+          cppcheck --enable=warning,style,performance,portability --std=c++17 \
+                   --suppress=missingIncludeSystem --inline-suppr -I src src \
+                   2>&1 | tee static_analysis/cppcheck.txt
+
+      - name: Static analysis (gate on release tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: >
+          cppcheck --enable=warning,style,performance,portability --std=c++17
+          --suppress=missingIncludeSystem --inline-suppr --error-exitcode=1 -I src src
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage/html
+
+      - name: Upload cppcheck report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck
+          path: static_analysis/cppcheck.txt

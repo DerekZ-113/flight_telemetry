@@ -9,6 +9,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Compiler warnings — catch problems early, not at runtime
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# Build policy switches. Defaults suit a developer's Mac and the Pi; CI
+# flips both ON. Kept as options rather than hardcoded so one CMakeLists
+# serves every build without editing.
+#
+# WARNINGS_AS_ERRORS: FTS-TP-001 section 3 says a warning is a failed
+# build, but only where the build is the gate. Unconditional -Werror would
+# let a newer compiler on the Pi break the build on a warning nobody has
+# seen yet.
+option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors (CI)" OFF)
+# ENABLE_COVERAGE: gcov instrumentation for REQ-TEST-003. Never on for a
+# release or Pi build; it slows the code and writes .gcda files at exit.
+option(ENABLE_COVERAGE "Instrument telemetry_core and unit_tests for gcov/lcov" OFF)
+
+if(WARNINGS_AS_ERRORS)
+    add_compile_options(-Werror)
+endif()
+
 # Everything except main() lives in a static library so the executable and
 # the unit tests link the same object code. Without this, each test target
 # would recompile every source, and a test could pass against code that
@@ -65,3 +82,19 @@ target_link_libraries(unit_tests PRIVATE telemetry_core GTest::gtest_main)
 # individually rather than as one opaque binary.
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
+
+# Coverage flags go on our two targets only, not globally: instrumenting
+# gtest itself would put thousands of library branches into the report
+# and drown the numbers that matter. -O0 keeps every branch in the code
+# as written; the optimizer would otherwise fold some away before gcov
+# can count them.
+if(ENABLE_COVERAGE)
+    foreach(t telemetry_core unit_tests)
+        target_compile_options(${t} PRIVATE --coverage -O0 -g)
+    endforeach()
+    # The link flag is PUBLIC on the library: anything that links
+    # instrumented object code (the tests, and the telemetry executable)
+    # must also link the profiling runtime, or the build fails with
+    # undefined __gcov_* symbols.
+    target_link_options(telemetry_core PUBLIC --coverage)
+endif()

@@ -144,3 +144,30 @@ TEST(KalmanTest, DeterministicOutput) {
         EXPECT_EQ(first_run[i], second_run[i]) << "frame " << i;
     }
 }
+
+// dt of zero (or negative, from a repeated timestamp) is a no-op: no time
+// passed, so neither the state nor the covariance may change. (REQ-PROC-003)
+TEST(KalmanTest, PredictWithZeroDtIsNoOp) {
+    KalmanFilter1D filter = make_filter(100.0f, 5.0f);
+    const float variance_before = filter.altitude_variance();
+    filter.predict(0.0f);
+    filter.predict(-0.02f);
+    EXPECT_EQ(filter.altitude(), 100.0f);
+    EXPECT_EQ(filter.altitude_variance(), variance_before);
+}
+
+// A DEGRADED GPS channel contributes nothing: the fused altitude must be
+// identical whether the frame carries a sane GPS altitude or garbage.
+// (REQ-PROC-003, REQ-FAULT-004)
+TEST(KalmanTest, DegradedGpsIsIgnored) {
+    SimulatedSource source(20, 42);
+    TelemetryProcessor a;
+    TelemetryProcessor b;
+    for (int i = 0; i < 20; i++) {
+        TelemetryFrame f = source.read_frame();
+        f.gps_status = ChannelStatus::DEGRADED;
+        TelemetryFrame g = f;
+        g.gps_altitude_m = 9999.0f;
+        EXPECT_EQ(a.process(f).fused_altitude_m, b.process(g).fused_altitude_m) << "frame " << i;
+    }
+}

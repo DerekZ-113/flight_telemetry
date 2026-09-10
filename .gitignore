@@ -1,5 +1,5 @@
-# Build output
-build/
+# Build output (build/, build-cov/, ...)
+build*/
 
 # IDE
 .vscode/
@@ -12,4 +12,6 @@ build/
 
 # Generated reports (committed selectively, not the whole folder)
 coverage/*.html
+coverage/*.info
+coverage/html/
 static_analysis/*.txt

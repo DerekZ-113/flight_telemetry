@@ -39,7 +39,9 @@ public:
     void clear_pressure_override();
 
 private:
-    void copy_channel(Channel channel, const TelemetryFrame& from, TelemetryFrame& to);
+    // static: copies between two frames and reads nothing from this
+    // object, so it needs no `this`.
+    static void copy_channel(Channel channel, const TelemetryFrame& from, TelemetryFrame& to);
 
     std::unique_ptr<DataSource> inner_;
     TelemetryFrame last_good_{};

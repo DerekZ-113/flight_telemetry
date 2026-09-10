@@ -490,3 +490,112 @@ TEST(FaultInjectingSourceTest, PressureOverrideAndClear) {
     source.clear_pressure_override();
     EXPECT_NE(source.read_frame().pressure_hpa, 200.0f);
 }
+
+// ---------------------------------------------------------------------------
+// Branch-coverage additions (REQ-TEST-003): paths the first coverage run
+// showed untaken. Each still traces to the fault requirement it exercises.
+// ---------------------------------------------------------------------------
+
+// FAULT-001. A sensor that never answers from power-on has no "last good
+// read" to measure from; the detector starts its clock at the first frame
+// so the channel still times out. (REQ-FAULT-001)
+TEST(FaultDetectionTest, DeadFromPowerOnStillTimesOut) {
+    FaultDetector d;
+    uint64_t ts = 0;
+    TelemetryFrame last{};
+    for (int i = 0; i < 30; i++) {
+        TelemetryFrame f = healthy_frame(ts);
+        f.baro_read_ok = false;
+        last = d.check(f);
+        if (last.baro_status == ChannelStatus::DEGRADED) break;
+        ts += kDtMs;
+    }
+    EXPECT_EQ(last.baro_status, ChannelStatus::DEGRADED);
+    EXPECT_GT(ts, 480u);
+    EXPECT_LE(ts, 520u);
+}
+
+// FAULT-009, lower limit. (REQ-FAULT-003)
+TEST(FaultDetectionTest, TemperatureBelowRangeDegradesBaro) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.temperature_c = -45.0f;
+    EXPECT_EQ(d.check(f).baro_status, ChannelStatus::DEGRADED);
+}
+
+// FAULT-006/007. Every IMU axis stuck at once reports one fault carrying
+// the first axis's value, not six faults. (REQ-FAULT-002, REQ-FAULT-004)
+TEST(FaultDetectionTest, AllAxesStuckReportsOnce) {
+    FaultDetector d;
+    uint64_t ts = 0;
+    TelemetryFrame last{};
+    for (int i = 0; i < 10; i++) {
+        TelemetryFrame f = healthy_frame(ts);
+        f.accel_x = 0.1f; f.accel_y = 0.2f; f.accel_z = 9.8f;
+        f.gyro_x = 0.3f;  f.gyro_y = 0.4f;  f.gyro_z = 0.5f;
+        last = d.check(f);
+        ts += kDtMs;
+    }
+    EXPECT_EQ(last.imu_status, ChannelStatus::DEGRADED);
+    const auto events = d.take_events();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].value, 0.1f);
+}
+
+// FAULT-011. A frame with no reading proves nothing about recovery: it
+// neither counts toward M nor resets the count. (REQ-FAULT-005)
+TEST(FaultDetectionTest, MissingReadDuringRecoveryNeitherCountsNorResets) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.pressure_hpa = 200.0f;
+    d.check(f);
+    uint64_t ts = feed_healthy(d, kDtMs, 3);          // 3 valid
+    f = healthy_frame(ts);
+    f.baro_read_ok = false;                            // no reading
+    EXPECT_EQ(d.check(f).baro_status, ChannelStatus::DEGRADED);
+    ts += kDtMs;
+    EXPECT_EQ(d.check(healthy_frame(ts)).baro_status, ChannelStatus::DEGRADED);  // 4th valid
+    ts += kDtMs;
+    EXPECT_EQ(d.check(healthy_frame(ts)).baro_status, ChannelStatus::NOMINAL);   // 5th valid
+}
+
+// Injector paths for the IMU and GPS channels mirror the barometer.
+TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    const TelemetryFrame a = source.read_frame();
+    source.fail_reads(Channel::IMU, true);
+    source.fail_reads(Channel::GPS, true);
+    const TelemetryFrame b = source.read_frame();
+    EXPECT_FALSE(b.imu_read_ok);
+    EXPECT_FALSE(b.gps_read_ok);
+    EXPECT_TRUE(b.baro_read_ok);
+    EXPECT_EQ(b.accel_x, a.accel_x);
+    EXPECT_EQ(b.latitude, a.latitude);
+    EXPECT_NE(b.pressure_hpa, a.pressure_hpa);
+}
+
+TEST(FaultInjectingSourceTest, HoldValuesImuAndGps) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    const TelemetryFrame a = source.read_frame();
+    source.hold_values(Channel::IMU, true);
+    source.hold_values(Channel::GPS, true);
+    const TelemetryFrame b = source.read_frame();
+    EXPECT_TRUE(b.imu_read_ok);
+    EXPECT_TRUE(b.gps_read_ok);
+    EXPECT_EQ(b.gyro_z, a.gyro_z);
+    EXPECT_EQ(b.gps_altitude_m, a.gps_altitude_m);
+    EXPECT_NE(b.pressure_hpa, a.pressure_hpa);
+}
+
+// REQ-FAULT-004 says the logged event carries the fault type. The name
+// helpers are what make that readable in a log or on a display; an enum
+// printed as an integer is not a fault type anyone can act on.
+TEST(FaultDetectionTest, EventNamesAreReadable) {
+    EXPECT_STREQ(channel_name(Channel::BARO), "BARO");
+    EXPECT_STREQ(channel_name(Channel::IMU), "IMU");
+    EXPECT_STREQ(channel_name(Channel::GPS), "GPS");
+    EXPECT_STREQ(fault_type_name(FaultType::COMM_TIMEOUT), "COMM_TIMEOUT");
+    EXPECT_STREQ(fault_type_name(FaultType::STUCK), "STUCK");
+    EXPECT_STREQ(fault_type_name(FaultType::OUT_OF_RANGE), "OUT_OF_RANGE");
+    EXPECT_STREQ(fault_type_name(FaultType::RECOVERY), "RECOVERY");
+}

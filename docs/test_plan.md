@@ -272,4 +272,3 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - REQ-SENS-006, REQ-PROC-005, REQ-LOG-004, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
 - The logger, replay source, and transports are not implemented. TC-004 and TC-005 describe the intended procedure and will be revised when the interfaces are final.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.
-- cppcheck is not yet installed in the development environment or CI.

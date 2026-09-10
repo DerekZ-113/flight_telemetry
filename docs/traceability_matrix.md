@@ -94,8 +94,8 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 |---|---|---|---|---|---|
 | REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp` | — | Partial | Processing modules and the fault-injecting source. Simulator driver, timing, logging, and transport have no unit tests. |
 | REQ-TEST-002 | — | — | — | Not started | |
-| REQ-TEST-003 | — | — | — | Not started | |
-| REQ-TEST-004 | — | — | — | Not started | cppcheck not yet installed. |
+| REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Results recorded in FTS-VR-001; first CI-run numbers pending. |
+| REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings at this commit; "final release" not yet reached. |
 
 ---
 
@@ -104,9 +104,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 7 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005 |
-| Partial | 5 | SENS-006, PROC-005, FAULT-003, LOG-004, TEST-001 |
+| Partial | 7 | SENS-006, PROC-005, FAULT-003, LOG-004, TEST-001, TEST-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 20 | all others |
+| Not started | 18 | all others |
 | **Total** | **32** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
