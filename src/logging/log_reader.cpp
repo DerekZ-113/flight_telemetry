@@ -14,7 +14,7 @@ LogReader::LogReader(const std::filesystem::path& file)
         error_ = "file shorter than a header";
         return;
     }
-    if (!header_is_valid(header_)) {
+    if (!header_is_valid(header_)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
         error_ = "header mismatch: not a log from this build (magic, version, sizes, or byte order)";
         return;
     }
@@ -61,7 +61,7 @@ bool LogReader::next(LogRecord& out) {
 
 std::optional<TelemetryFrame> LogReader::next_frame() {
     LogRecord record;
-    while (next(record)) {
+    while (next(record)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
         if (record.type == RecordType::FRAME) {
             return record.frame;
         }
@@ -73,9 +73,9 @@ std::vector<std::filesystem::path> list_log_files(const std::filesystem::path& d
                                                   const std::string& prefix) {
     std::vector<std::filesystem::path> files;
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
         const std::string name = entry.path().filename().string();
-        if (name.rfind(prefix + "_", 0) == 0 && entry.path().extension() == ".bin") {
+        if (name.rfind(prefix + "_", 0) == 0 && entry.path().extension() == ".bin") {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
             files.push_back(entry.path());
         }
     }

@@ -107,7 +107,7 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
     // std::find_if names the intent: locate the first saturated axis.
     const float accel[3] = {raw.accel_x, raw.accel_y, raw.accel_z};
     const float limit = config_.accel_limit_mps2;
-    const float* saturated = std::find_if(std::begin(accel), std::end(accel),
+    const float* saturated = std::find_if(std::begin(accel), std::end(accel),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
                                           [limit](float a) { return std::fabs(a) >= limit; });
     if (saturated != std::end(accel)) {
         obs.faulted = true;

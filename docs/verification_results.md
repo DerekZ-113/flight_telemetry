@@ -49,6 +49,7 @@ Per FTS-TP-001 §6.2, each exclusion is listed with its justification.
 | Google Test sources (`build/_deps/`) | `lcov --remove` | Third-party. |
 | `tests/unit/*.cpp` | `lcov --remove` | Tests are not the unit under test. |
 | Compiler-generated exception branches | `lcov --filter branch` | Every call that may throw (`std::vector::push_back`, `std::make_unique`) compiles to a taken/unwind branch pair. The unwind path cannot be reached without exhausting memory. Counting them measures the standard library's unwind paths, not this system's decisions. |
+| Exception-unwind edges on lines with a conditional, 6 sites (added in Entry 5) | `// LCOV_EXCL_EXCEPTION_BR_LINE` | GCC attaches unwind edges to `if`/`for`/`while` lines that build `std::string` temporaries or call the standard library; `--filter branch` cannot remove them there, and lcov 2.0's `no_exception_branch` setting is broken (Entry 5 §5.6). The marker removes only the exception edges; the line's real decision branches remain counted and are exercised by named tests (§5.4). |
 | `switch` no-match branch, 5 sites | `// LCOV_EXCL_BR_LINE` | Each `switch` is over an `enum class` and lists every enumerator. The implicit no-match branch exists because the compiler cannot prove exhaustiveness; no value of the type reaches it. §6.2: "defensive branches that guard against conditions the type system already excludes." Sites: `fault_detector.cpp` `channel_name`, `fault_type_name`; `fault_injecting_source.cpp` `copy_channel`, `fail_reads`, `hold_values`. |
 | `return "UNKNOWN";` after those switches, 2 sites | `// LCOV_EXCL_LINE` | Same reason; exists only to satisfy `-Wreturn-type`. |
 
@@ -269,9 +270,25 @@ Every real decision outcome on these lines is exercised by a named test. The unt
 
 Lesson recorded: a coverage tooling change must be exercised on the toolchain that produces the measurement of record before it reaches the gate. Locally passing on clang and lcov 2.5 said nothing about GCC and lcov 2.0.
 
-### 5.6 Open
+### 5.6 Resolution, reproduced offline on the runner's toolchain
 
-- **Exception-edge noise on GCC** (5.4) is still present; `src/logging/` still gates at 80.6% against 80%. Fix candidates, each to be tried in an Ubuntu container with lcov 2.0 and GCC 13 before any CI attempt: (a) `LCOV_EXCL_EXCEPTION_BR_LINE` / `_START` / `_STOP` markers, documented in lcov 2.0, on the affected lines only; (b) pin lcov 2.5 in the workflow (built from the tagged source) and use `--filter branch,exception`; (c) isolate whether `no_exception_branch` fails at capture or at remove on 2.0 and apply it at the working stage only.
-- Re-record 5.3 from the first green run after the revert to confirm the numbers are unchanged.
+The candidates were tried in an Ubuntu 24.04 container with GCC 13.3 and lcov 2.0 (the runner's versions) against the same commit. The baseline reproduced the runner exactly: 174 of 190 branches, 91.6%, logging 80.6%.
+
+| Experiment | Result | Reading |
+|---|---|---|
+| Raw capture, no filter | 1766 of 5600 branches, 2035 of them flagged `e` (exception) | lcov 2.0 does identify exception edges; `--filter branch` keeps them on lines that contain a conditional |
+| `--rc no_exception_branch=1` at capture | 35 of 46 branches | the setting discards almost every branch, not only exception ones; after the remove step, none remain. This is the wipe run 34444099506 saw |
+| `--rc no_exception_branch=1` at remove only | no branch data | same |
+| `--rc geninfo_no_exception_branch=1` | 35 of 46 | same defect under the geninfo-scoped name |
+| `LCOV_EXCL_EXCEPTION_BR_LINE` on the six lines of 5.4 | **142 of 142, 100%**; every scope 100% | the marker lcov 2.0 documents for exactly this: exception edges on that line are dropped, the line's real decision branches stay counted |
+| lcov 2.5 from source | build failed in the container | not pursued; the marker makes it unnecessary |
+
+**Applied:** `// LCOV_EXCL_EXCEPTION_BR_LINE` on the six lines listed in 5.4, each with a one-line reason. This is the same class of justified exclusion as the `LCOV_EXCL_BR_LINE` markers on exhaustive `switch` statements (Entry 1 §1.3), applied where the tool's generic filter cannot. Rule going forward: a line that combines a conditional with a `std::string` temporary, a standard-library call, or a range-`for` over an iterator will show untaken exception edges on GCC; mark it the same way, with the reason, and list it here. If the markers proliferate, the systemic alternative is pinning lcov 2.5 in the workflow and using `--filter branch,exception`.
+
+The workflow flags stay exactly as run 34443038655. The next run re-measures with the markers; its numbers replace 5.3 as the record.
+
+### 5.7 Open
+
+- Re-record 5.3 from the first green run with the markers.
 - Design decision recorded: replace implicit padding with explicit reserved fields at the next format version (FTS-DD-001 Section 12).
 - REQ-TIME-003 remains judged on the Pi (TC-009 step 7); CI measures jitter nowhere.

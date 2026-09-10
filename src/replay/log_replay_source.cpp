@@ -33,7 +33,7 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
 
 TelemetryFrame LogReplaySource::read_frame() {
     while (!exhausted_) {
-        if (!reader_.has_value() && !open_next_file()) {
+        if (!reader_.has_value() && !open_next_file()) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
             exhausted_ = true;
             break;
         }
