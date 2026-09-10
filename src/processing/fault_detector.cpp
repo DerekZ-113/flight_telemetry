@@ -165,7 +165,7 @@ void FaultDetector::transition(Channel channel, ChannelState& state, const Obser
             // that stays broken for a minute logs one fault, not 3000.
             state.status = ChannelStatus::DEGRADED;
             state.degraded_since_ms = now_ms;
-            events_.push_back({now_ms, channel, obs.type, obs.value});
+            record_event(now_ms, channel, obs.type, obs.value);
         }
         return;
     }
@@ -178,9 +178,26 @@ void FaultDetector::transition(Channel channel, ChannelState& state, const Obser
             state.status = ChannelStatus::NOMINAL;
             state.valid_run = 0;
             const float degraded_ms = static_cast<float>(now_ms - state.degraded_since_ms);
-            events_.push_back({now_ms, channel, FaultType::RECOVERY, degraded_ms});
+            record_event(now_ms, channel, FaultType::RECOVERY, degraded_ms);
         }
     }
+}
+
+void FaultDetector::record_event(uint64_t now_ms, Channel channel, FaultType type, float value) {
+    // Value-initialized, then assigned. FaultEvent is 16 bytes with two
+    // padding bytes between `type` and `value`. A braced temporary
+    // (`push_back({now, channel, type, value})`) is not required to zero
+    // that padding, and GCC does not: CI run 34442203740 found live and
+    // replayed events differing only in those bytes. Events are written to
+    // the binary log as raw bytes, so their padding must be deterministic.
+    // Same rule as frames in the simulator (design.md section 9);
+    // FaultDetectionTest.EventPaddingBytesAreZero is the guard.
+    FaultEvent event{};
+    event.timestamp_ms = now_ms;
+    event.channel = channel;
+    event.type = type;
+    event.value = value;
+    events_.push_back(event);
 }
 
 TelemetryFrame FaultDetector::check(const TelemetryFrame& raw) {

@@ -114,6 +114,10 @@ private:
     void transition(Channel channel, ChannelState& state, const Observation& obs,
                     uint64_t now_ms);
 
+    // The only place a FaultEvent is constructed. See the definition for
+    // why it is value-initialized and then assigned, never brace-built.
+    void record_event(uint64_t now_ms, Channel channel, FaultType type, float value);
+
     FaultDetectorConfig config_;
     ChannelState baro_;
     ChannelState imu_;

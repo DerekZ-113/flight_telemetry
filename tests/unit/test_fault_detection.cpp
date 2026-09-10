@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -598,4 +600,36 @@ TEST(FaultDetectionTest, EventNamesAreReadable) {
     EXPECT_STREQ(fault_type_name(FaultType::STUCK), "STUCK");
     EXPECT_STREQ(fault_type_name(FaultType::OUT_OF_RANGE), "OUT_OF_RANGE");
     EXPECT_STREQ(fault_type_name(FaultType::RECOVERY), "RECOVERY");
+}
+
+// Events are written to the binary log as raw bytes, so the two padding
+// bytes between `type` and `value` must be deterministic, and zero is the
+// only deterministic choice. A braced temporary leaves them unspecified;
+// GCC filled them with stack garbage and CI run 34442203740 saw live and
+// replayed events differ only there. This checks the bytes directly.
+// (REQ-FAULT-004, REQ-LOG-003)
+TEST(FaultDetectionTest, EventPaddingBytesAreZero) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.pressure_hpa = 200.0f;                       // OUT_OF_RANGE
+    d.check(f);
+    uint64_t ts = feed_healthy(d, kDtMs, 5);       // RECOVERY
+    for (int i = 0; i < 10; i++) {                 // STUCK
+        TelemetryFrame g = healthy_frame(ts);
+        g.gyro_z = 0.5f;
+        d.check(g);
+        ts += kDtMs;
+    }
+    const auto events = d.take_events();
+    ASSERT_EQ(events.size(), 3u);
+
+    const size_t pad_begin = offsetof(FaultEvent, type) + sizeof(FaultType);
+    const size_t pad_end = offsetof(FaultEvent, value);
+    ASSERT_LT(pad_begin, pad_end) << "layout changed: no padding to check; update this test";
+    for (size_t e = 0; e < events.size(); e++) {
+        const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&events[e]);
+        for (size_t i = pad_begin; i < pad_end; i++) {
+            EXPECT_EQ(bytes[i], 0) << "event " << e << " byte " << i;
+        }
+    }
 }
