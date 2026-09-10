@@ -38,8 +38,8 @@ Every frame enters the system through the `DataSource` interface (`src/data_sour
 |---|---|---|
 | `SimulatedSource` | Built | Seeded Gaussian noise around a stationary Foster City fix. Deterministic per seed on a given toolchain. |
 | Live sensor source | Sprint 1 week 2 | BMP280, MPU6050, NEO-6M drivers behind one source. |
-| `LogReplaySource` | Sprint 1 | Reads the binary log written by the logger, feeds it back through the same pipeline. TC-004. |
-| `ADSBSource` | Sprint 2 | Real aircraft state vectors from OpenSky, presented as if they were the vehicle's own sensors. IMU channel permanently DEGRADED because ADS-B carries no attitude. See Section 9. |
+| `LogReplaySource` | Built | Reads the binary log written by the logger, strips computed fields and status, feeds the raw frames back through the same pipeline. Selected by `telemetry --replay <file>`. TC-004. |
+| `ADSBSource` | Sprint 2 | Real aircraft state vectors from OpenSky, presented as if they were the vehicle's own sensors. IMU channel permanently DEGRADED because ADS-B carries no attitude. See Section 10. |
 
 ---
 
@@ -112,11 +112,37 @@ Cross-platform determinism is not guaranteed and is not attempted. `std::normal_
 
 ---
 
-## 9. Parked Requirement Drafts (Sprint 2)
+## 9. Log Format and Replay
+
+The binary log (REQ-LOG-001) is a header followed by tagged records:
+
+```
+LogFileHeader (16 bytes): magic "FTLG", format version, sizeof(TelemetryFrame),
+                          sizeof(FaultEvent), reserved, endianness marker
+{ tag (1 byte), record }   tag 1 = TelemetryFrame (104 bytes), tag 2 = FaultEvent (16 bytes)
+```
+
+**Raw struct records.** Both record types are written as their in-memory bytes. That is licensed by `static_assert(std::is_trivially_copyable)` on each: the bytes are the value. It is the simplest correct format for the scope this project claims (Section 8: same platform, same build), and it costs nothing per frame. Field-by-field serialization with fixed widths would be portable across compilers and byte orders and is the right answer for a shipped product; it was considered and deferred as roughly three times the code for a property the project does not claim.
+
+**Header guards.** The header carries everything a reader needs to refuse a file rather than misread it: magic so a wrong file fails instantly, a version so the format can evolve, both record sizes so a frame-layout change is caught at open time, and an endianness marker for honesty about the platform limit. **Rule: any change to `TelemetryFrame` or `FaultEvent` bumps `kLogFormatVersion` in the same commit.** The `read_ok` flags added on 9/9 were the last free frame change.
+
+**Rotation (REQ-LOG-002)** happens before a record that would push the file past the configured limit, never in the middle of one. A torn record makes the tail of a file unreadable and a replay would silently lose a frame. Every file, rotated ones included, starts with its own header, so each is readable alone and `list_log_files` returns them in name order (`prefix_000.bin`, `_001`, ...).
+
+**Fault events** (REQ-FAULT-004) are tag-2 records in the same stream, so an event sits between the frames it occurred at. Replay skips them and reproduces them by re-running the detector; the identity test compares the reproduced events to the logged ones.
+
+**Replay strips to raw.** `LogReplaySource` zeroes every computed field and resets every `ChannelStatus` to NOMINAL before a frame leaves it, keeping the timestamp, sensor fields, and `read_ok` flags. This is the raw-only contract of Section 3 applied to replay: the detector recomputes status from `read_ok` (observation, kept) and the processor recomputes the rest. A replay that passed the logged results through would let the pipeline be skipped entirely and still "match."
+
+**Verified behavior.** `ReplayTest.ReplayReproducesLiveSession` logs 500 simulated frames with an injected barometer dropout and a stuck IMU across rotated files, replays them through a fresh detector and processor, and finds every processed frame and every fault event bit-identical. At file level, `telemetry` followed by `telemetry --replay logs/telemetry_000.bin` produces `logs/replay_000.bin` byte-identical to the original. A replay run logs under a different prefix because the replay source opens its input before the logger opens its output in the same directory.
+
+**End of stream.** `DataSource` has no way to say "no more frames." After the last frame, `read_frame()` returns that frame again and `exhausted()` reports true. Adding an end-of-stream signal changes the interface every source implements and is an open decision (Section 11).
+
+---
+
+## 10. Parked Requirement Drafts (Sprint 2)
 
 The following are **not** in FTS-SRD-001, not implemented, and not traced. They are recorded here because the current design already accommodates them (the `DataSource` seam and `ChannelStatus`), and writing the intent down keeps Sprint 1 decisions from closing the door. When each moves into scope it is added to FTS-SRD-001, given a row in FTS-TM-001, and only then coded.
 
-### 9.1 Redundancy and voting (REQ-RED)
+### 10.1 Redundancy and voting (REQ-RED)
 
 | Draft ID | Intent |
 |---|---|
@@ -126,9 +152,9 @@ The following are **not** in FTS-SRD-001, not implemented, and not traced. They 
 | REQ-RED-004 | Continue on two agreeing lanes when one is excluded. |
 | REQ-RED-005 | Readmit an excluded lane after M consecutive agreeing frames. |
 
-Associated fault entries FAULT-012 through FAULT-015 and test cards TC-008 through TC-010 are reserved.
+Associated fault entries FAULT-012 through FAULT-015 and test cards TC-009 through TC-011 are reserved.
 
-### 9.2 ADS-B data source (REQ-SENS-007..010)
+### 10.2 ADS-B data source (REQ-SENS-007..010)
 
 | Draft ID | Intent |
 |---|---|
@@ -139,9 +165,10 @@ Associated fault entries FAULT-012 through FAULT-015 and test cards TC-008 throu
 
 ---
 
-## 10. Open Design Decisions
+## 11. Open Design Decisions
 
-- **Health sidecar vs frame fields.** Decide in Sprint 2 week 1 (Section 7). Blocks FAULT-006 compliance and voter reporting.
+- **Health sidecar vs frame fields.** Decide in Sprint 2 week 1 (Section 7). Blocks FAULT-006 compliance and voter reporting. Any frame change now also bumps the log format version (Section 9).
+- **End-of-stream signal on `DataSource`.** Replay repeats its last frame after the log ends. A `bool has_next()` or an `std::optional<TelemetryFrame>` return would be cleaner and touches every source; decide before the live-sensor source lands.
 - **Gyroscope saturation fault.** No FAULT entry exists for the gyro's full-scale limit (FTS-FM-001 TODO). Still open after the detector landed; FAULT-010 covers the accelerometer only.
 - **GPS stuck detection.** REQ-FAULT-002 says "any channel", but no FAULT entry covers a stuck GPS and a stationary receiver, or a sample-and-hold ADS-B source, legitimately repeats. Either add a FAULT entry with a rule that tolerates legitimate repeats or narrow the requirement.
 - **Bus-level fault event (FAULT-004).** Two simultaneous I2C timeouts log two events today. Collapsing them into one needs driver error codes that distinguish a bus fault from two device faults.

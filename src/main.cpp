@@ -1,14 +1,21 @@
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <string>
 #include "telemetry_frame.h"
 #include "data_source.h"
+#include "logging/binary_logger.h"
 #include "processing/altitude.h"
 #include "processing/processor.h"
 #include "processing/fault_detector.h"
 
-// The only place that knows a concrete source type exists. Everything
+// The only place that knows concrete source types exist. Everything
 // below create_source() sees DataSource and nothing else.
 #include "drivers/simulated_source.h"
+#include "replay/log_replay_source.h"
+
+// Log rotation size. Placeholder until config (REQ-CFG-001).
+constexpr uint64_t kMaxLogFileBytes = 1u << 20;   // 1 MiB, about 10,000 frames
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -44,15 +51,19 @@ void print_event(const FaultEvent& event) {
               << " value=" << event.value << std::endl;
 }
 
-// Factory: decides which concrete DataSource to build. Later this reads
-// the YAML config (REQ-CFG-001) and returns a live-sensor source, the
-// simulator, or a log replay source. The return type is the base class,
-// so callers cannot tell which one they got. That is the point.
+// Factory: decides which concrete DataSource to build. Today the choice
+// is one command-line flag; later it reads the YAML config (REQ-CFG-001)
+// and adds the live-sensor source. The return type is the base class, so
+// callers cannot tell which one they got. That is the point (REQ-LOG-004).
 //
-// std::make_unique constructs a SimulatedSource on the heap and wraps the
-// pointer in a std::unique_ptr<SimulatedSource>, which converts implicitly
-// to std::unique_ptr<DataSource> because SimulatedSource is-a DataSource.
-std::unique_ptr<DataSource> create_source() {
+// std::make_unique constructs the object on the heap and wraps the
+// pointer in a std::unique_ptr<Derived>, which converts implicitly to
+// std::unique_ptr<DataSource> because Derived is-a DataSource.
+std::unique_ptr<DataSource> create_source(int argc, char* argv[]) {
+    if (argc >= 3 && std::strcmp(argv[1], "--replay") == 0) {
+        return std::make_unique<LogReplaySource>(
+            std::vector<std::filesystem::path>{argv[2]});
+    }
     // 20 ms interval = 50 Hz. Seed 42 keeps the run reproducible (REQ-SENS-006).
     // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
     // which comes from feeding logged frames back through the pipeline.
@@ -74,7 +85,7 @@ std::unique_ptr<DataSource> create_source() {
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
 void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
-         int frame_count) {
+         BinaryLogger& logger, int frame_count) {
     for (int i = 0; i < frame_count; i++) {
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
@@ -87,31 +98,53 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
         TelemetryFrame checked = detector.check(raw);
         TelemetryFrame processed = processor.process(checked);
 
+        // Processed frames are what the log holds (REQ-LOG-001); replay
+        // strips them back to raw before the pipeline sees them again.
+        logger.log_frame(processed);
+
         print_frame(processed);
         for (const FaultEvent& event : detector.take_events()) {
+            logger.log_event(event);
             print_event(event);
         }
         std::cout << std::endl;
     }
 }
 
-int main() {
+// Usage: telemetry                      simulated source, 5 frames
+//        telemetry --replay <log.bin>   replay a recorded log instead
+int main(int argc, char* argv[]) {
     std::cout << "flight-telemetry v0.1.0\n" << std::endl;
 
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
-    std::unique_ptr<DataSource> source = create_source();
+    std::unique_ptr<DataSource> source = create_source(argc, argv);
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
     FaultDetector detector;   // default thresholds until config (REQ-CFG-001)
     TelemetryProcessor processor;
 
+    // A replay run logs under a different prefix. The replay source opens
+    // its input before the logger opens its output, and both live in
+    // ./logs; with the same prefix the logger would truncate the very
+    // file being replayed. Different names keep session A and session B
+    // side by side, which is also what TC-004 compares.
+    const bool replaying = (argc >= 3 && std::strcmp(argv[1], "--replay") == 0);
+    BinaryLogger logger("logs", replaying ? "replay" : "telemetry", kMaxLogFileBytes);
+    if (!logger.ok()) {
+        std::cerr << "cannot open log file in ./logs" << std::endl;
+        return 1;
+    }
+
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
     // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
     // comes from the detector (REQ-FAULT-004); the simulator never faults.
-    run(*source, detector, processor, 5);
+    run(*source, detector, processor, logger, 5);
+
+    std::cout << "Logged to " << logger.current_path().string()
+              << "  (replay with: telemetry --replay <file>)" << std::endl;
 
     // Sanity checks
     std::cout << "Sanity check: pressure_to_altitude(1013.25) = "

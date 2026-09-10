@@ -1,6 +1,9 @@
 # Build output (build/, build-cov/, ...)
 build*/
 
+# Runtime logs written by ./telemetry
+logs/
+
 # IDE
 .vscode/
 .idea/

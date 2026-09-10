@@ -40,6 +40,10 @@ add_library(telemetry_core STATIC
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
     src/drivers/fault_injecting_source.cpp
+    src/logging/log_format.cpp
+    src/logging/binary_logger.cpp
+    src/logging/log_reader.cpp
+    src/replay/log_replay_source.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)

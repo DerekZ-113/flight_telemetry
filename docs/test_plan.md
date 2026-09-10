@@ -150,7 +150,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Requirement:** REQ-LOG-003 (also exercises REQ-LOG-004)
 - **Level:** Integration
 - **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
-- **Preconditions:** Binary logger and log replay `DataSource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs.
+- **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs. Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at file level by comparing `logs/telemetry_000.bin` with `logs/replay_000.bin` after `telemetry --replay`. The Python parse in step 3 is the integration-level execution and lands with the receiver.
 - **Steps:**
   1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `session_a.bin`.
   2. Run the pipeline in replay mode with `session_a.bin` as the data source. Log every processed frame to `session_b.bin`.
@@ -228,6 +228,23 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** All six hold. Step 6 uses exact equality, not a tolerance, because a bit-level difference is the defect deterministic replay (REQ-LOG-003) exists to catch.
 
+### TC-008: Log Format and Rotation Integrity
+
+- **Requirement:** REQ-LOG-001, REQ-LOG-002
+- **Level:** Unit
+- **Objective:** Verify that the binary log is self-describing, round-trips frames and fault events bit for bit, rotates at record boundaries, and fails safely on a damaged or foreign file.
+- **Preconditions:** A temporary directory per test, removed afterwards. Frames from `SimulatedSource(20, 42)` or built by hand.
+- **Steps:**
+  1. Log one frame. Reopen with `LogReader`. Assert the header validates and its version, frame size, event size, and endianness marker match this build.
+  2. Log 10 simulated frames. Read them back. Compare each with `memcmp` against the frame that was written.
+  3. Log frame, event, frame. Assert three records with tags FRAME, FAULT_EVENT, FRAME and that the event compares equal.
+  4. Set the file limit to header plus three frame records. Log 10 frames. Assert four files, each with a valid header, none larger than the limit, and 10 frames total in order.
+  5. Corrupt a header field (magic, version, frame size, event size, endianness) one at a time. Assert the reader refuses each with a non-empty error.
+  6. Truncate a file in the middle of its second frame. Assert the reader returns the first frame, then false, with a "torn record" error and no crash.
+  7. Point the logger at a path that cannot be a directory. Assert `ok()` is false and that logging calls return without throwing.
+- **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file.
+- **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 fails. Any crash or invented frame in step 6 or 7 fails.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -269,6 +286,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- REQ-SENS-006, REQ-PROC-005, REQ-LOG-004, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
-- The logger, replay source, and transports are not implemented. TC-004 and TC-005 describe the intended procedure and will be revised when the interfaces are final.
+- REQ-SENS-006, REQ-PROC-005, REQ-LOG-003, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
+- The transports are not implemented. TC-005 describes the intended procedure and will be revised when the interface is final. TC-004's Python comparison step waits on the receiver.
+- `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.

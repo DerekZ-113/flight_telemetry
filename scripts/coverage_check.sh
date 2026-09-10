@@ -11,7 +11,10 @@
 set -euo pipefail
 
 info="${1:?usage: coverage_check.sh <lcov.info>}"
-rc="--rc branch_coverage=1"
+# Same strictness relaxations as the CI capture step: lcov 2.x otherwise
+# aborts --extract and --summary on consistency checks that do not affect
+# the percentages (see .github/workflows/ci.yml).
+rc="--rc branch_coverage=1 --ignore-errors inconsistent,unused,empty,mismatch,format,unsupported"
 
 # scope pattern | threshold | label
 scopes=(
@@ -32,7 +35,7 @@ branch_pct() {
   # and set -e that non-zero status would abort the whole script instead
   # of reporting "none" for the scope.
   { lcov $rc --summary "$file" 2>/dev/null || true; } \
-    | awk '/branches/ { gsub("%","",$2); print $2; found=1 } END { if (!found) print "none" }'
+    | awk '/branches/ { gsub("%","",$2); if ($2 ~ /^[0-9.]+$/) { print $2; found=1 } } END { if (!found) print "none" }'
 }
 
 fail=0

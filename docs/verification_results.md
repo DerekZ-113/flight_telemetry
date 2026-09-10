@@ -21,7 +21,7 @@ Coverage is measured by the CI job on Ubuntu with GCC and gcov, which is the mea
 | Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
 | Build | `-DENABLE_COVERAGE=ON -DWARNINGS_AS_ERRORS=ON`, `-O0 -g` |
 | Compiler warnings | 0 |
-| Test suites | AltitudeTest (8), KalmanTest (8), ComplementaryTest (9), FaultDetectionTest (29), FaultInjectingSourceTest (4) |
+| Test suites | AltitudeTest (8), KalmanTest (8), ComplementaryTest (9), FaultDetectionTest (27), FaultInjectingSourceTest (4) |
 | Tests passed | 56 of 56 |
 
 ### 1.2 Structural coverage
@@ -82,3 +82,41 @@ Four style findings were present before this commit and were fixed rather than s
 
 - Replace the macOS preview numbers above with the first GitHub Actions run on Ubuntu/GCC and record the run number.
 - Integration tests (pytest, REQ-TEST-002) do not exist yet. Criterion 2 of FTS-TP-001 §4 is not evaluated.
+
+---
+
+## Entry 2 — 2026-09-09, logger and replay commit
+
+### 2.1 Test results
+
+| Item | Value |
+|---|---|
+| Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
+| Compiler warnings | 0 |
+| Test suites | AltitudeTest (8), KalmanTest (8), ComplementaryTest (9), FaultDetectionTest (27), FaultInjectingSourceTest (4), LoggingTest (22), ReplayTest (6) |
+| Tests passed | 84 of 84 |
+| Replay identity | `ReplayTest.ReplayReproducesLiveSession`: 500 frames, 2 injected faults, every frame and event bit-identical. File level: `logs/telemetry_000.bin` and `logs/replay_000.bin` identical by `cmp`. |
+
+### 2.2 Structural coverage
+
+| Scope | Lines | Branches | Threshold (branch) | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% | 100.0% | 90% | pass |
+| `src/drivers/` | 100.0% | 100.0% | 70% | pass |
+| `src/logging/` | 100.0% | 83.3% (25/30) | 80% | pass |
+| `src/replay/` | 100.0% | 100.0% | 80% | pass |
+| **Overall** | **100.0%** (584/584) | **93.1%** (149/160) | 80% | **pass** |
+
+The five untaken branches are all in `log_reader.cpp` on lines whose true and false paths are each exercised by a named test (`ReaderRejectsMissingFile`, `ReaderRejectsTruncatedHeader`, `ReaderRejectsBadMagic`, `ListLogFilesOnMissingDirectoryIsEmpty`, `ListLogFilesIsSortedAndFiltered`) and whose line coverage is 100%. They are clang-specific edges (constructor initializer and range-for over `directory_iterator`) that `--filter branch` does not remove on this toolchain. The CI GCC figures are the measurement of record; these are not chased on the preview.
+
+### 2.3 Exclusions
+
+As Entry 1, plus one `LCOV_EXCL_BR_LINE` on the record-tag `switch` in `LogReader::next`, which has an explicit `default` that is itself tested (`UnknownTagStopsReader`); the exclusion covers only the compiler's no-match edge.
+
+### 2.4 Static analysis
+
+cppcheck 2.21.0, same flags as Entry 1: 0 findings.
+
+### 2.5 Open
+
+- Replace the preview numbers with the first CI run after this commit.
