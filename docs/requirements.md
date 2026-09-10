@@ -4,6 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-09-06
+> **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model)
 
 ---
 

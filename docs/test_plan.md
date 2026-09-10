@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-09-09
-> **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), traceability_matrix.md
+> **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
 
@@ -202,6 +202,32 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** All four within tolerance. Step 3 must show the drift (pitch near 2°, not 0°) and step 4 must show it bounded (pitch below 1.5° after ten time constants). A filter that passes step 4 by ignoring the gyroscope fails step 3.
 
+### TC-007: Altitude Fusion Behavior
+
+- **Requirement:** REQ-PROC-003
+- **Level:** Unit
+- **Objective:** Verify that the Kalman filter propagates state under the constant-velocity model, weights measurements by their stated noise, reduces barometric noise end to end, and is deterministic.
+- **Preconditions:** None for steps 1 through 4 (filter constructed directly). Steps 5 and 6 use `SimulatedSource(20, 42)` and a `TelemetryProcessor`.
+- **Steps:**
+  1. Construct a filter at 100 m, 0 m/s. Call `predict(0.1)`. Record altitude and altitude variance.
+  2. Construct a filter at 100 m, 5 m/s. Call `predict(1.0)`. Record altitude.
+  3. Construct a filter, call `predict(0.1)`, record variance, call `update(100, 3.0)`, record variance again.
+  4. Construct two identical filters at 100 m and predict both. Update one with (110 m, R = 1.0) and the other with (110 m, R = 100.0). Record both altitudes.
+  5. Process 500 simulated frames. Compute the population standard deviation of `baro_altitude_m` and of `fused_altitude_m`.
+  6. Process 100 simulated frames twice from fresh source and processor instances with the same seed. Compare `fused_altitude_m` frame by frame.
+- **Expected result:**
+
+  | Step | Expected | Tolerance |
+  |---|---|---|
+  | 1 | altitude 100 m; variance greater than initial | 1e-4 m |
+  | 2 | altitude 105 m | 1e-4 m |
+  | 3 | variance after update less than variance after predict | exact ordering |
+  | 4 | R = 1 filter closer to 110 m than R = 100 filter; neither below 100 nor above 110 | exact ordering |
+  | 5 | fused sigma less than 0.5 × baro sigma | exact ordering |
+  | 6 | every fused altitude identical between runs | exact equality |
+
+- **Pass/fail:** All six hold. Step 6 uses exact equality, not a tolerance, because a bit-level difference is the defect deterministic replay (REQ-LOG-003) exists to catch.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -243,7 +269,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- The traceability matrix does not exist yet. Section 4 criterion 5 cannot be enforced until it does.
+- REQ-SENS-006, REQ-PROC-005, REQ-LOG-004, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
 - The fault detector, logger, replay source, and transports are not implemented. TC-002 through TC-005 describe the intended procedure and will be revised when the interfaces are final.
 - An injectable clock interface has not been designed. TC-002 depends on it.
 - cppcheck is not yet installed in the development environment or CI.
