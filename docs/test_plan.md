@@ -117,12 +117,12 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004)
 - **Level:** Fault injection
 - **Objective:** Verify that a sensor that stops responding is marked DEGRADED within the required detection bound, and not before.
-- **Preconditions:** Fault detector constructed with an injectable clock. I2C bound configured at 500 ms. UART bound configured at 2000 ms. A `FaultInjectingSource` wrapping a `FakeSource` at 50 Hz.
+- **Preconditions:** The fault detector reads time from `frame.timestamp_ms`; there is no wall clock anywhere in the pipeline, so tests advance time by feeding frames with later timestamps. I2C bound configured at 500 ms. UART bound configured at 2000 ms. Frames are hand-built at 50 Hz with `read_ok` flags cleared per channel; one case uses a `FaultInjectingSource` wrapping the simulator to prove the seam.
 - **Steps:**
   1. Feed 10 healthy frames. Assert all channels NOMINAL.
   2. Configure the injector to return a read error for the barometer on every subsequent frame.
-  3. Advance the clock in 20 ms steps, feeding one frame per step. After each step, read the barometer channel status.
-  4. Record the clock time at which the status first reads DEGRADED.
+  3. Feed one frame per 20 ms of timestamp. After each frame, read the barometer channel status.
+  4. Record the frame timestamp at which the status first reads DEGRADED.
   5. Repeat steps 2 through 4 for the IMU channel.
   6. Repeat steps 2 through 4 for the GPS channel, using the 2000 ms UART bound.
   7. For each channel, assert that exactly one fault event was logged, carrying the channel, the fault type, and a timestamp.
@@ -270,6 +270,6 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 ## 7. Open Items
 
 - REQ-SENS-006, REQ-PROC-005, REQ-LOG-004, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
-- The fault detector, logger, replay source, and transports are not implemented. TC-002 through TC-005 describe the intended procedure and will be revised when the interfaces are final.
-- An injectable clock interface has not been designed. TC-002 depends on it.
+- The logger, replay source, and transports are not implemented. TC-004 and TC-005 describe the intended procedure and will be revised when the interfaces are final.
+- GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.
 - cppcheck is not yet installed in the development environment or CI.

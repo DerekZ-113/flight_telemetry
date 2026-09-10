@@ -65,10 +65,15 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.fused_altitude_m = 0.0f;
     frame.vertical_speed_mps = 0.0f;
 
-    // All channels healthy in simulation mode
+    // All channels healthy in simulation mode. Status is NOMINAL because
+    // the fault detector owns it; every read succeeds because there is no
+    // bus to fail. Fault injection wraps this source rather than editing it.
     frame.baro_status = ChannelStatus::NOMINAL;
     frame.imu_status = ChannelStatus::NOMINAL;
     frame.gps_status = ChannelStatus::NOMINAL;
+    frame.baro_read_ok = true;
+    frame.imu_read_ok = true;
+    frame.gps_read_ok = true;
 
     return frame;
 }

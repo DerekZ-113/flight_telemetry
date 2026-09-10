@@ -19,8 +19,10 @@ add_library(telemetry_core STATIC
     src/processing/processor.cpp
     src/processing/kalman_filter.cpp
     src/processing/complementary_filter.cpp
+    src/processing/fault_detector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
+    src/drivers/fault_injecting_source.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)

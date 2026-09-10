@@ -3,7 +3,7 @@
 > **Document ID:** FTS-FM-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-06
+> **Last Updated:** 2026-09-09
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
@@ -19,7 +19,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within 500 ms, allowing transient errors to be retried.
 - **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_bmp280.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver-level I2C error handling is tested with the BMP280 driver.
 
 ### FAULT-002: MPU6050 I2C timeout
 
@@ -29,7 +29,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within 500 ms.
 - **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_mpu6050.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver-level I2C error handling is tested with the MPU6050 driver.
 
 ### FAULT-003: NEO-6M UART timeout or GPS fix loss
 
@@ -39,7 +39,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** (a) No NMEA sentence received within the configured UART timeout. The timeout must exceed the module's 1 Hz default output period, so it is configurable rather than fixed at 500 ms. (b) Fix quality indicator in the GGA sentence reads 0.
 - **Response:** Mark GPS channel DEGRADED. Log fault event with the condition (timeout or no-fix). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer. Position, heading, and ground speed marked invalid.
 - **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003. Both: REQ-FAULT-004
-- **Test:** `tests/unit/test_gps.cpp` → TBD
+- **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`. (b) Deferred: the frame carries no fix-quality field yet; lands with the NEO-6M driver.
 
 ### FAULT-004: I2C bus failure (both BMP280 and MPU6050 affected)
 
@@ -49,7 +49,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** Both I2C devices time out within the same 500 ms window
 - **Response:** Mark barometer and IMU channels DEGRADED. Log a single bus-level fault event rather than two separate sensor faults. Continue processing with GPS only. System is heavily degraded but still running — altitude from GPS only, no attitude data.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BusFailureDegradesBothI2cChannels`. Both channels degrade on the same frame. The single bus-level event is deferred: the detector sees two device timeouts and logs two events, because telling a bus fault from two device faults needs driver error codes that do not exist yet.
 
 ---
 
@@ -63,7 +63,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** N consecutive identical pressure readings (N configurable, default 10)
 - **Response:** Mark barometer channel DEGRADED. Log fault event with the stuck value. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.TenthIdenticalPressureIsStuck`, `FaultDetectionTest.StaleValuesDuringDropoutAreNotStuck`
 
 ### FAULT-006: MPU6050 stuck accelerometer
 
@@ -73,7 +73,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** N consecutive identical raw readings on any axis (N configurable, default 10). Comparison uses the raw 16-bit register values, since a live sensor at rest still shows LSB-level noise.
 - **Response:** Mark IMU channel DEGRADED. Log fault event. Pitch and roll marked invalid until the accelerometer recovers. Attitude is not held at the last good value, so the display shows a clear failure rather than a frozen reading that looks live.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.StuckAccelXWithOtherAxesVarying`, `FaultDetectionTest.RepeatsOfTwoAreNotStuck`. The detector compares the frame's float values with exact equality; a stuck register converts to a bit-identical float every time, so this is the same test as raw register comparison.
 
 ### FAULT-007: MPU6050 stuck gyroscope
 
@@ -83,7 +83,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** N consecutive identical raw readings on any axis (N configurable, default 10)
 - **Response:** Mark IMU channel DEGRADED with gyroscope data excluded. Complementary filter falls back to accelerometer-only attitude, which is noisier but still valid because gravity alone determines static pitch and roll. Log fault event.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.StuckGyroZ`, `FaultDetectionTest.DifferingValueResetsRun`. The accelerometer-only fallback is not implemented; the whole IMU channel is DEGRADED (see FTS-DD-001 Section 6).
 
 ---
 
@@ -97,7 +97,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** Pressure reading below 300 hPa or above 1100 hPa (configurable limits). These are the BMP280 datasheet operating limits. 300 hPa corresponds to roughly 9,000 m, far above anything this system will see. 1100 hPa is above the highest sea-level pressure ever recorded (about 1084 hPa).
 - **Response:** Discard reading. Mark barometer channel DEGRADED. Log fault event with the out-of-range value. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.PressureBelowRange`, `FaultDetectionTest.PressureAboveRange`, `FaultDetectionTest.BoundaryValuesAreValid`
 
 ### FAULT-009: BMP280 temperature out of sensor range
 
@@ -107,7 +107,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** Temperature below -40°C or above 85°C (BMP280 specified operating range)
 - **Response:** Discard reading. Mark barometer channel DEGRADED. Log fault event with the out-of-range value. The BMP280 computes compensated pressure from its own temperature measurement, so an invalid temperature also invalidates pressure and barometric altitude. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.TemperatureOutOfRangeDegradesBaro`
 
 ### FAULT-010: MPU6050 accelerometer saturation
 
@@ -117,7 +117,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** Any axis reads at or near the configured full-scale range (±2g at the MPU6050 power-on default, configurable up to ±16g)
 - **Response:** Discard reading. Mark IMU channel DEGRADED. Pitch and roll marked invalid until readings return within range. Log fault event with the clipped value.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.AccelSaturationDegradesImu`
 
 > **TODO (deferred, decide in build session):** The gyroscope has an equivalent saturation mode (±250°/s at power-on default, up to ±2000°/s). No fault entry exists yet.
 
@@ -133,7 +133,7 @@ This document defines every known failure mode, how the system detects it, and h
 - **Detection:** M consecutive valid readings after a DEGRADED state (M configurable, default 5). Requiring more than a single good reading prevents a flapping sensor from toggling between states every cycle.
 - **Response:** Mark channel as NOMINAL. Log recovery event with timestamp and duration of degraded state. Resume using sensor data in processing pipeline and Kalman filter.
 - **Requirement:** REQ-FAULT-005, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → TBD
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.RecoveryAfterMValidReadings`, `FaultDetectionTest.BadReadingResetsRecoveryCount`, `FaultDetectionTest.StuckSensorRecovers`
 
 ---
 

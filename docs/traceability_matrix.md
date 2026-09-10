@@ -44,17 +44,17 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_complementary.cpp: ComplementaryTest.*` (7 tests) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED holds the last angles; FAULT-006 requires an invalid marker (FTS-DD-001 Section 6). |
 | REQ-PROC-003 | `src/processing/kalman_filter.cpp` (`KalmanFilter1D`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_kalman.cpp: KalmanTest.*` (6 tests) | TC-007 | Verified | Covariance constants are placeholders (see REQ-PROC-004). |
 | REQ-PROC-004 | — | — | — | Not started | Constants in `processor.cpp` are placeholders pending `docs/noise_profile.md`. |
-| REQ-PROC-005 | `src/processing/processor.cpp` (`TelemetryProcessor::process`), `src/telemetry_frame.cpp` | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `test_complementary.cpp: ComplementaryTest.DegradedImuHoldsAttitude` (indirect) | — | Partial | No fixed-rate loop yet (REQ-TIME-001). No test asserts that every computed field is filled. |
+| REQ-PROC-005 | `src/processing/processor.cpp` (`TelemetryProcessor::process`), `src/telemetry_frame.cpp`, `src/main.cpp` (`run`) | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `test_complementary.cpp: ComplementaryTest.DegradedImuHoldsAttitude` (indirect) | — | Partial | No fixed-rate loop yet (REQ-TIME-001). No test asserts that every computed field is filled. |
 
 ## 3. Fault Detection
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-FAULT-001 | — | — | TC-002 | Not started | Needs injectable clock. |
-| REQ-FAULT-002 | — | — | TC-003 | Not started | |
-| REQ-FAULT-003 | — | — | TC-003 | Not started | |
-| REQ-FAULT-004 | — | — | — | Not started | `ChannelStatus` enum exists in `telemetry_frame.h`; the filters already gate on it. Detector not built. |
-| REQ-FAULT-005 | — | — | — | Not started | |
+| REQ-FAULT-001 | `src/processing/fault_detector.cpp` (`FaultDetector::comm_timed_out`) | `test_fault_detection.cpp: FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `ImuTimeoutDetectedWithinBound`, `GpsTimeoutUsesUartBound`, `TransientReadErrorDoesNotFault`, `TimeoutViaInjector` | TC-002 | Verified | Time is `frame.timestamp_ms`; no wall clock. Driver-level I2C/UART error reporting lands with the drivers. |
+| REQ-FAULT-002 | `src/processing/fault_detector.cpp` (`StuckTracker::push`) | `test_fault_detection.cpp: FaultDetectionTest.TenthIdenticalPressureIsStuck`, `StuckAccelXWithOtherAxesVarying`, `RepeatsOfTwoAreNotStuck`, `DifferingValueResetsRun`, `StuckGyroZ`, `StaleValuesDuringDropoutAreNotStuck` | TC-003 | Verified | GPS channel has no stuck detection: no FAULT entry covers it and a stationary receiver legitimately repeats. |
+| REQ-FAULT-003 | `src/processing/fault_detector.cpp` (`observe_baro`, `observe_imu`) | `test_fault_detection.cpp: FaultDetectionTest.PressureBelowRange`, `PressureAboveRange`, `TemperatureOutOfRangeDegradesBaro`, `AccelSaturationDegradesImu`, `BoundaryValuesAreValid` | — | Partial | GPS fix quality (FAULT-003b) deferred until the frame carries the field. |
+| REQ-FAULT-004 | `src/processing/fault_detector.cpp` (`FaultDetector::transition`, `FaultEvent`), `src/main.cpp` (`run`) | `test_fault_detection.cpp: FaultDetectionTest.ProcessingContinuesOnDegradedChannel`, `OtherChannelsStayNominalDuringTimeout`, `BusFailureDegradesBothI2cChannels` | — | Verified | Events are recorded as `FaultEvent` structs; the binary logger (REQ-LOG-001) will persist them. FAULT-004 single bus-level event deferred. |
+| REQ-FAULT-005 | `src/processing/fault_detector.cpp` (`FaultDetector::transition`) | `test_fault_detection.cpp: FaultDetectionTest.RecoveryAfterMValidReadings`, `BadReadingResetsRecoveryCount`, `StuckSensorRecovers` | — | Verified | |
 
 ## 4. Timing
 
@@ -92,7 +92,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp` | — | Partial | Processing modules only. Drivers, timing, logging, and transport have no unit tests. |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp` | — | Partial | Processing modules and the fault-injecting source. Simulator driver, timing, logging, and transport have no unit tests. |
 | REQ-TEST-002 | — | — | — | Not started | |
 | REQ-TEST-003 | — | — | — | Not started | |
 | REQ-TEST-004 | — | — | — | Not started | cppcheck not yet installed. |
@@ -103,24 +103,26 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 3 | PROC-001, PROC-002, PROC-003 |
-| Partial | 4 | SENS-006, PROC-005, LOG-004, TEST-001 |
+| Verified | 7 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005 |
+| Partial | 5 | SENS-006, PROC-005, FAULT-003, LOG-004, TEST-001 |
 | Implemented | 0 | |
-| Not started | 25 | all others |
+| Not started | 20 | all others |
 | **Total** | **32** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 
 | File | Traced by |
 |---|---|
-| `src/main.cpp` | REQ-LOG-004 |
+| `src/main.cpp` | REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004 |
 | `src/telemetry_frame.h` / `.cpp` | REQ-PROC-005 |
 | `src/data_source.h` | REQ-LOG-004 |
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006 |
 | `src/drivers/simulated_source.h` / `.cpp` | REQ-SENS-006, REQ-LOG-004 |
+| `src/drivers/fault_injecting_source.h` / `.cpp` | REQ-TEST-001 (fault injection support) |
 | `src/processing/altitude.h` / `.cpp` | REQ-PROC-001 |
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002 |
+| `src/processing/fault_detector.h` / `.cpp` | REQ-FAULT-001, REQ-FAULT-002, REQ-FAULT-003, REQ-FAULT-004, REQ-FAULT-005 |
 | `src/processing/processor.h` / `.cpp` | REQ-PROC-002, REQ-PROC-003, REQ-PROC-005 |
 
 Adding a file under `src/` without adding it to this table is a traceability failure.

@@ -46,11 +46,13 @@ Every frame enters the system through the `DataSource` interface (`src/data_sour
 ## 4. Processing Pipeline Order
 
 ```
-DataSource  →  FaultDetector (planned)  →  TelemetryProcessor  →  Logger / ZeroMQ / UDP / Display
-   raw               raw + status              raw + computed
+DataSource  →  FaultDetector  →  TelemetryProcessor  →  Logger / ZeroMQ / UDP / Display
+ raw + read_ok     raw + status        raw + computed
 ```
 
 The fault detector sits before the processor. This is the most important ordering decision in the system.
+
+The detector takes its notion of time from `frame.timestamp_ms`, never from a wall clock. That keeps it a pure function of the frame sequence: a replayed log produces the same faults at the same frames (REQ-LOG-003), and tests advance time by handing in frames with later timestamps. It also fixes the strictness of the timeout comparison. With frames every 20 ms and the last success at t−20, elapsed `> 500` declares the fault 500 ms after the first failed read; `>=` would declare it at 480 ms, which TC-002 treats as a false alarm on a single transient error.
 
 Both filters in `TelemetryProcessor` gate on `ChannelStatus`: a DEGRADED channel contributes nothing that frame. That gate only protects the filters if status is correct *before* the frame reaches them. A stuck or out-of-range reading that arrives marked NOMINAL enters the Kalman update or the complementary filter and corrupts state that persists across every subsequent frame. Detecting the fault afterward does not undo that. So detection must run first, on the raw frame, and the processor must trust the status it is handed.
 
@@ -92,7 +94,11 @@ The processor itself is a class rather than a free function because both filters
 
 ## 7. Health Representation
 
-Channel health is a `ChannelStatus` enum (NOMINAL, DEGRADED) per sensor inside `TelemetryFrame`. This is deliberately minimal: it is what the filters need to gate on, and nothing more.
+Channel health is a `ChannelStatus` enum (NOMINAL, DEGRADED) per sensor inside `TelemetryFrame`. This is deliberately minimal: it is what the filters need to gate on, and nothing more. Only the fault detector writes it.
+
+Alongside status, each channel carries a `read_ok` flag. This is not health. It says whether the driver obtained a fresh reading this cycle; `false` means the channel's fields are stale from the previous cycle. One failed I2C transaction is normal, so a source reports the fact and the detector decides when staleness has lasted long enough (500 ms for I2C, longer for the 1 Hz GPS) to be a fault. Keeping the two separate is what lets the transient tolerance of REQ-FAULT-001 live in one place instead of in every driver.
+
+Fault events (REQ-FAULT-004: timestamp, channel, type, value) are `FaultEvent` structs the detector accumulates and hands out through `take_events()`. Tests assert on the structs and `main` prints them; the binary logger will persist the same structs when it exists.
 
 Two forthcoming needs do not fit inside the frame: the redundancy voter (Section 9) must report per-lane state, and FAULT-006 needs per-field validity. The decision between extending the frame and adding a separate `SystemHealth` sidecar struct is deferred to Sprint 2 week 1, when the voter is the first consumer. The criteria: whether the log format should carry health inline, and whether the display needs health at a different rate from telemetry.
 
@@ -136,7 +142,9 @@ Associated fault entries FAULT-012 through FAULT-015 and test cards TC-008 throu
 ## 10. Open Design Decisions
 
 - **Health sidecar vs frame fields.** Decide in Sprint 2 week 1 (Section 7). Blocks FAULT-006 compliance and voter reporting.
-- **Gyroscope saturation fault.** No FAULT entry exists for the gyro's full-scale limit (FTS-FM-001 TODO). Decide with the fault detector.
+- **Gyroscope saturation fault.** No FAULT entry exists for the gyro's full-scale limit (FTS-FM-001 TODO). Still open after the detector landed; FAULT-010 covers the accelerometer only.
+- **GPS stuck detection.** REQ-FAULT-002 says "any channel", but no FAULT entry covers a stuck GPS and a stationary receiver, or a sample-and-hold ADS-B source, legitimately repeats. Either add a FAULT entry with a rule that tolerates legitimate repeats or narrow the requirement.
+- **Bus-level fault event (FAULT-004).** Two simultaneous I2C timeouts log two events today. Collapsing them into one needs driver error codes that distinguish a bus fault from two device faults.
 - **`TelemetryProcessor` configuration.** The processor has a default constructor and hardcoded tuning. The shape of the config struct it will take (REQ-CFG-001) is undecided: one struct for the whole pipeline, or one per filter.
 - **Where alpha lives.** The complementary filter's alpha is a compile-time default in its header. Whether it moves to YAML with the Kalman tuning, or stays fixed because it is a time constant rather than a noise parameter, is undecided.
 - **Accelerometer-only fallback (FAULT-007).** Requires the detector to distinguish a stuck gyroscope from a stuck accelerometer, which the single DEGRADED state cannot express. Tied to the sidecar decision.

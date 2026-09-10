@@ -4,6 +4,7 @@
 #include "data_source.h"
 #include "processing/altitude.h"
 #include "processing/processor.h"
+#include "processing/fault_detector.h"
 
 // The only place that knows a concrete source type exists. Everything
 // below create_source() sees DataSource and nothing else.
@@ -31,6 +32,16 @@ void print_frame(const TelemetryFrame& frame) {
     std::cout << "Status:       baro=" << status_name(frame.baro_status)
               << " imu=" << status_name(frame.imu_status)
               << " gps=" << status_name(frame.gps_status) << std::endl;
+    std::cout << "Read OK:      baro=" << frame.baro_read_ok
+              << " imu=" << frame.imu_read_ok
+              << " gps=" << frame.gps_read_ok << std::endl;
+}
+
+void print_event(const FaultEvent& event) {
+    std::cout << "[FAULT] t=" << event.timestamp_ms << " ms"
+              << " channel=" << channel_name(event.channel)
+              << " type=" << fault_type_name(event.type)
+              << " value=" << event.value << std::endl;
 }
 
 // Factory: decides which concrete DataSource to build. Later this reads
@@ -48,17 +59,22 @@ std::unique_ptr<DataSource> create_source() {
     return std::make_unique<SimulatedSource>(20, 42);
 }
 
-// The processing loop: source -> processor -> output.
+// The processing loop: source -> fault detector -> processor -> output.
 //
 // Takes the source as the base class by reference and never learns the
 // concrete type. Swapping the simulator for real sensors or a log replay
 // changes create_source() and nothing here (REQ-LOG-004).
 //
-// The processor is passed by non-const reference because process() will
-// mutate filter state on every call once the Kalman and complementary
-// filters exist. The same processor instance must see every frame in
-// order, which is why it is created once outside the loop, not per frame.
-void run(DataSource& source, TelemetryProcessor& processor, int frame_count) {
+// The detector runs before the processor, and this order is not
+// negotiable. The filters gate on ChannelStatus and carry state across
+// frames; a bad reading that reaches them marked NOMINAL corrupts every
+// estimate that follows. Status must be right before the frame arrives.
+//
+// Detector and processor are passed by non-const reference because both
+// mutate per-frame state. The same instances must see every frame in
+// order, which is why they are created once outside the loop.
+void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
+         int frame_count) {
     for (int i = 0; i < frame_count; i++) {
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
@@ -66,11 +82,15 @@ void run(DataSource& source, TelemetryProcessor& processor, int frame_count) {
         // tomorrow, with no change to this code.
         TelemetryFrame raw = source.read_frame();
 
-        // Non-virtual call: there is one TelemetryProcessor, and its
-        // behavior is configured, not substituted.
-        TelemetryFrame processed = processor.process(raw);
+        // Non-virtual calls: one detector, one processor, behavior
+        // configured rather than substituted.
+        TelemetryFrame checked = detector.check(raw);
+        TelemetryFrame processed = processor.process(checked);
 
         print_frame(processed);
+        for (const FaultEvent& event : detector.take_events()) {
+            print_event(event);
+        }
         std::cout << std::endl;
     }
 }
@@ -85,11 +105,13 @@ int main() {
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
+    FaultDetector detector;   // default thresholds until config (REQ-CFG-001)
     TelemetryProcessor processor;
 
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
-    // Vert Speed (REQ-PROC-003) are all computed by the processor now.
-    run(*source, processor, 5);
+    // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
+    // comes from the detector (REQ-FAULT-004); the simulator never faults.
+    run(*source, detector, processor, 5);
 
     // Sanity checks
     std::cout << "Sanity check: pressure_to_altitude(1013.25) = "

@@ -16,6 +16,7 @@ enum class ChannelStatus : uint8_t {
 //   Sensor fields    → REQ-SENS-001 through REQ-SENS-005
 //   Computed fields  → REQ-PROC-001 through REQ-PROC-003
 //   Channel status   → REQ-FAULT-004, REQ-FAULT-005
+//   Read-ok flags    → REQ-FAULT-001 (communication timeout detection)
 //   Fused outputs    → REQ-PROC-003 (Kalman states)
 struct TelemetryFrame {
     uint64_t timestamp_ms;      // milliseconds since system start
@@ -42,10 +43,20 @@ struct TelemetryFrame {
     float fused_altitude_m;
     float vertical_speed_mps;
 
-    // Channel health (REQ-FAULT-004)
+    // Channel health (REQ-FAULT-004). Owned by the fault detector; sources
+    // set NOMINAL and never change it.
     ChannelStatus baro_status;
     ChannelStatus imu_status;
     ChannelStatus gps_status;
+
+    // Whether the driver obtained a fresh reading this cycle (REQ-FAULT-001).
+    // false means the fields for that channel are stale from the previous
+    // cycle. This is not health: one failed I2C transaction is normal, and
+    // the fault detector decides when staleness has lasted long enough to
+    // be a fault. Sources report; the detector judges.
+    bool baro_read_ok;
+    bool imu_read_ok;
+    bool gps_read_ok;
 };
 
 // Helper for printing channel status
