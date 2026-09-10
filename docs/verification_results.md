@@ -221,9 +221,9 @@ This is the same defect class as Entry 4's uninitialized frame, one struct over,
 
 Fix: `FaultDetector::record_event` is now the only place an event is constructed; it value-initializes `FaultEvent event{}` and assigns the four fields. Guard added: `FaultDetectionTest.EventPaddingBytesAreZero` reads the padding bytes of produced events directly through `offsetof` and asserts zero, so it fails on any toolchain that leaves them unspecified, without depending on stack coincidences. 106 tests.
 
-### 5.3 Measurement of record — GitHub Actions run 34443038655, commit `2083343`, Ubuntu, GCC 13
+### 5.3 First green run — GitHub Actions run 34443038655, commit `2083343`, Ubuntu, GCC 13
 
-First green run. This supersedes the macOS preview tables in Entries 1 through 4 as the coverage measurement of record; those entries remain as the per-commit history.
+*Superseded as the measurement of record by 5.8 after the exception-edge markers landed; kept as the record of what the runner reported before them.* This run superseded the macOS preview tables in Entries 1 through 4; those entries remain as the per-commit history.
 
 | Item | Value |
 |---|---|
@@ -287,8 +287,42 @@ The candidates were tried in an Ubuntu 24.04 container with GCC 13.3 and lcov 2.
 
 The workflow flags stay exactly as run 34443038655. The next run re-measures with the markers; its numbers replace 5.3 as the record.
 
-### 5.7 Open
+### 5.7 Sequence of CI runs in this entry
 
-- Re-record 5.3 from the first green run with the markers.
+| Run | Commit | Result | Why |
+|---|---|---|---|
+| 34442203740 | `5ec7027` | failed | `FaultEvent` padding differed between live and replay on GCC (5.2) |
+| 34443038655 | `2083343` | green | padding fix; first GCC numbers, logging at 80.6% (5.3, 5.4) |
+| 34444099506 | `6ef2010` | failed | `no_exception_branch` wiped all branch data on lcov 2.0 (5.5) |
+| next | revert | green | flags restored, same numbers as 34443038655 |
+| 34445017604 | `c69d13d` | green | six `LCOV_EXCL_EXCEPTION_BR_LINE` markers (5.6); record below |
+
+### 5.8 Measurement of record — GitHub Actions run 34445017604, commit `c69d13d`, Ubuntu, GCC 13
+
+Matches the container prediction in 5.6 exactly.
+
+| Item | Value |
+|---|---|
+| Tests passed | 106 of 106 |
+| Compiler warnings under `-Werror` | 0 |
+| cppcheck findings | 0 |
+| Lines | 99.7% (575 of 577) |
+| Functions | 97.4% (76 of 78) |
+| Branches | **100.0%** (142 of 142) |
+
+| Scope | Branches | Threshold | Result |
+|---|---|---|---|
+| `src/processing/` | 100.0% | 90% | pass |
+| `src/timing/` | 100.0% | 80% | pass |
+| `src/logging/` | 100.0% | 80% | pass |
+| `src/replay/` | 100.0% | 80% | pass |
+| `src/drivers/` | 100.0% | 70% | pass |
+| **Overall** | **100.0%** | 80% | **pass** |
+
+The two uncovered lines are the closing-brace landing pads GCC reports in `log_reader.cpp` (5.4); line coverage is reported, not gated. The two uncounted functions are the compiler-generated destructor variants noted in Entry 1 §1.2. The branch denominator fell from 190 to 142 because the markers removed 48 exception edges on six lines, 16 of which were untaken and 32 taken; none was a decision.
+
+### 5.9 Open
+
 - Design decision recorded: replace implicit padding with explicit reserved fields at the next format version (FTS-DD-001 Section 12).
 - REQ-TIME-003 remains judged on the Pi (TC-009 step 7); CI measures jitter nowhere.
+- Rule for new code (5.6): a conditional on a line with a `std::string` temporary, a standard-library call, or an iterator range will show exception edges on GCC; mark it and list it here.
