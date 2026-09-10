@@ -120,3 +120,53 @@ cppcheck 2.21.0, same flags as Entry 1: 0 findings.
 ### 2.5 Open
 
 - Replace the preview numbers with the first CI run after this commit.
+
+---
+
+## Entry 3 — 2026-09-09, timing commit
+
+### 3.1 Test results
+
+| Item | Value |
+|---|---|
+| Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
+| Compiler warnings | 0 |
+| Test suites | AltitudeTest (8), KalmanTest (8), ComplementaryTest (9), FaultDetectionTest (27), FaultInjectingSourceTest (4), LoggingTest (22), ReplayTest (6), TimingTest (14) |
+| Tests passed | 98 of 98 |
+| Replay identity with pacing on | `logs/telemetry_000.bin` (paced live run) and `logs/replay_000.bin` (unpaced replay) identical by `cmp` |
+
+### 3.2 Structural coverage
+
+| Scope | Lines | Branches | Threshold (branch) | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% | 100.0% | 90% | pass |
+| `src/drivers/` | 100.0% | 100.0% | 70% | pass |
+| `src/logging/` | 100.0% | 83.3% | 80% | pass |
+| `src/replay/` | 100.0% | 100.0% | 80% | pass |
+| `src/timing/` | 100.0% | 100.0% | 80% | pass |
+| **Overall** | **100.0%** (669/669) | **93.8%** (167/178) | 80% | **pass** |
+
+The five untaken branches are the same `log_reader.cpp` clang edges recorded in Entry 2. On macOS only the `nanosleep` fallback branch of `MonotonicClock::sleep_until_ns` is compiled; the Linux `clock_nanosleep` branch is compiled and measured on CI only. One `LCOV_EXCL_BR_LINE` sits on the Linux `EINTR` retry loop: signal delivery during a sleep cannot be reproduced in a unit test.
+
+### 3.3 Timing preview (REQ-TIME-002 measurement; REQ-TIME-003 NOT satisfied here)
+
+500 cycles at 20 ms on the real clock, macOS `nanosleep` fallback, scratch harness linking the timing modules, machine otherwise idle:
+
+| Statistic | Value |
+|---|---|
+| Jitter min | 52 µs |
+| Jitter mean | 3 381 µs |
+| Jitter max | 5 755 µs |
+| Cycles over 1 ms | 468 of 500 |
+| Missed cycles | 0 |
+
+The 5-cycle run from `./telemetry` shows the same shape (min 172 µs, mean 3.6 ms, max 5.0 ms). This is the macOS sleep primitive's timer slack, several milliseconds by default, not the scheduler: `missed_cycles` is zero, every deadline is on the grid, and the fake-clock tests show the scheduler adds no lateness of its own. **These numbers do not satisfy REQ-TIME-003 and are not claimed to.** The 1 ms bound is judged on the Raspberry Pi's `clock_nanosleep(TIMER_ABSTIME)` path (TC-009 step 7), where sub-millisecond wake latency is the normal case. The preview is recorded because it is the first real measurement and because it makes the platform distinction in FTS-DD-001 §10 concrete.
+
+### 3.4 Static analysis
+
+cppcheck 2.21.0, same flags as Entry 1: 0 findings.
+
+### 3.5 Open
+
+- Replace preview numbers with the first CI run after this commit (Linux; first execution of the `clock_nanosleep` path).
+- TC-009 step 7 on the Pi: 60 s at 50 Hz, max jitter below 1 ms, `missed_cycles` 0. Until then REQ-TIME-003 stays Partial.

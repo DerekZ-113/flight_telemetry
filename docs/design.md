@@ -39,7 +39,7 @@ Every frame enters the system through the `DataSource` interface (`src/data_sour
 | `SimulatedSource` | Built | Seeded Gaussian noise around a stationary Foster City fix. Deterministic per seed on a given toolchain. |
 | Live sensor source | Sprint 1 week 2 | BMP280, MPU6050, NEO-6M drivers behind one source. |
 | `LogReplaySource` | Built | Reads the binary log written by the logger, strips computed fields and status, feeds the raw frames back through the same pipeline. Selected by `telemetry --replay <file>`. TC-004. |
-| `ADSBSource` | Sprint 2 | Real aircraft state vectors from OpenSky, presented as if they were the vehicle's own sensors. IMU channel permanently DEGRADED because ADS-B carries no attitude. See Section 10. |
+| `ADSBSource` | Sprint 2 | Real aircraft state vectors from OpenSky, presented as if they were the vehicle's own sensors. IMU channel permanently DEGRADED because ADS-B carries no attitude. See Section 11. |
 
 ---
 
@@ -134,15 +134,35 @@ LogFileHeader (16 bytes): magic "FTLG", format version, sizeof(TelemetryFrame),
 
 **Verified behavior.** `ReplayTest.ReplayReproducesLiveSession` logs 500 simulated frames with an injected barometer dropout and a stuck IMU across rotated files, replays them through a fresh detector and processor, and finds every processed frame and every fault event bit-identical. At file level, `telemetry` followed by `telemetry --replay logs/telemetry_000.bin` produces `logs/replay_000.bin` byte-identical to the original. A replay run logs under a different prefix because the replay source opens its input before the logger opens its output in the same directory.
 
-**End of stream.** `DataSource` has no way to say "no more frames." After the last frame, `read_frame()` returns that frame again and `exhausted()` reports true. Adding an end-of-stream signal changes the interface every source implements and is an open decision (Section 11).
+**End of stream.** `DataSource` has no way to say "no more frames." After the last frame, `read_frame()` returns that frame again and `exhausted()` reports true. Adding an end-of-stream signal changes the interface every source implements and is an open decision (Section 12).
 
 ---
 
-## 10. Parked Requirement Drafts (Sprint 2)
+## 10. Fixed-Rate Timing
+
+The processing loop runs on a fixed period (REQ-TIME-001) with per-cycle jitter measured and logged (REQ-TIME-002). Three components: a `Clock` interface at the OS boundary, a `FixedRateScheduler` that owns the deadline arithmetic, and a `JitterLog` that records what each cycle measured.
+
+**Absolute deadlines, not relative sleeps.** Every deadline is `start + n × period`, produced by adding the period to the previous deadline. A loop that slept "period" after its work would run at `period + work + wake latency` per cycle, and that error would add up: 5 ms of work and 0.3 ms of latency drift 5.3 seconds over 1000 cycles. With a fixed grid each cycle's lateness is independent and never accumulates. `TimingTest.DeadlinesAdvanceByExactPeriod` states this in numbers.
+
+**The `Clock` seam.** The scheduler never calls the OS. It calls `Clock::now_ns()` and `Clock::sleep_until_ns()`, the same way the pipeline calls `DataSource::read_frame()` and never a sensor. Tests substitute a fake whose time moves only when the test says so, so a thousand scheduled cycles run in microseconds. This is the injectable clock FTS-TP-001 §2.1 asks for, applied to the one component that needs it; the fault detector reads time from frame timestamps instead (Section 4).
+
+**Linux and macOS sleep primitives.** On Linux, `MonotonicClock::sleep_until_ns` is `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, ...)`, re-issued on `EINTR`. The kernel is given the absolute target, so nothing between reading the clock and sleeping can lengthen the wait. That is the call REQ-TIME-001 names, and it runs on the Raspberry Pi and in CI. macOS has no `clock_nanosleep`; the fallback re-reads the clock and calls `nanosleep` for the remainder until the target is reached. The scheduling logic is identical; only the sleep primitive is weaker, because a preemption between the read and the sleep lengthens that one wait. The `#if defined(__linux__)` inside that function is the only platform split in the codebase. The 1 ms bound of REQ-TIME-003 is claimed only for the Linux path.
+
+**Overrun policy.** If the loop comes back a whole period or more after its deadline, the scheduler skips the deadlines that already passed, reports how many (`missed_cycles`), and keeps the grid. It never fires back-to-back cycles to catch up. A control loop that fell behind and then burst would be worse than one that missed cycles and said so; a telemetry logger gains nothing from the burst either.
+
+**Jitter in a CSV, not the binary log.** Jitter measures this machine on this run. The binary log is the record of the flight and must replay byte-identically (Section 9). Putting non-deterministic timing records into it would make two identical flights produce different logs. So each live run writes `logs/<prefix>_jitter.csv`, one line per cycle, and prints a min/mean/max/missed summary at exit. The CSV loads straight into numpy for the characterization run on the Pi.
+
+**Replay is unpaced.** Logged frames carry their own timestamps; every time-dependent computation reads those, so pacing a replay would add nothing to the identity check. `run()` takes the scheduler and jitter log as nullable pointers; replay passes null.
+
+**Frame timestamps stay with the source.** The simulator stamps 0, 20, 40 ms as before; pacing makes wall time agree with it. Whether the live sensor source should stamp frames with the scheduled deadline (deterministic grid) or the actual read time (honest but jittered) is undecided (Section 12).
+
+---
+
+## 11. Parked Requirement Drafts (Sprint 2)
 
 The following are **not** in FTS-SRD-001, not implemented, and not traced. They are recorded here because the current design already accommodates them (the `DataSource` seam and `ChannelStatus`), and writing the intent down keeps Sprint 1 decisions from closing the door. When each moves into scope it is added to FTS-SRD-001, given a row in FTS-TM-001, and only then coded.
 
-### 10.1 Redundancy and voting (REQ-RED)
+### 11.1 Redundancy and voting (REQ-RED)
 
 | Draft ID | Intent |
 |---|---|
@@ -152,9 +172,9 @@ The following are **not** in FTS-SRD-001, not implemented, and not traced. They 
 | REQ-RED-004 | Continue on two agreeing lanes when one is excluded. |
 | REQ-RED-005 | Readmit an excluded lane after M consecutive agreeing frames. |
 
-Associated fault entries FAULT-012 through FAULT-015 and test cards TC-009 through TC-011 are reserved.
+Associated fault entries FAULT-012 through FAULT-015 and test cards TC-010 through TC-012 are reserved.
 
-### 10.2 ADS-B data source (REQ-SENS-007..010)
+### 11.2 ADS-B data source (REQ-SENS-007..010)
 
 | Draft ID | Intent |
 |---|---|
@@ -165,9 +185,11 @@ Associated fault entries FAULT-012 through FAULT-015 and test cards TC-009 throu
 
 ---
 
-## 11. Open Design Decisions
+## 12. Open Design Decisions
 
 - **Health sidecar vs frame fields.** Decide in Sprint 2 week 1 (Section 7). Blocks FAULT-006 compliance and voter reporting. Any frame change now also bumps the log format version (Section 9).
+- **Live source timestamps: scheduled vs actual.** The scheduler knows the deadline grid; the driver knows when the I2C read actually completed. Stamping with the grid keeps replay timestamps exact multiples of the period; stamping with the read time is truthful about jitter. Decide with the live sensor source.
+- **Real-time replay.** Replay is unpaced today. Driving a display from a replayed log needs pacing at the original rate, which is the scheduler with the log's own timestamps as deadlines. Decide with the transport work.
 - **End-of-stream signal on `DataSource`.** Replay repeats its last frame after the log ends. A `bool has_next()` or an `std::optional<TelemetryFrame>` return would be cleaner and touches every source; decide before the live-sensor source lands.
 - **Gyroscope saturation fault.** No FAULT entry exists for the gyro's full-scale limit (FTS-FM-001 TODO). Still open after the detector landed; FAULT-010 covers the accelerometer only.
 - **GPS stuck detection.** REQ-FAULT-002 says "any channel", but no FAULT entry covers a stuck GPS and a stationary receiver, or a sample-and-hold ADS-B source, legitimately repeats. Either add a FAULT entry with a rule that tolerates legitimate repeats or narrow the requirement.

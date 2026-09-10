@@ -60,9 +60,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TIME-001 | — | — | — | Not started | |
-| REQ-TIME-002 | — | — | — | Not started | |
-| REQ-TIME-003 | — | — | — | Not started | Verified on Pi hardware only. |
+| REQ-TIME-001 | `src/timing/clock.cpp` (`MonotonicClock::sleep_until_ns`), `src/timing/fixed_rate_scheduler.cpp` (`FixedRateScheduler::wait_for_next_cycle`), `src/main.cpp` (`run`) | `test_timing.cpp: TimingTest.DeadlinesAdvanceByExactPeriod`, `WorkWithinPeriodDoesNotShiftPhase`, `LateByLessThanPeriodIsJitterNotAMiss`, `OverrunRephasesAndCountsMissed`, `StartIsImplicitOnFirstWait`, `MonotonicClockNeverWakesEarly`, `MonotonicClockSleepUntilPastReturnsPromptly` | TC-009 | Verified | Linux: `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`, exercised on CI. macOS: `nanosleep` fallback toward the absolute target (FTS-DD-001 §10). Rate is a constant in `main.cpp` until REQ-CFG-001. |
+| REQ-TIME-002 | `src/timing/fixed_rate_scheduler.h` (`CycleTiming`), `src/timing/jitter_log.cpp` (`JitterLog`, `JitterStats`), `src/main.cpp` | `test_timing.cpp: TimingTest.JitterIsActualMinusScheduled`, `PunctualClockHasZeroJitterAndNoMisses`, `JitterStatsAggregate`, `JitterLogWritesCsv`, `JitterLogUnwritablePathReportsNotOk` | TC-009 | Verified | Per-cycle CSV in `logs/<prefix>_jitter.csv`, summary printed at end of run. |
+| REQ-TIME-003 | `src/timing/` (measurement in place) | TC-009 step 7 (pending hardware) | TC-009 | Partial | The 1 ms bound is judged on the Pi's `clock_nanosleep` path. macOS preview numbers in FTS-VR-001 do not satisfy it. |
 
 ## 5. Transport
 
@@ -92,7 +92,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp` | — | Partial | Processing, logging, replay, and the fault-injecting source. Simulator driver, timing, and transport have no unit tests. |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp` | — | Partial | Processing, logging, replay, timing, and the fault-injecting source. Simulator driver and transport have no unit tests. |
 | REQ-TEST-002 | — | — | — | Not started | |
 | REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Results recorded in FTS-VR-001; first CI-run numbers pending. |
 | REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings at this commit; "final release" not yet reached. |
@@ -103,17 +103,17 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 10 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004 |
-| Partial | 7 | SENS-006, PROC-005, FAULT-003, LOG-003, TEST-001, TEST-003, TEST-004 |
+| Verified | 12 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
+| Partial | 8 | SENS-006, PROC-005, FAULT-003, TIME-003, LOG-003, TEST-001, TEST-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 15 | all others |
+| Not started | 12 | all others |
 | **Total** | **32** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 
 | File | Traced by |
 |---|---|
-| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004 |
+| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004, REQ-TIME-001, REQ-TIME-002 |
 | `src/telemetry_frame.h` / `.cpp` | REQ-PROC-005 |
 | `src/data_source.h` | REQ-LOG-004 |
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006 |
@@ -123,6 +123,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/logging/binary_logger.h` / `.cpp` | REQ-LOG-001, REQ-LOG-002 |
 | `src/logging/log_reader.h` / `.cpp` | REQ-LOG-001, REQ-LOG-003 |
 | `src/replay/log_replay_source.h` / `.cpp` | REQ-LOG-003, REQ-LOG-004 |
+| `src/timing/clock.h` / `.cpp` | REQ-TIME-001 |
+| `src/timing/fixed_rate_scheduler.h` / `.cpp` | REQ-TIME-001, REQ-TIME-002 |
+| `src/timing/jitter_log.h` / `.cpp` | REQ-TIME-002, REQ-TIME-003 |
 | `src/processing/altitude.h` / `.cpp` | REQ-PROC-001 |
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002 |

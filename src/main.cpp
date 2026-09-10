@@ -1,6 +1,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include "telemetry_frame.h"
 #include "data_source.h"
@@ -8,6 +9,9 @@
 #include "processing/altitude.h"
 #include "processing/processor.h"
 #include "processing/fault_detector.h"
+#include "timing/clock.h"
+#include "timing/fixed_rate_scheduler.h"
+#include "timing/jitter_log.h"
 
 // The only place that knows concrete source types exist. Everything
 // below create_source() sees DataSource and nothing else.
@@ -16,6 +20,10 @@
 
 // Log rotation size. Placeholder until config (REQ-CFG-001).
 constexpr uint64_t kMaxLogFileBytes = 1u << 20;   // 1 MiB, about 10,000 frames
+
+// Processing period, 50 Hz (REQ-TIME-001). Placeholder until config
+// (REQ-CFG-001). Digit separators: 20 ms in nanoseconds.
+constexpr uint64_t kPeriodNs = 20'000'000;
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -84,9 +92,25 @@ std::unique_ptr<DataSource> create_source(int argc, char* argv[]) {
 // Detector and processor are passed by non-const reference because both
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
+//
+// The scheduler and jitter log are pointers, not references, because they
+// may be absent: a reference cannot be null, a pointer can. Replay passes
+// nullptr and runs unpaced; the frames carry their own timestamps and
+// pacing would add nothing to the identity check (REQ-LOG-003).
 void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
-         BinaryLogger& logger, int frame_count) {
+         BinaryLogger& logger, FixedRateScheduler* scheduler, JitterLog* jitter,
+         int frame_count) {
     for (int i = 0; i < frame_count; i++) {
+        // The wait is the first thing in the cycle, so everything below it
+        // starts on the deadline grid and the jitter measured is the
+        // lateness of the whole cycle, not of some step inside it.
+        if (scheduler != nullptr) {
+            const CycleTiming timing = scheduler->wait_for_next_cycle();
+            if (jitter != nullptr) {
+                jitter->record(timing);
+            }
+        }
+
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
         // would run Bmp280Source::read_frame() or LogReplaySource::read_frame()
@@ -138,13 +162,38 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
+    // held to the 50 Hz grid and their jitter is logged; a replay run is
+    // unpaced (see run()). The objects are built either way so their
+    // lifetime covers the loop; only the pointers decide whether they act.
+    MonotonicClock clock;
+    FixedRateScheduler scheduler(clock, kPeriodNs);
+    std::optional<JitterLog> jitter;
+    if (!replaying) {
+        jitter.emplace("logs/telemetry_jitter.csv");
+    }
+
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
     // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
     // comes from the detector (REQ-FAULT-004); the simulator never faults.
-    run(*source, detector, processor, logger, 5);
+    run(*source, detector, processor, logger,
+        replaying ? nullptr : &scheduler,
+        jitter.has_value() ? &jitter.value() : nullptr,
+        5);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
+
+    if (jitter.has_value()) {
+        const JitterStats& st = jitter->stats();
+        std::cout << "Timing:    " << st.cycles << " cycles at " << kPeriodNs / 1'000'000 << " ms"
+                  << ", jitter min/mean/max = " << st.min_ns / 1000.0 << " / "
+                  << st.mean_ns() / 1000.0 << " / " << st.max_ns / 1000.0 << " us"
+                  << ", missed cycles = " << st.missed_cycles
+                  << "  (logs/telemetry_jitter.csv)" << std::endl;
+    } else {
+        std::cout << "Timing:    unpaced (replay)" << std::endl;
+    }
 
     // Sanity checks
     std::cout << "Sanity check: pressure_to_altitude(1013.25) = "

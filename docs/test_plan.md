@@ -30,7 +30,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 - **Scope:** Individual C++ functions and classes in isolation. Drivers, processing, timing, logging, and transport modules.
 - **Framework:** Google Test.
-- **Isolation:** Hardware dependencies are replaced with test doubles. The `DataSource` abstraction is the primary seam: a test-only `FakeSource` returns hand-built frames, so the pipeline can be exercised without sensors or the simulator. Time-dependent logic (fault timeouts, fixed-rate scheduling) shall accept an injectable clock so tests do not sleep.
+- **Isolation:** Hardware dependencies are replaced with test doubles. The `DataSource` abstraction is the primary seam: a test-only `FakeSource` returns hand-built frames, so the pipeline can be exercised without sensors or the simulator. Time-dependent logic does not sleep in tests: fixed-rate scheduling takes an injectable `Clock` and tests drive it with a fake that advances time by fiat; fault timeouts read time from frame timestamps. One real-clock smoke test (about 20 ms) exercises the OS boundary with loose bounds.
 - **Location:** `tests/unit/`, one test file per module (`test_altitude.cpp`, `test_fault_detection.cpp`, and so on).
 - **Executed:** Every commit, in CI and locally.
 
@@ -245,6 +245,34 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file.
 - **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 fails. Any crash or invented frame in step 6 or 7 fails.
 
+### TC-009: Fixed-Rate Scheduling and Jitter
+
+- **Requirement:** REQ-TIME-001, REQ-TIME-002 (step 7: REQ-TIME-003)
+- **Level:** Unit (steps 1 through 6), Hardware (step 7)
+- **Objective:** Verify that the loop is scheduled on absolute deadlines that do not drift, that overruns re-phase without bursting, that per-cycle jitter is measured and logged, and, on the target hardware, that jitter stays below 1 ms.
+- **Preconditions:** `FixedRateScheduler` driven by a `FakeClock` for steps 1 through 5; `MonotonicClock` for step 6; the Raspberry Pi for step 7. Period 20 ms unless stated.
+- **Steps:**
+  1. Configure the fake clock to wake 300 µs late on every sleep and simulate 5 ms of work per cycle. Run 1000 cycles. Record every `scheduled_ns`.
+  2. Run 10 cycles with the same latency. Record every `jitter_ns`.
+  3. After one cycle, advance the clock 25 ms (5 ms past the next deadline). Run one cycle. Record `scheduled_ns`, `jitter_ns`, `missed_cycles`.
+  4. After one cycle, advance the clock 65 ms. Run two cycles. Record the same three fields for each.
+  5. Record three hand-built `CycleTiming`s through a `JitterLog` to a temporary file. Read the file back.
+  6. With the real clock and a 1 ms period, run 20 cycles. Record every `jitter_ns` and the total elapsed time.
+  7. *(Pi only, pending hardware)* Run the telemetry binary for 60 s at 50 Hz. Read `logs/telemetry_jitter.csv`.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `scheduled_ns` of cycle n equals `start + (n+1) × 20 ms` exactly for all 1000 cycles; the span is 20.000 s, not the 25.3 s a relative sleep would produce |
+  | 2 | every `jitter_ns` equals 300 000 |
+  | 3 | `scheduled` unchanged (2P), `jitter` 5 ms, `missed` 0 |
+  | 4 | first cycle: `missed` 2, `scheduled` 4P, `jitter` 5 ms; second cycle: `scheduled` 5P, `jitter` 0 |
+  | 5 | four lines: the documented header and one line per cycle with the fields in order |
+  | 6 | every `jitter_ns ≥ 0`; elapsed at least 20 ms and at most 20 ms + 2 s |
+  | 7 | maximum `jitter_ns` below 1 000 000; `missed_cycles` 0 |
+
+- **Pass/fail:** Steps 1 through 6 all hold. Step 7 is the REQ-TIME-003 criterion and is judged on the Linux `clock_nanosleep` path only; numbers from the macOS fallback are recorded in FTS-VR-001 as a preview and do not satisfy the requirement.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -288,5 +316,6 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 - REQ-SENS-006, REQ-PROC-005, REQ-LOG-003, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
 - The transports are not implemented. TC-005 describes the intended procedure and will be revised when the interface is final. TC-004's Python comparison step waits on the receiver.
+- REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.

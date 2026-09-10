@@ -44,6 +44,9 @@ add_library(telemetry_core STATIC
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp
     src/replay/log_replay_source.cpp
+    src/timing/clock.cpp
+    src/timing/fixed_rate_scheduler.cpp
+    src/timing/jitter_log.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)
