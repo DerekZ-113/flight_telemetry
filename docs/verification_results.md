@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-09
+> **Last Updated:** 2026-10-11
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -326,3 +326,65 @@ The two uncovered lines are the closing-brace landing pads GCC reports in `log_r
 - Design decision recorded: replace implicit padding with explicit reserved fields at the next format version (FTS-DD-001 Section 12).
 - REQ-TIME-003 remains judged on the Pi (TC-009 step 7); CI measures jitter nowhere.
 - Rule for new code (5.6): a conditional on a line with a `std::string` temporary, a standard-library call, or an iterator range will show exception edges on GCC; mark it and list it here.
+
+---
+
+## Entry 6 — 2026-10-11, ZeroMQ transport commits
+
+REQ-TRANS-001 and REQ-TRANS-003 at unit level; TC-005 and TC-010 step 7 executed by hand. Everything in this entry is a macOS preview; 6.7 is reserved for the CI measurement of record once the commits are pushed.
+
+### 6.1 Test results
+
+| Item | Value |
+|---|---|
+| Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
+| Build | `-DENABLE_COVERAGE=ON -DWARNINGS_AS_ERRORS=ON`, `-O0 -g`; libzmq 4.3.5 (Homebrew), cppzmq v4.11.0 (FetchContent, pinned) |
+| Compiler warnings | 0 |
+| Test suites | AltitudeTest (8), KalmanTest (8), ComplementaryTest (9), FaultDetectionTest (28), FaultInjectingSourceTest (4), SimulatedDataTest (5), SimulatedSourceTest (2), LoggingTest (22), ReplayTest (6), TimingTest (14), ZmqPublisherTest (8) |
+| Tests passed | 114 of 114 |
+| Replay identity with publishing on | `logs/telemetry_000.bin` (750 paced frames, published) and `logs/replay_000.bin` (unpaced replay of it, published as a burst) identical by `cmp`; the 5-frame default pair likewise |
+
+### 6.2 Structural coverage (preview)
+
+| Scope | Lines | Branches | Threshold (branch) | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% (279/279) | 100.0% (66/66) | 90% | pass |
+| `src/drivers/` | 100.0% (125/125) | 100.0% (16/16) | 70% | pass |
+| `src/logging/` | 100.0% (145/145) | 83.3% (55/66) | 80% | pass |
+| `src/replay/` | 100.0% (43/43) | 100.0% (12/12) | 80% | pass |
+| `src/timing/` | 100.0% (85/85) | 100.0% (18/18) | 80% | pass |
+| `src/transport/` | 100.0% (39/39) | 100.0% (4/4) | 80% | pass |
+| **Overall** | **100.0%** (717/717) | **94.0%** (171/182) | 80% | **pass** |
+
+Functions 94.7% (126 of 133). The seven uncounted are the compiler-generated destructor variants of `DataSource`, `FaultInjectingSource`, `LogReplaySource`, `Clock`, and `MonotonicClock`, the same class of entry as Entry 1 §1.2; none is reachable code.
+
+The 11 untaken branches are all in `log_reader.cpp`, the clang exception edges every Mac preview has shown since Entry 2 (Entry 3 counted five with that day's tools; this capture used lcov 2.5 with Xcode 26's `llvm-cov gcov`). The measurement of record for that file is 100% on GCC with the Entry 5 markers (§5.8). The transport scope has four branches, both outcomes of `if (!ok_)` and of `if (!sent)` in `ZmqPublisher::publish`, all taken: the first pair by `BindFailureIsReportedNotThrown`, the second by `SendErrorIsCountedNotThrown`. The constructor's and `publish()`'s `catch` blocks execute under the bind-failure, invalid-endpoint, and `ETERM` tests, so the scope needed no marker of any kind.
+
+### 6.3 Exclusions
+
+No new exclusion. The existing `lcov --remove` patterns already drop cppzmq (`build/_deps/`) and `zmq.h` (`/usr/*` on CI); this preview added the Mac's equivalents, `/opt/homebrew/*` and `/Applications/*`, to the same list. No source marker was added in `src/transport/`.
+
+### 6.4 TC-005 and TC-010 step 7, executed by hand
+
+Six runs on `tcp://127.0.0.1:5555` with `./build/telemetry` and `.venv/bin/python -m pipeline.receiver` (pyzmq 27.2.0, Python 3.13.0). The receiver counts a gap whenever consecutive frame timestamps differ by more than one period.
+
+| Run | Procedure | Observed |
+|---|---|---|
+| a | Receiver started first, 300 ms settle, then `--zmq --cycles 500` (TC-005 steps 1 to 6, the log as the reference) | Publisher: 500 published, 0 send failures, `missed_cycles` 0 on all 500 lines, process exit 10.02 s after start. Receiver: 500 frames, timestamps 0 to 9980 ms, gaps 0. Log 52 516 bytes = 16 + 500 × 105. |
+| b | No subscriber, `--zmq --cycles 500` (TC-010 step 7) | 500 published, 0 send failures, `missed_cycles` 0 on all 500 lines, exit at 10.01 s: no linger wait with an empty queue. Jitter mean 3221 µs against 3218 µs in run a: publishing to nobody and publishing to a subscriber cost the same, nothing measurable. |
+| c | Receiver started 5 s into a `--cycles 750` run (slow joiner) | Receiver's first frame at 5080 ms; 496 frames, gaps 0 after joining. Publisher 750 published. |
+| d | Receiver first; `--replay logs/telemetry_000.bin --zmq --cycles 750` (the log from run c) | 750 published in 0.04 s. Receiver's first frame at 3700 ms: 185 frames were sent before its 10 ms reconnect completed; 562 frames received, gaps 3 (the burst against the 100-message mark). `cmp` of the two logs silent: publishing changed nothing in the record. |
+| e | A second instance on the same endpoint while the first ran `--cycles 150` | Second exits 1: `cannot bind ZeroMQ publisher to tcp://127.0.0.1:5555: Address already in use`. First unaffected: 150 published. |
+| f | Default `./build/telemetry` then `--replay` (the README pair) | `cmp` silent. |
+
+Jitter in runs a and b (min/mean/max 103/3218/15462 µs and 143/3221/15818 µs) is the macOS `nanosleep` timer slack recorded in Entry 3 §3.3, a preview that does not bear on REQ-TIME-003. What these runs show for REQ-TRANS-003 is that the publisher added no missed cycle and no measurable mean in either case.
+
+### 6.5 Static analysis
+
+cppcheck 2.21.0, same flags as CI: 0 findings. One `constParameter` style note on the new `parse_args` in `main.cpp` appeared during development and was resolved (`const char* const argv[]`) before this entry.
+
+### 6.6 Open
+
+- CI run of record for these commits: 6.7, and the README verification table, which still cites run 34445017604.
+- TC-005 automation and TC-010 step 6 (a subscriber stalled at loop level) wait for the pytest suite (REQ-TEST-002); REQ-TRANS-001 and REQ-TRANS-003 stay Partial until then.
+- The receiver's 10 ms reconnect interval is what lets a subscriber started first catch frame 0 of a paced run; a burst still loses what is sent inside that window (run d). A publisher-side start delay was considered and not added: no requirement asks for it, and the pytest suite can start the receiver first and wait for the first frame.
