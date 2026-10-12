@@ -4,7 +4,7 @@
 
 Embedded flight telemetry for a Raspberry Pi, in C++17: barometer, IMU, and GPS readings fused into altitude and attitude at a fixed 50 Hz, with per-channel fault detection, a binary log that replays bit-for-bit through the same pipeline, and per-cycle timing evidence. Built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and coverage, static analysis, and a formal fault model are part of every build.
 
-**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ to a Python receiver; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi. Noise characterization and the GPS driver are next.
+**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ to a Python receiver; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi; the Python log reader, the replay-identity pytest, and the noise analysis are built and verified against simulated logs, ready for the first stationary capture. The measured constants and the GPS driver are next.
 
 ## Architecture
 
@@ -44,12 +44,13 @@ Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the buil
 
 | Document | ID | What it holds |
 |---|---|---|
-| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.4.0 | 33 "shall" statements with rationale; the scope of record |
+| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.5.0 | 33 "shall" statements with rationale; the scope of record |
 | [Design](docs/design.md) | FTS-DD-001 | software level, every architecture decision with its reason, log format, timing, open decisions |
-| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (13 Verified, 14 Partial, 6 Not started) |
+| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (14 Verified, 15 Partial, 4 Not started) |
 | [Fault model](docs/fault_model.md) | FTS-FM-001 | 11 failure modes, each with cause, detection, response, and the test that proves it |
-| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-014, coverage thresholds and exclusion policy |
+| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-015, coverage thresholds and exclusion policy |
 | [Verification results](docs/verification_results.md) | FTS-VR-001 | per-commit test and coverage records, justified exclusions, findings, the CI run of record |
+| [Noise profile](docs/noise_profile.md) | FTS-NP-001 | the stationary-capture method, the estimators and their tolerances, which Kalman constants are measured and which are tuning choices, the capture's provenance |
 
 Every change follows the same loop: requirement, matrix row, code, test, matrix update, coverage and static analysis, one commit naming the requirement IDs.
 
@@ -81,9 +82,15 @@ cmp logs/telemetry_000.bin logs/replay_000.bin      # prints nothing: the two lo
 ```
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt       # once: pyzmq, pinned
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt       # once: pyzmq, numpy, matplotlib, pytest, pinned
 .venv/bin/python -m pipeline.receiver --endpoint tcp://127.0.0.1:5555   # start first; one line per frame, gap count at exit
 ./build/telemetry --zmq tcp://127.0.0.1:5555 --cycles 500             # 10 s at 50 Hz, logged and published
+```
+
+```bash
+.venv/bin/python -m pytest                                              # 50 tests: one 10 s simulated session, replay identity, the log reader, the noise oracles
+.venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence: counts, steps, freshness, events
+.venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # per-channel noise, Allan deviation, the derived Kalman constants
 ```
 
 The live run prints each frame, writes `logs/telemetry_000.bin` and `logs/telemetry_jitter.csv`, and prints a timing summary. The replay writes `logs/replay_000.bin`. A run with `--zmq` adds a transport summary (frames published, send failures); `--replay` and `--zmq` together publish the log as a burst. Coverage and static analysis run in CI; the exact lcov and cppcheck invocations are in [.github/workflows/ci.yml](.github/workflows/ci.yml).
@@ -99,15 +106,18 @@ src/            telemetry_frame, data_source, main.cpp
   replay/       log_replay_source
   timing/       clock, fixed_rate_scheduler, jitter_log
   transport/    zmq_publisher
-pipeline/       frame_format (the byte layout, shared by log and wire), receiver (ZeroMQ SUB)
+pipeline/       frame_format (the byte layout, shared by log and wire), receiver (ZeroMQ SUB),
+                log_reader (files, rotation, the numpy layout)
+analysis/       noise_profile (per-channel noise, Allan deviation, the derived Kalman constants)
 tests/unit/     one Google Test file per module
-docs/           the six controlled documents above
+tests/integration/  pytest: replay identity, the log reader, the noise oracles
+docs/           the seven controlled documents above
 scripts/        coverage_check.sh, the per-scope branch threshold gate
 ```
 
 ## Roadmap
 
-Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; noise characterization on stationary sensors, with the measured variances replacing the Kalman placeholders; a UDP publisher; YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
+Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); a UDP publisher; YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
 
 ## License
 

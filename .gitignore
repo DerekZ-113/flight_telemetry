@@ -27,3 +27,9 @@ __pycache__/
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/worktrees/
+
+# Python tests
+.pytest_cache/
+
+# captures/ is not ignored: a raw sensor capture is committed selectively, like the
+# coverage reports, when it sets constants (docs/noise_profile.md). Other captures stay out.

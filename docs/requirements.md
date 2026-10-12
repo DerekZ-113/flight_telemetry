@@ -1,10 +1,10 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.4.0
+> **Version:** 0.5.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-12
-> **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results)
+> **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
 
 ## Conventions
 
@@ -46,7 +46,9 @@ REQ-PROC-002: The system shall compute pitch and roll angles from accelerometer 
 
 REQ-PROC-003: The system shall fuse barometric altitude and GPS altitude using a 1D (single spatial axis) Kalman filter with two states, altitude and vertical velocity.
 
-REQ-PROC-004: The Kalman filter's covariance parameters (measurement noise, process noise, and initial state covariance) shall be derived from sensor noise characteristics measured and recorded in docs/noise_profile.md.
+REQ-PROC-004: The Kalman filter's measurement noise variances shall be derived from sensor noise measured on stationary sensors and recorded in docs/noise_profile.md (FTS-NP-001), and the initial altitude variance shall equal the barometric measurement variance. The process noise variance and the initial velocity variance shall be recorded in the same document with the rationale for their values.
+
+> **Rationale:** a stationary capture shows a sensor's own noise, which is what a measurement variance is. Process noise describes the vehicle, not a sensor: it is the acceleration the constant-velocity model ignores, which no bench can show and which sets how quickly the filter follows a real climb. The initial velocity variance is an assumption about the vehicle's state at startup. Both are tuning choices, so the document records why they hold the values they do. The GPS variance stays the receiver's datasheet figure until REQ-SENS-005 delivers a GPS to measure. Until 0.5.0 this requirement asked for all five to be measured, which no capture could satisfy.
 
 REQ-PROC-005: Once per processing cycle (REQ-TIME-001), the system shall produce a TelemetryFrame containing the raw sensor readings, the computed and fused values, and the status of every channel.
 

@@ -1,6 +1,6 @@
 // Tests for src/replay/log_replay_source.cpp (REQ-LOG-003, REQ-LOG-004).
 // Test card TC-004, executed here at unit level; the Python comparison in
-// TC-004 is the integration-level execution and lands with the receiver.
+// TC-004 is tests/integration/test_replay_identity.py.
 
 #include <gtest/gtest.h>
 

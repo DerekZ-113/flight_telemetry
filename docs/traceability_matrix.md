@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-12
-> **Related:** FTS-SRD-001 v0.4.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
+> **Related:** FTS-SRD-001 v0.5.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model), FTS-NP-001 (noise profile)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -43,7 +43,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-PROC-001 | `src/processing/altitude.cpp` (`pressure_to_altitude`) | `test_altitude.cpp: AltitudeTest.*` (8 tests) | TC-001 | Verified | |
 | REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`, `reset`), `src/processing/processor.cpp` (`TelemetryProcessor::process`, the re-seed gate on `imu_timeout_ms_`) | `test_complementary.cpp: ComplementaryTest.*` (14 tests, including `StaleImuFrameHoldsAttitude` and `GyroIntegratesOverStaleGap` for REQ-PROC-006, and `LongImuGapReseedsFromAccel`, `GapEqualToTimeoutStillIntegrates`, `ReseedAdoptsTiltedAccel` for the re-seed rule) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED and stale frames hold the last angles; a gap longer than the IMU timeout re-initializes them from the accelerometer on the next accepted reading (FTS-DD-001 Section 6); FAULT-006 requires an invalid marker. |
 | REQ-PROC-003 | `src/processing/kalman_filter.cpp` (`KalmanFilter1D`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_kalman.cpp: KalmanTest.*` (12 tests, including the four REQ-PROC-006 gating tests) | TC-007 | Verified | Covariance constants are placeholders (see REQ-PROC-004). |
-| REQ-PROC-004 | — | — | — | Not started | Constants in `processor.cpp` are placeholders pending `docs/noise_profile.md`. |
+| REQ-PROC-004 | `analysis/noise_profile.py` (`analyze`, `channel_report`, `allan_deviation`, `derive_constants`), `docs/noise_profile.md` (FTS-NP-001: the method, the estimators, the derivation of each constant) | `tests/integration/test_noise_profile.py` (26 tests: synthetic oracles for sigma and mean, bias, the Allan law of white noise, drift separated from noise, autocorrelation, stuck runs and quantization, the formulas, the R rule's correlated-noise branch and its warnings; the binary's seed-42 log recovers the simulator's sigmas within 15% and a barometric variance within 25% of 2.774 m²) | TC-015 | Partial | The measurement and its oracles exist; the stationary capture of 2026-10-13 supplies the values (TC-015 steps 9 to 12). After it, the barometric variance and the initial altitude variance are measured, the process noise and the initial velocity variance are documented tuning choices, and the GPS variance stays the datasheet figure until REQ-SENS-005 delivers a receiver to measure. Constants in `processor.cpp` are placeholders until then. |
 | REQ-PROC-005 | `src/processing/processor.cpp` (`TelemetryProcessor::process`), `src/telemetry_frame.cpp`, `src/main.cpp` (`run`) | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `test_complementary.cpp: ComplementaryTest.DegradedImuHoldsAttitude` (indirect) | — | Partial | No fixed-rate loop yet (REQ-TIME-001). No test asserts that every computed field is filled. |
 | REQ-PROC-006 | `src/processing/processor.cpp` (`TelemetryProcessor::process`: the fresh-and-NOMINAL gate per channel, `imu_last_fresh_ms_`, filter construction on the first fresh barometer reading) | `test_kalman.cpp: KalmanTest.StaleBaroInsideTimeoutIsPredictOnly`, `StaleGpsIsNotApplied`, `OneGpsUpdatePerFix`, `FilterWaitsForFirstFreshBaro`; `test_complementary.cpp: ComplementaryTest.StaleImuFrameHoldsAttitude`, `GyroIntegratesOverStaleGap` | TC-011 | Verified | Predict every cycle, update only on a fresh NOMINAL reading. Found 2026-10-11: the gate was on status only, invisible while the simulator fixed GPS on every frame (FTS-VR-001 Entry 7). |
 
@@ -77,9 +77,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-LOG-001 | `src/logging/log_format.h/.cpp` (`LogFileHeader`, `RecordType`), `src/logging/binary_logger.cpp` (`BinaryLogger`), `src/logging/log_reader.cpp` (`LogReader`), `src/main.cpp` (`run`) | `test_logging.cpp: LoggingTest.*` (22 tests) | TC-008 | Verified | Raw-struct records with a versioned, size-checked header. Same-platform format by design (FTS-DD-001 §8, §9). |
+| REQ-LOG-001 | `src/logging/log_format.h/.cpp` (`LogFileHeader`, `RecordType`), `src/logging/binary_logger.cpp` (`BinaryLogger`), `src/logging/log_reader.cpp` (`LogReader`), `src/main.cpp` (`run`) | `test_logging.cpp: LoggingTest.*` (22 tests); `tests/integration/test_log_reader.py` (18 tests: the read side in Python, header refusal naming the field, torn tail, unknown tag, rotation as one run, the numpy layout's offsets; TC-008 steps 8 through 14) | TC-008 | Verified | Raw-struct records with a versioned, size-checked header. Same-platform format by design (FTS-DD-001 §8, §9). `pipeline/log_reader.py` is the Python twin of `LogReader` (same torn-tail rule). |
 | REQ-LOG-002 | `src/logging/binary_logger.cpp` (`BinaryLogger::write_record`, `open_next_file`) | `test_logging.cpp: LoggingTest.RotationSplitsAtRecordBoundary`, `TinyLimitStillWritesOneRecordPerFile`, `CurrentPathTracksRotation`, `RotationIntoRemovedDirectoryReportsNotOk` | TC-008 | Verified | Limit is a constant in `main.cpp` until REQ-CFG-001. |
-| REQ-LOG-003 | `src/replay/log_replay_source.cpp` (`LogReplaySource`), `src/logging/log_reader.cpp` | `test_replay.cpp: ReplayTest.ReplayReproducesLiveSession` (500 frames, injected faults, `memcmp` on every frame and event); file-level: `logs/telemetry_000.bin` == `logs/replay_000.bin` | TC-004 | Partial | Unit and file-level identity proven on one toolchain. TC-004's Python parse step (integration level) waits on the receiver. |
+| REQ-LOG-003 | `src/replay/log_replay_source.cpp` (`LogReplaySource`), `src/logging/log_reader.cpp`, `pipeline/log_reader.py` (the Python parse of TC-004 step 3) | `test_replay.cpp: ReplayTest.ReplayReproducesLiveSession` (500 frames, injected faults, `memcmp` on every frame and event); `tests/integration/test_replay_identity.py` (6 tests: 500 simulated frames and their replay parsed in Python, every raw and computed field equal, the two files byte-identical, every frame's bytes equal to its repacking, the timestamps on the simulator's grid) | TC-004 | Verified | Unit, file-level, and Python-parsed identity proven on one toolchain per run. Cross-platform identity is not claimed (FTS-DD-001 §8). |
 | REQ-LOG-004 | `src/data_source.h` (`DataSource`), `src/drivers/simulated_source.cpp`, `src/drivers/live_sensor_source.cpp`, `src/replay/log_replay_source.cpp`, `src/main.cpp` (`create_source`, `run`) | `test_replay.cpp: ReplayTest.ReplayStripsComputedFieldsAndStatus`, `ReplaySpansRotatedFiles`, `ReplayReproducesLiveSession`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly` (the raw-only contract on the live side) | TC-004, TC-014 (step 14 on hardware) | Verified | Three concrete sources share one pipeline; `main` selects by `--replay` or `--live`. Replay strips computed fields and status so the pipeline must recompute them. |
 
 ## 7. Configuration
@@ -93,8 +93,8 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp`, `test_zmq_publisher.cpp` | — | Partial | Drivers (simulator, fault injector), processing, logging, replay, timing, and the ZeroMQ transport all have unit tests. The UDP transport and the live sensor drivers do not exist yet. |
-| REQ-TEST-002 | — | — | TC-005 | Not started | The Python receiver the suite will drive exists (`pipeline/receiver.py`, traced under REQ-TRANS-001) and executed TC-005 by hand (FTS-VR-001 Entry 6); no pytest test exists yet. |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp`, `test_zmq_publisher.cpp`, `test_i2c_bus.cpp`, `test_bmp280.cpp`, `test_mpu6050.cpp`, `test_live_sensor_source.cpp` | — | Partial | Drivers (simulator, fault injector, the I2C seam, BMP280, MPU6050, the live source), processing, logging, replay, timing, and the ZeroMQ transport all have unit tests. The UDP transport does not exist yet. |
+| REQ-TEST-002 | `pytest.ini`, `tests/integration/conftest.py` (the binary, one simulated session and its replay per run, in a temporary directory), `pipeline/log_reader.py` | `tests/integration/test_replay_identity.py` (6 tests), `test_log_reader.py` (18), `test_noise_profile.py` (26) | TC-004, TC-008, TC-015 | Partial | The first pytest tests exist and pass locally (50 in 14 s). TC-005's automation over ZeroMQ (`pipeline/receiver.py` executed it by hand, FTS-VR-001 Entry 6), TC-010 step 6, and the CI step that runs the suite are pending. |
 | REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Measurement of record: CI run 34445017604, 100% branches in every scope, recorded in FTS-VR-001 Entry 5 §5.8. Still Partial only because pytest integration coverage (REQ-TEST-002) is not yet part of the run. |
 | REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings on CI run 34445017604; no release-tagged build has been made yet, so the gate has not been exercised. |
 
@@ -104,10 +104,10 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 13 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
-| Partial | 14 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-006, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, LOG-003, TEST-001, TEST-003, TEST-004 |
+| Verified | 14 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-003, LOG-004, TIME-001, TIME-002 |
+| Partial | 15 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-006, PROC-004, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, TEST-001, TEST-002, TEST-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 6 | SENS-005, PROC-004, TRANS-002, CFG-001, CFG-002, TEST-002 |
+| Not started | 4 | SENS-005, TRANS-002, CFG-001, CFG-002 |
 | **Total** | **33** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
@@ -139,3 +139,14 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/processing/processor.h` / `.cpp` | REQ-PROC-002, REQ-PROC-003, REQ-PROC-005, REQ-PROC-006 |
 
 Adding a file under `src/` without adding it to this table is a traceability failure.
+
+The Python modules trace the same way. Test files are named in the Test column of the requirement they verify, as the C++ test files are.
+
+| File | Traced by |
+|---|---|
+| `pipeline/frame_format.py` | REQ-LOG-001, REQ-TRANS-001 (the byte layout shared by the log and the wire) |
+| `pipeline/receiver.py` | REQ-TRANS-001, REQ-TRANS-003 |
+| `pipeline/log_reader.py` | REQ-LOG-001, REQ-LOG-003, REQ-TEST-002 |
+| `analysis/noise_profile.py` | REQ-PROC-004 |
+
+Adding a module under `pipeline/` or `analysis/` without adding it here is the same failure.

@@ -36,11 +36,11 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.2 Integration Tests
 
-- **Scope:** The full pipeline across the C++/Python boundary. C++ processing publishes over ZeroMQ and UDP; the Python receiver consumes and validates.
-- **Framework:** pytest.
-- **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible.
-- **Location:** `tests/integration/`.
-- **Executed:** Every commit, in CI.
+- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015).
+- **Framework:** pytest, with numpy and matplotlib for the analysis.
+- **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it.
+- **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
+- **Executed:** Every commit locally; in CI once the workflow gains its Python step (Section 7).
 
 ### 2.3 Fault Injection Tests
 
@@ -158,15 +158,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Requirement:** REQ-LOG-003 (also exercises REQ-LOG-004)
 - **Level:** Integration
 - **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
-- **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs. Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at file level by comparing `logs/telemetry_000.bin` with `logs/replay_000.bin` after `telemetry --replay`. The Python parse in step 3 is the integration-level execution and lands with the receiver.
+- **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs. Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at the integration level by `tests/integration/test_replay_identity.py`, which runs the binary twice in a temporary directory and parses both logs with `pipeline/log_reader.py`; the binary has no output-path option, so the files are its own `logs/telemetry_000.bin` and `logs/replay_000.bin`.
 - **Steps:**
-  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `session_a.bin`.
-  2. Run the pipeline in replay mode with `session_a.bin` as the data source. Log every processed frame to `session_b.bin`.
+  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`.
+  2. Run the pipeline in replay mode with that log as the data source. Log every processed frame to `logs/replay_000.bin`.
   3. Parse both logs in Python. For each frame index, compare every field.
   4. Assert the frame counts are equal.
   5. Assert every raw field is identical (replay must not alter its input).
   6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status) is identical, compared as raw bytes rather than with a floating-point tolerance.
-- **Expected result:** 500 frames in each log. Zero field differences.
+- **Expected result:** 500 frames in each log. Zero field differences; the two files byte-identical; every frame's bytes equal to its repacking (padding zero); timestamps 0 to 9980 ms in both.
 - **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
 
 ### TC-005: Pipeline Data Integrity over ZeroMQ
@@ -245,9 +245,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
 ### TC-008: Log Format and Rotation Integrity
 
 - **Requirement:** REQ-LOG-001, REQ-LOG-002
-- **Level:** Unit
-- **Objective:** Verify that the binary log is self-describing, round-trips frames and fault events bit for bit, rotates at record boundaries, and fails safely on a damaged or foreign file.
-- **Preconditions:** A temporary directory per test, removed afterwards. Frames from `SimulatedSource(20, 42)` or built by hand.
+- **Level:** Unit (steps 1 through 7), Integration (steps 8 through 14)
+- **Objective:** Verify that the binary log is self-describing, round-trips frames and fault events bit for bit, rotates at record boundaries, and fails safely on a damaged or foreign file; and that the Python reader (`pipeline/log_reader.py`, the twin of `LogReader`) applies the same rules.
+- **Preconditions:** A temporary directory per test, removed afterwards. Frames from `SimulatedSource(20, 42)` or built by hand. Steps 8 through 14 are `tests/integration/test_log_reader.py`, on files written by `tests/integration/synthetic_log.py` with the same layout Structs the reader uses, and on the session fixture's log from the binary.
 - **Steps:**
   1. Log one frame. Reopen with `LogReader`. Assert the header validates and its version, frame size, event size, and endianness marker match this build.
   2. Log 10 simulated frames. Read them back. Compare each with `memcmp` against the frame that was written.
@@ -256,8 +256,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Corrupt a header field (magic, version, frame size, event size, endianness) one at a time. Assert the reader refuses each with a non-empty error.
   6. Truncate a file in the middle of its second frame. Assert the reader returns the first frame, then false, with a "torn record" error and no crash.
   7. Point the logger at a path that cannot be a directory. Assert `ok()` is false and that logging calls return without throwing.
-- **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file.
-- **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 fails. Any crash or invented frame in step 6 or 7 fails.
+  8. *(Integration)* Read the session fixture's log (500 simulated frames) with the Python reader: assert 500 frames, no events, timestamps 0 to 9980 ms, nothing torn, the header's sizes equal to the module's.
+  9. *(Integration)* Write frame, event, frame from Python with the same Structs and read it back: assert the frames and the event in order and each frame's bytes equal to its repacking.
+  10. *(Integration)* Corrupt each header field (magic, version, frame size, event size, endianness) in a Python-written file: assert the reader refuses each, naming the field.
+  11. *(Integration)* Cut a file 41 bytes into its second frame: assert the first frame is returned and 41 torn bytes counted; append an unknown tag: assert refusal naming the offset.
+  12. *(Integration)* Write 10 frames across four rotated files: assert they read as one run in order; then a file that restarts at 0, a file with a gap in its index, a file starting 1920 ms after the previous ends, and a file whose timestamps repeat: assert each is refused with the file and timestamps named.
+  13. *(Integration)* Assert the numpy layout derived from the struct format has 104 and 16 bytes and every field offset equal to the struct's (latitude at 56, the last flag at 97), and that a frames array's bytes equal the file's.
+  14. *(Integration)* The reader's command line on a directory holding a live-shaped file (three frames, GPS never fresh, one GPS timeout event): assert exit 0 with the counts, the fresh totals, and the event line; a file that is not a log exits 2.
+- **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file. Steps 8 through 14: every refusal names what was wrong, a torn tail loses nothing before it, and rotation reads as one run only when the indices are consecutive and the timestamps continue.
+- **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 or 10 fails. Any crash or invented frame in step 6 or 7 fails. Any accepted restart, gap, or repeated timestamp in step 12 fails; any offset disagreement in step 13 fails.
 
 ### TC-009: Fixed-Rate Scheduling and Jitter
 
@@ -445,6 +452,28 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Steps 1 through 10 exact as listed. Step 12 fails on any out-of-range value or any event other than the GPS timeout; step 13's signs are recorded, and a wrong sign is a one-line change in the driver's axis mapping noted in FTS-DD-001 Section 6, not a failure of the card; step 14 fails on any byte difference; step 15 fails on frames lost at the publisher (gaps the receiver reports may be the network's).
 
+### TC-015: Noise Characterization and Derived Constants
+
+- **Requirement:** REQ-PROC-004 (also exercises REQ-SENS-006 and REQ-PROC-003)
+- **Level:** Integration (steps 1 through 8), Hardware (step 9), manual (steps 10 through 12)
+- **Objective:** Verify that the noise analysis recovers known sensor noise from a log, separates white noise from drift, and derives the Kalman constants the way FTS-NP-001 states; then execute it on a stationary capture of the real sensors and carry the measured constants into the pipeline.
+- **Preconditions:** `analysis/noise_profile.py` and `pipeline/log_reader.py`. Synthetic logs written by `tests/integration/synthetic_log.py` from numpy's seeded generator, 45,000 frames at 20 ms (the capture's length), and the session fixture's 500-frame seed-42 log from the binary. Steps 1 through 8 are `tests/integration/test_noise_profile.py`. Step 9 needs the Raspberry Pi with both sensors, flat and untouched for 15 minutes, with the conditions noted (FTS-NP-001 Section 4). Tolerances are multiples of the estimator's standard error, stated before the data: 3/√(2N) for a sigma, 3σ/√N for a mean, 10% for the Allan ratio, 15% for the binary's 500-frame sigmas (4.7 standard errors), 25% for the derived variance (3.2).
+- **Steps:**
+  1. Planted white noise on every raw channel, a 2.5 deg/s bias on gyro_y and a 0.05 m/s² offset on accel_x: assert each sigma within 3/√(2N) of its planted value, each mean within 3σ/√N, the bias recovered within 3σ/√N and its predicted tilt 0.98 × b.
+  2. White noise through the Allan estimator at m = 1, 4, 16, 64, 256: assert ADEV(m) × √m / σ within 10% of 1; assert ADEV(τ₀)² equals half the mean squared first difference to 1e-12.
+  3. White noise of sigma 1 plus a linear drift rising √12 over the run: assert the plain sigma equals √(σ² + (dT)²/12) within 2%, ADEV(τ₀) equals σ within 1%, their ratio √2 within 3%, and ADEV at the longest averaging time equals d × τ / √2 within 10%.
+  4. Lag-1 autocorrelation: white noise within 3/√N of 0; an AR(1) series with φ = 0.3 within 0.03 of 0.3.
+  5. A planted run of ten identical samples reads as 10 and a white series as 1; float32 samples on the accelerometer's LSB grid return that step within 1%; frames carrying held copies with `read_ok` false enter neither n nor the runs.
+  6. The ISA slope matches a central difference of `altitude.cpp`'s formula within 1e-4 m/hPa; the accelerometer tilt of (9.81, 0, 9.81) is pitch 45°; the derived constants follow their formulas (R = ADEV(τ₀)² on a white log, P0_alt = R, the retained ones unchanged, tilt = 0.98 b, offsets in mg); the R rule takes the detrended variance on AR(1) noise of ρ₁ = 0.3 plus 1.8 m of drift, recovering the true per-sample variance within 3% where ADEV(τ₀)² understates it by 30%, and warns on anti-correlated samples and on pressure repeats far beyond float32's chance count; the jitter summary of three hand-written rows is exact; the Markdown names every channel; the four figures render; a log whose timestamps repeat is refused.
+  7. The binary's seed-42 log: assert each raw sigma within 15% of the simulator's literal (0.2 hPa, 0.1 °C, 0.05 m/s², 0.1 deg/s), the means centered (the bounds of `SimulatedDataTest.NoiseIsCenteredOnBaseValues`), exactly 10 fresh GPS fixes, the barometric sigma in metres the same two ways within 1% and within 15% of 1.665 m, ADEV(τ₀)²/σ² within [0.85, 1.15] and |ρ₁| under 0.15 on every channel, no identical run over 3, no events, the fused sigma under 0.5 × the barometric sigma after the settle window, the gyro bias under 0.02 deg/s, and pitch and roll within 0.05° of the accelerometer-only tilt.
+  8. The derived barometric variance within 25% of 2.774 m² = (0.2 hPa × 8.327 m/hPa)²; the command line on the same log with `--jitter`, `--figures`, `--json`: exit 0, the JSON complete, four PNGs.
+  9. *(Hardware)* `telemetry --live --cycles 45000` with the board flat and untouched, the room temperature and a METAR sea-level pressure noted before and after; the five rotated files, the jitter CSV, the stdout's last lines, the commit, OS, kernel, GCC, chip IDs, and SHA-256 sums kept under `captures/`.
+  10. The reader's summary and the analysis on the capture, figures to `docs/img/`, the JSON beside the capture; the tables into FTS-NP-001 with the provenance filled.
+  11. `processor.cpp`: the barometric variance and the initial altitude variance from the JSON; the simulator's four sigmas as named constants; the C++ suite and pytest green.
+  12. File 000 replayed on the Mac through the constants before and after the change, and through the three initial-velocity-variance candidates: the fused altitude sigma, the vertical speed sigma, and the startup transient's peak and settle time tabulated; the candidate chosen by the rule in FTS-NP-001 Section 3.
+- **Expected result:** Steps 1 through 8 as listed. Step 9: 45,000 frames in five files reading as one run, one event (the GPS timeout near 2020 ms), zero torn bytes, zero missed cycles; pressure sigma a few pascals, barometric altitude sigma 0.2 to 0.35 m, gyro sigma about 0.02 deg/s with a bias of a few deg/s, accelerometer sigma about 0.02 m/s², no identical run near 10 on a stuck-tracked channel, the barometer's detrended ρ₁ within sampling error of zero and the IMU's positive (the DLPF, about 0.1 to 0.3, so its σ/ADEV(τ₀) sits above 1). Step 12: the measured constants replace the placeholders, with the climb-response and scatter consequences recorded.
+- **Pass/fail:** Any tolerance in steps 1 through 8 fails. Step 9 fails on any event other than the GPS timeout, a frame count other than 45,000, pressure repeats beyond five times float32's chance count (the chip read faster than it converts), or a significantly negative detrended ρ₁ on the barometer (no mechanism produces it). A significantly positive detrended ρ₁ is not a failure: the R rule then takes the variance of the linearly detrended series (FTS-NP-001 Section 3.2). Steps 10 to 12 are recorded in FTS-VR-001 Entry 9; a constant that leaves the pipeline with a different value than the document states fails.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -486,9 +515,11 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Fourteen requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
+- Fifteen requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
+- Section 2.2 says integration tests run in CI; the workflow has no Python step yet, so the pytest suite (50 tests) runs locally until the CI topic adds `pip install -r requirements.txt` and `python -m pytest` after ctest.
+- TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (REQ-SENS-005).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The constants the live source starts from (barometer 0x76, MPU6050 identity 0x68, driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12).
-- The ZeroMQ transport is implemented; TC-005 is executed by hand (FTS-VR-001 Entry 6) until the pytest suite automates it, and TC-010 step 6 waits for the same suite. The UDP transport (REQ-TRANS-002) is not implemented. TC-004's Python comparison step waits on the log parser, which will share the receiver's layout module.
+- The ZeroMQ transport is implemented; TC-005 is executed by hand (FTS-VR-001 Entry 6) until the pytest suite automates it, and TC-010 step 6 waits for the same suite. The UDP transport (REQ-TRANS-002) is not implemented. TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.
