@@ -18,3 +18,8 @@ coverage/*.html
 coverage/*.info
 coverage/html/
 static_analysis/*.txt
+
+# Private context and local Claude Code state (never committed)
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
