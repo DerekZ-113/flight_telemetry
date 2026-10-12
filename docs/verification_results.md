@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-11
+> **Last Updated:** 2026-10-12
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -457,3 +457,80 @@ cppcheck 2.21.0, same flags as CI: 0 findings.
 - CI run of record for this commit, and for the ZeroMQ commits if theirs has not been recorded.
 - On recovery from a long DEGRADED span the complementary filter integrates one rate sample over the whole span (FTS-DD-001 §6); a re-seed from the accelerometer after a long gap would be a refinement, not a correction, and is not planned.
 - The GPS driver (Week 2 map, Day 14) must set `gps_read_ok` only on a cycle in which a sentence completed; that is now what the pipeline assumes, and the simulator models.
+
+## Entry 8 — 2026-10-12, live sensor source commits (I2C seam, BMP280 and MPU6050 drivers, `LiveSensorSource`, gyro-gap re-seed)
+
+Built and verified on the Mac before the first hardware day; §8.6 is reserved for the on-target results. The driver's name, the barometer address, and the IMU identity are provisional until the chips are read (FTS-DD-001 §12).
+
+### 8.1 Finding: one rate sample integrated across an outage (supersedes Entry 7 §7.6)
+
+Entry 7 §7.6 recorded that on recovery from a long DEGRADED span the complementary filter integrates one rate sample over the whole span, and judged a re-seed from the accelerometer "a refinement, not a correction, and not planned". Reviewing that for the live source changed the judgment. The accepted sample's rate is multiplied by the whole gap with no bound, and a real MPU6050's uncalibrated gyroscope offset is several degrees per second, so a 10 s outage would put tens of degrees of false tilt on the display at the moment of recovery, which the accelerometer term would take about a time constant to undo. That is a defect for the hardware the filter is about to meet, not a refinement. REQ-PROC-002 gained a second sentence (FTS-SRD-001 0.4.0): a gap longer than the IMU communication timeout re-initializes pitch and roll from the accelerometer on the next accepted reading. `ComplementaryFilter::reset()` drops the seed and keeps the angles; `TelemetryProcessor` takes the timeout (default 500 ms, pinned to `FaultDetectorConfig::i2c_timeout_ms` by a `static_assert` in `main.cpp`, where one config object now feeds the detector and the processor) and resets the filter before an update whose gap exceeds it, strictly greater like the detector's own comparison.
+
+Failing values on the old code (TC-006 steps 5 and 7): a 5 deg/s sample accepted after a 520 ms gap of stale frames read 2.548° of pitch where 0° was measured; the same frame carrying 45° of accelerometer tilt read 3.448° where 45° was measured. Step 6, the boundary, passed before and after the change: a gap of exactly 500 ms integrates to 2.45°.
+
+Two asymmetries are recorded in FTS-DD-001 §6: the detector judges a timeout at the failing frame and the processor at the next accepted one, so a dropout the detector tolerated followed by a good read at 520 ms re-seeds although the channel never left NOMINAL; and the processor's gap includes DEGRADED time, so any DEGRADED span longer than the timeout re-seeds on the first NOMINAL frame after recovery, whatever the fault was.
+
+### 8.2 Drivers verified against the manufacturers' arithmetic
+
+**Barometer (TC-012).** The worked example on page 23 of BMP280 datasheet revision 1.14 is reproduced by the driver's compensation: t_fine 128422, temperature 2508 (25.08 °C), pressure 25767233 in 1/256 Pa, which is 100653.254 Pa against the page's double-precision 100653.27 (the page prints the integer 25767236 and notes that the integer result may deviate from the double by rounding). Through the register protocol, with the example's bytes served in the chip's real order (the page's measurement table swaps UT and UP), the driver reports 1006.5325 hPa and 25.08 °C. The datasheet's signed left shifts became multiplications by the same powers of two (shifting a negative value left is undefined behavior in C++17, and the example's own `var1 * dig_P2` is negative); the right shifts stay as written, and this entry's clang result equals the datasheet's, with GCC's to be confirmed by the CI run. For the drill: `var1 * var1 * dig_P6` overflows int32 once |var1| exceeds 17,515, which with the example's trimming set is any temperature outside 21.6 to 28.4 °C; the example at 25.08 °C has var1 = 422 and would pass in int32 by luck, while `(1048576 − adc_P) × 2^31` is 1.36 × 10^15 and never fits.
+
+**MPU6050 (TC-013).** Sensitivities from the register map, 16384 LSB/g and 131 LSB per deg/s: 0x4000 → 9.81 m/s², 0x0083 → 1.000 deg/s, the negatives through the int16 cast; swapped bytes give 0.0383 m/s² and 246.2 deg/s, never the right number with the wrong sign. Divider: 100 Hz → 9, 50 → 19, 8 → 124, 4 → 249, 1000 → 0; 1, 3, 30, 0, −50, and 2000 refused, which is the arithmetic behind REQ-SENS-003's new 4 Hz floor.
+
+**Seam (TC-014 steps 1 to 4).** The fake's semantics, and `LinuxI2cBus` refusing `/dev/i2c-99` and failing a transaction on `/dev/null`. On the Mac both go through the ENOTSUP stub; the Linux branch of `i2c_bus.cpp` compiles for the first time on the CI runner, which is also the first time its open-failure and ioctl-failure paths execute.
+
+### 8.3 Test results (preview)
+
+`ctest`: 157 of 157 pass, Apple clang on macOS.
+
+| Suite | Tests |
+|---|---|
+| AltitudeTest | 8 |
+| KalmanTest | 12 |
+| ComplementaryTest | 14 (3 new: TC-006 steps 5 to 7) |
+| FaultDetectionTest | 28 |
+| FaultInjectingSourceTest | 4 |
+| SimulatedDataTest | 7 |
+| SimulatedSourceTest | 2 |
+| LoggingTest | 22 |
+| ReplayTest | 6 |
+| TimingTest | 14 (the `FakeClock` moved to `tests/unit/fake_clock.h`, shared) |
+| ZmqPublisherTest | 8 |
+| FakeI2cBusTest | 4 (new) |
+| LinuxI2cBusTest | 3 (new) |
+| Bmp280Test | 9 (new) |
+| Mpu6050Test | 10 (new) |
+| LiveSensorSourceTest | 6 (new) |
+| **Total** | **157** |
+
+End to end on the Mac: the default 5-cycle run and its replay `cmp` identical; `telemetry --live` exits 1 with `/dev/i2c-1: I2C device files are not available on this platform`; `--live` with `--replay` is refused as a usage error.
+
+### 8.4 Structural coverage (preview)
+
+macOS, Apple clang, `llvm-cov gcov` through lcov 2.5 with the workflow's flags:
+
+| Scope | Lines | Branches | Threshold (branch) | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% | 100.0% | 90% | pass |
+| `src/drivers/` | 100.0% | 100.0% (`bmp280.cpp` 26 of 26, `mpu6050.cpp` 28 of 28, `live_sensor_source.cpp` 14 of 14; `i2c_bus.cpp` is the stub here and carries no branches) | 70% | pass |
+| `src/logging/` | 100.0% | 83.3% (55 of 66) | 80% | pass |
+| `src/timing/`, `src/replay/`, `src/transport/` | 100.0% | 100.0% | 80% | pass |
+| **Overall** | **100.0%** (986 of 986) | **95.9%** (257 of 268) | 80% | **pass** |
+
+The 11 untaken branches are the `log_reader.cpp` clang edges of every Mac preview (Entry 6 §6.2). Two edges in the live source's constructor were untaken on the first measurement: clang's exception landing pads on `if (!baro_.init())` and `if (!imu_.init())`, the pattern Entry 5 §5.6 describes on GCC. The calls were moved onto their own lines, which also lets one startup message name both chips, and the file measures 14 of 14 without a marker. The barometer's division guard (`var1 == 0`, an all-zero calibration) is reached by a test rather than excluded. Expected on the CI run of record: the Linux branch of `i2c_bus.cpp` will show about six untaken edges, the successful write and read paths after `I2C_SLAVE` that only a bus can take; they are the hardware error paths FTS-TP-001 §6.2 names, to be listed here when the run exists, not marked.
+
+### 8.5 Static analysis
+
+cppcheck 2.21.0, same flags as CI: 0 findings. Two style findings during the build were resolved by restructuring rather than suppressed: `knownConditionTrueFalse` on the divider's bounds check (now explicit rate bounds, 4 to 1000 Hz) and `useStlAlgorithm` on the MPU6050's configuration loop (now five short-circuited writes through one helper).
+
+### 8.6 On-target results
+
+Reserved for the first hardware day: the Pi's OS, kernel, and GCC; the chip IDs (TC-014 step 11) against the provisional constants; TC-012 step 8 with the real chip's dump; the first live frames and the tilt signs (TC-014 steps 12 and 13); the replay of a live log and frames to the Mac (steps 14 and 15); TC-002 step 8, the wire pull, with the four events, their timings, the re-seed on IMU recovery, and the missed-cycle count; TC-009 step 7's timing numbers; and the noise capture's date, conditions, duration, frame count, and kept files.
+
+### 8.7 Open
+
+- CI run of record for these commits, and for the ZeroMQ and freshness commits if theirs are not yet recorded.
+- The Linux branch of `src/drivers/i2c_bus.cpp` has not been compiled on this Mac; its first compile is the CI runner's, with GCC and `-Werror`. A warning there is a finding for this entry.
+- The BME280 rename and any address change, if the chip IDs read on the Pi differ from the provisional values (FTS-DD-001 §12).
+- FAULT-010's positive-rail gap: at ±2 g the count 32767 converts to 19.6194 m/s², below the 19.62 limit the detector tests with `>=`, so positive saturation never faults. Parked for the faults topic.
+- FAULT-004's single bus-level event: the bus's `errno` stops at the live source. Parked for the faults topic.
+- The GPS driver (Week 2 map, Day 14) must set `gps_read_ok` only on a cycle in which a sentence completed (carried from Entry 7).
