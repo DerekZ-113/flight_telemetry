@@ -524,7 +524,7 @@ cppcheck 2.21.0, same flags as CI: 0 findings. Two style findings during the bui
 
 ### 8.6 On-target results
 
-Reserved for the first hardware day: the Pi's OS, kernel, and GCC; the chip IDs (TC-014 step 11) against the provisional constants; TC-012 step 8 with the real chip's dump; the first live frames and the tilt signs (TC-014 steps 12 and 13); the replay of a live log and frames to the Mac (steps 14 and 15); TC-002 step 8, the wire pull, with the four events, their timings, the re-seed on IMU recovery, and the missed-cycle count; TC-009 step 7's timing numbers; and the noise capture's date, conditions, duration, frame count, and kept files.
+Reserved for the first hardware day: the Pi's OS, kernel, and GCC; the chip IDs (TC-014 step 11) against the provisional constants; TC-012 step 8 with the real chip's dump; the first live frames and the tilt signs (TC-014 steps 12 and 13); the replay of a live log and frames to the Mac (steps 14 and 15); TC-002 step 8, the wire pull, with the four events, their timings, the re-seed on IMU recovery, and the missed-cycle count; and TC-009 step 7's timing numbers. The noise capture moved to 2026-10-13 and is recorded in Entry 9 §9.6.
 
 ### 8.7 Open
 
@@ -534,3 +534,65 @@ Reserved for the first hardware day: the Pi's OS, kernel, and GCC; the chip IDs 
 - FAULT-010's positive-rail gap: at ±2 g the count 32767 converts to 19.6194 m/s², below the 19.62 limit the detector tests with `>=`, so positive saturation never faults. Parked for the faults topic.
 - FAULT-004's single bus-level event: the bus's `errno` stops at the live source. Parked for the faults topic.
 - The GPS driver (Week 2 map, Day 14) must set `gps_read_ok` only on a cycle in which a sentence completed (carried from Entry 7).
+
+---
+
+## Entry 9 — 2026-10-12, log reader, replay-identity pytest, noise analysis oracles (macOS preview)
+
+The Python side of REQ-LOG-003 and the measurement behind REQ-PROC-004, built and verified against simulated logs before the stationary capture exists; §9.6 is reserved for the capture of 2026-10-13. No C++ changed beyond a comment in `tests/unit/test_replay.cpp`.
+
+### 9.1 What was built
+
+- `pipeline/log_reader.py`, the Python twin of `LogReader`: files, the torn-tail rule (complete records kept, the remainder counted), rotated sequences as one run (consecutive indices, increasing timestamps, a boundary step under a second), a numpy layout derived from the struct format with every offset asserted at import, and a summary command that runs on the Pi without the venv.
+- `tests/integration/`: `conftest.py` (the binary at `build/telemetry` or `$TELEMETRY_BIN`, failing rather than skipping when absent; one 500-frame seed-42 session and its replay per run, in a temporary directory), `synthetic_log.py` (logs written with the same Structs), `test_log_reader.py` (18 tests, TC-008 steps 8 to 14), `test_replay_identity.py` (6 tests, TC-004 steps 3 to 6), `test_noise_profile.py` (26 tests, TC-015 steps 1 to 8). `pytest.ini`; `requirements.txt` pins numpy 2.5.4, matplotlib 3.11.2, pytest 9.1.1 beside pyzmq.
+- `analysis/noise_profile.py`: per-channel mean, population sigma, overlapping Allan deviation, lag-1 autocorrelation, quantization step, longest identical run, first-minute and last-minute means; the ISA slope; the gyro bias and its 0.98 × b tilt; the accelerometer offsets; the five constants each marked measured, retained, or chosen by replay; the pipeline's outputs after a settle window and the startup transient; the jitter CSV; Markdown, JSON, four figures.
+- `docs/noise_profile.md` 0.1.0 (FTS-NP-001): the method, the estimators, the expectations and decision rules written before the data, the provenance table with blanks. REQ-PROC-004 reworded (FTS-SRD-001 0.5.0): measurement variances measured, the initial altitude variance equal to the barometric one, process noise and the initial velocity variance documented tuning choices. The map's recipe for process noise (the variance of the accelerometer's own noise) was rejected with a number: at a barometric variance of 0.07 m² the filter would see 90% of a 1 m/s climb after 9.7 s instead of 1.4 s, because that formula belongs to an IMU-driven predict step this filter does not have.
+- The R rule gained its second branch the same evening, at Derek's question: ADEV(τ₀)² = σ²(1 − ρ₁), so positively correlated samples would make it understate the per-sample variance and leave the filter overconfident. Decided by ρ₁ of the linearly detrended barometric altitude against 3/√N: white, R = ADEV(τ₀)²; significantly positive, R = the detrended variance, which removes slow drift without understating correlated noise; significantly negative, or pressure repeats far beyond float32's chance count, the analysis stops. The first draft had stated the ratio σ/ADEV(τ₀)'s direction wrongly (positive correlation raises it, like a trend; it does not lower it) in FTS-NP-001, the plan, and the notes; corrected in all of them. Two tests pin the new branch: AR(1) noise of ρ₁ = 0.3 plus drift recovers the true variance within 3% where ADEV(τ₀)² understates it by 30%, and anti-correlated samples and repeated conversions each raise their warning.
+
+### 9.2 Oracles (TC-015 steps 1 through 8, this Mac)
+
+Synthetic logs of 45,000 frames at 20 ms from numpy's seeded generator: every planted sigma recovered within 3/√(2N) = 1.0%, every mean within 3σ/√N, a planted gyro_y bias of 2.5 deg/s recovered with its predicted tilt 2.45°; the Allan deviation of white noise follows τ^−½ within 10% at m = 1, 4, 16, 64, 256; white noise of sigma 1 plus a drift rising √12 over the run gives a plain sigma of √2 within 2% while ADEV(τ₀) stays 1 within 1% and ADEV at 225 s equals dτ/√2 within 10%; a planted run of ten identical samples reads as 10 and the accelerometer's LSB grid returns its step within 1%; held copies with `read_ok` false enter neither n nor the runs.
+
+The binary's own 500-frame log: pressure, temperature, accelerometer and gyroscope sigmas within 15% of the simulator's literals; means centered; ten fresh GPS fixes; the barometric sigma in metres equal both ways within 1%; ADEV(τ₀)²/σ² within [0.85, 1.15] and |ρ₁| under 0.15 on every channel; no identical run over 3; the derived barometric variance within 25% of 2.774 m² = (0.2 hPa × 8.327 m/hPa)². The 3.0 m² placeholder was that number about 1.3 standard errors high.
+
+Preview on a 1500-frame simulated run (30 s, seed 42):
+
+| Channel | Sigma | ADEV(τ₀) | σ/ADEV | Simulator sigma |
+|---|---|---|---|---|
+| pressure_hpa | 0.2023 hPa | 0.1999 | 1.01 | 0.2 |
+| baro_altitude_m | 1.684 m | 1.664 | 1.01 | 1.665 |
+| accel_x / y / z | 0.0494 / 0.0498 / 0.0501 m/s² | 0.0487 / 0.0493 / 0.0498 | 1.01 | 0.05 |
+| gyro_x / y / z | 0.1009 / 0.1021 / 0.0987 deg/s | 0.102 / 0.100 / 0.099 | 0.99 to 1.02 | 0.1 |
+
+Derived: R_baro 2.77 m², the ISA slope −8.327 m/hPa, gyro bias under 0.005 deg/s, longest run 1 everywhere, fused altitude sigma 0.20 m after 5 s against 1.68 m raw.
+
+### 9.3 Finding: the startup transient belongs to the initial velocity variance
+
+FTS-DD-001 §5 recorded a startup transient of about 1 m/s in vertical speed on a stationary simulated board and attributed it to the initial velocity variance, to be revisited here. The preview measures it at 0.78 m/s at 0.62 s (frame 31). A Monte Carlo of the filter as written shows the measured barometric variance will not remove it (median peak 0.74 m/s today, 0.67 m/s at R = 0.07 m²) and that an initial velocity variance of 0.01 (m/s)² would (0.17 m/s), at the cost of seeing a vehicle already climbing at birth about a second later. The constant is chosen by replaying the capture through 1.0, 0.1 and 0.01 under the rule in FTS-NP-001 §3.5, written before the data.
+
+### 9.4 Test results (preview)
+
+| Item | Value |
+|---|---|
+| Platform | macOS, Apple clang, Python 3.13.0 |
+| C++ suite | unchanged: 157 of 157 |
+| pytest | 50 of 50 in 14 s, of which 10 s is the one simulated session |
+| TC-004 steps 3 to 6 | 500 frames in each log, zero field differences, the files byte-identical, every frame's bytes equal to its repacking (padding zero), timestamps 0 to 9980 ms |
+| TC-008 steps 8 to 14 | every header corruption refused naming the field; a 41-byte torn tail keeps the first frame and counts 41; restart, index gap, large step, and repeated timestamps refused; offsets 0, 8, …, 56, …, 97 equal to the struct's |
+| Reader on the 5-frame and 1500-frame logs | 5 frames 0 to 80 ms; 1500 frames 0 to 29,980 ms, step 20 ms, 30 fresh GPS fixes |
+
+### 9.5 Coverage and static analysis
+
+No C++ source changed; the C++ figures are Entry 8's. No Python coverage policy exists (FTS-TP-001 §4 criterion 3 scopes coverage to `src/`), so none is claimed.
+
+### 9.6 On-target results
+
+Reserved for the capture of 2026-10-13 (TC-015 steps 9 to 12): the provenance, the reader's summary (45,000 frames in five files, one GPS event, zero torn bytes), the measured table and the derived constants, the before/after replay of file 000 with the initial-velocity-variance candidates, the re-baselined seed-42 numbers after the simulator's sigmas change, the C++ suite and pytest after the constants commit, cppcheck, and the coverage preview.
+
+### 9.7 Open
+
+- The capture and everything in §9.6.
+- Python in CI: the suite runs locally; the CI topic adds the step (FTS-TP-001 §7).
+- `--replay` takes one file, so a rotated capture is replayed one file at a time (FTS-DD-001 §12).
+- A stale rotated file from an aborted earlier capture would join a later run's sequence seamlessly; the frame total, the mtime warning, and clearing `logs/` before the capture are the guards (FTS-DD-001 §3).
+- The BMP280 datasheet's per-mode noise figure at ×4 oversampling is still to be confirmed for FTS-NP-001 §3.1.
