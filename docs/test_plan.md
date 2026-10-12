@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-09
+> **Last Updated:** 2026-10-11
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -164,19 +164,19 @@ Test cards are the individual test procedures. Each card is executed by one or m
 ### TC-005: Pipeline Data Integrity over ZeroMQ
 
 - **Requirement:** REQ-TRANS-001 (also exercises REQ-TEST-002)
-- **Level:** Integration
+- **Level:** Integration (steps 4 and 7 are also executed at unit level, see Preconditions)
 - **Objective:** Verify that every frame published by the C++ process arrives at the Python receiver intact, in order, and without loss under normal conditions.
-- **Preconditions:** C++ binary built with the ZeroMQ publisher. Python receiver subscribed on the configured local endpoint. Simulated source with seed 42 so the expected frame sequence is known in advance.
+- **Preconditions:** C++ binary built with the ZeroMQ publisher (`telemetry --zmq <endpoint> --cycles 200`). Python receiver subscribed on the same endpoint with an empty subscription. Simulated source with seed 42 so the expected frame sequence is known in advance. Message layout (FTS-DD-001 Section 9): every message is a one-record log file, the 16-byte `LogFileHeader`, the `FRAME` tag byte, then the 104 frame bytes, so the receiver parses a message with the same code it uses for a log on disk. The byte identity of steps 4 and 7 is executed at unit level over `inproc://` by `ZmqPublisherTest.MessageIsHeaderTagAndFrameBytes` and `EveryPublishedFrameArrivesInOrder`; the process-level steps were executed by hand on 2026-10-11 (FTS-VR-001 Entry 6) and are automated by the pytest suite (REQ-TEST-002).
 - **Steps:**
   1. Start the Python subscriber and allow 200 ms for the subscription to settle. ZeroMQ pub/sub drops messages sent before a subscriber is connected, so the settle delay is part of the procedure, not a workaround.
   2. Start the C++ process configured for 200 frames at 50 Hz, then exit.
   3. Collect all received messages until the publisher exits or 5 s elapses.
-  4. Deserialize each message into the frame layout defined in `telemetry_frame.h`.
+  4. Treat each message as a one-record log: validate the 16-byte header (magic, format version, frame and event sizes equal to the receiver's own layout, endianness marker), then the tag, then unpack the frame with the layout defined in `telemetry_frame.h`.
   5. Assert 200 frames were received.
   6. Assert timestamps are strictly increasing in steps of 20 ms.
   7. Compare each received frame against the binary log written by the C++ process during the same run. Assert every received frame is byte-identical to the corresponding logged frame. (Python cannot regenerate the expected frames from the seed, because its random number generator differs from the C++ one, so the C++ log is the reference.)
-- **Expected result:** 200 frames received, ordered, byte-identical to the log.
-- **Pass/fail:** Any missing, reordered, or altered frame fails. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is a separate card.
+- **Expected result:** 200 frames received, ordered, byte-identical to the log; every header valid.
+- **Pass/fail:** Any missing, reordered, or altered frame fails, and so does any header the receiver would have to guess at. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is TC-010.
 
 ---
 
@@ -273,6 +273,34 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Steps 1 through 6 all hold. Step 7 is the REQ-TIME-003 criterion and is judged on the Linux `clock_nanosleep` path only; numbers from the macOS fallback are recorded in FTS-VR-001 as a preview and do not satisfy the requirement.
 
+### TC-010: Publisher Never Blocks the Processing Loop
+
+- **Requirement:** REQ-TRANS-003 (also exercises REQ-TRANS-001)
+- **Level:** Unit (steps 1 through 5), Integration (step 6), manual (step 7)
+- **Objective:** Verify that nothing on the far side of the ZeroMQ socket, absent, slow, misconfigured, or broken, delays a publish call or reaches the loop as an exception, and that the loss the publisher cannot observe is visible at the receiver.
+- **Preconditions:** `ZmqPublisher` over `inproc://` in a test-owned context; every test subscriber sets a 1 s receive timeout so a missing message fails instead of hanging. A PUB socket never blocks on send (zmq_socket(3)): when a subscriber's queue reaches the high-water mark, messages to that subscriber are dropped silently and the send still reports success. The publisher therefore counts accepted sends and refused sends only; loss is counted at the receiver from gaps in frame timestamps.
+- **Steps:**
+  1. Bind a second publisher to an endpoint already bound by a first one. Record `ok()`, `error()`, and the result of one `publish()`.
+  2. Construct a publisher on the string `not-an-endpoint`. Record the same three things.
+  3. With no subscriber connected, publish 1000 frames. Record the wall time and the statistics.
+  4. Publisher high-water mark 10, subscriber receive high-water mark 10, subscription confirmed live. Publish 1000 frames without the subscriber reading. Record the wall time and the statistics, then drain the subscriber and count what arrived.
+  5. Shut the context down, then publish one frame. Record the return value, the failure count, and the error code.
+  6. *(pytest)* Run `telemetry --zmq` for 500 frames with a subscriber that stops reading for 3 s in the middle of the run, then resumes. Read `logs/telemetry_jitter.csv` and the receiver's gap count.
+  7. *(manual, recorded in FTS-VR-001)* Run `telemetry --zmq tcp://127.0.0.1:5555 --cycles 500` with no subscriber. Read the jitter CSV and the transport summary.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `ok()` false, `error()` non-empty, `publish()` false, one send failure counted; the first publisher still `ok()`; no exception |
+  | 2 | same as step 1 |
+  | 3 | 1000 publishes complete in under 2 s; `published` 1000, `send_failures` 0 |
+  | 4 | 1000 publishes complete in under 2 s; `published` 1000 plus the warm-ups, `send_failures` 0; drained count at least 1 and fewer than 1000 |
+  | 5 | `publish()` false, `send_failures` 1, `last_errno` `ETERM`, no exception |
+  | 6 | `missed_cycles` 0 on every line; the receiver reports gaps greater than 0 and the publisher reports `send_failures` 0 |
+  | 7 | `missed_cycles` 0 on every line; `published` 500, `send_failures` 0 |
+
+- **Pass/fail:** Any publish that waits past the bound, any exception that reaches the caller, or any missed cycle attributable to the publisher fails. Step 4's drained count is asserted as a range, not a number: ZeroMQ documents that a queue may hold as much as 60 to 70% fewer messages than the configured mark.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -315,7 +343,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 ## 7. Open Items
 
 - REQ-SENS-006, REQ-PROC-005, REQ-LOG-003, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
-- The transports are not implemented. TC-005 describes the intended procedure and will be revised when the interface is final. TC-004's Python comparison step waits on the receiver.
+- The ZeroMQ transport is implemented; TC-005 is executed by hand (FTS-VR-001 Entry 6) until the pytest suite automates it, and TC-010 step 6 waits for the same suite. The UDP transport (REQ-TRANS-002) is not implemented. TC-004's Python comparison step waits on the log parser, which will share the receiver's layout module.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.

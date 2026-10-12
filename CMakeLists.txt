@@ -47,6 +47,7 @@ add_library(telemetry_core STATIC
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
     src/timing/jitter_log.cpp
+    src/transport/zmq_publisher.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)
@@ -73,6 +74,29 @@ FetchContent_Declare(
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+# ---------------------------------------------------------------------------
+# ZeroMQ transport (REQ-TRANS-001). Two pieces. libzmq, the C library, comes
+# from the system like the compiler does (brew install zeromq; apt-get
+# install libzmq3-dev): a shared library with a stable ABI, the same 4.3.5
+# on the Mac, the CI runner, and the Pi. cppzmq, the header-only C++
+# wrapper, is compiled into our objects, so it is fetched and pinned to a
+# tag like Google Test: every build compiles the same wrapper. cppzmq's own
+# CMake finds libzmq (CMake package, then pkg-config, then a plain path
+# search) and exports the `cppzmq` target that carries both.
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    cppzmq
+    GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+    GIT_TAG        v4.11.0   # pinned, same reason as googletest
+)
+# Its tests default to ON and would fetch Catch2 and build dozens of targets.
+set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(cppzmq)
+
+# PUBLIC: the unit tests open their own SUB socket to read what the
+# publisher sends, so they need the headers and the library too.
+target_link_libraries(telemetry_core PUBLIC cppzmq)
 
 enable_testing()
 

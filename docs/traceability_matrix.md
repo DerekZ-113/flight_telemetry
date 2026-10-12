@@ -3,8 +3,8 @@
 > **Document ID:** FTS-TM-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-09
-> **Related:** FTS-SRD-001 v0.2.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
+> **Last Updated:** 2026-10-11
+> **Related:** FTS-SRD-001 v0.2.1 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -68,9 +68,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TRANS-001 | — | — | TC-005 | Not started | |
-| REQ-TRANS-002 | — | — | — | Not started | |
-| REQ-TRANS-003 | — | — | — | Not started | |
+| REQ-TRANS-001 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher::publish`), `src/main.cpp` (`run`, `--zmq`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`FrameReceiver`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindsAndReportsOk`, `MessageIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder` | TC-005 | Partial | Unit level: round trip over `inproc://`, every message byte-identical to the log record behind its own header. Process level ("every processed frame" from `telemetry --zmq` reaches the receiver) is TC-005, executed by hand on 2026-10-11 (FTS-VR-001 Entry 6) and automated by the pytest suite (REQ-TEST-002). |
+| REQ-TRANS-002 | — | — | — | Not started | UDP publisher. |
+| REQ-TRANS-003 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher` constructor, `publish`, `kDefaultSendHighWaterMark`, `kLingerMs`), `src/main.cpp` (`run`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindFailureIsReportedNotThrown`, `InvalidEndpointIsReportedNotThrown`, `NoSubscriberNeverBlocks`, `StalledSubscriberDropsInsteadOfBlocking`, `SendErrorIsCountedNotThrown` | TC-010 | Partial | Non-blocking proven at unit level for the ZeroMQ publisher; the no-subscriber loop run (TC-010 step 7) recorded in FTS-VR-001 Entry 6. Loop level with a stalled subscriber (TC-010 step 6) is the pytest suite. UDP not implemented. |
 
 ## 6. Logging and Replay
 
@@ -92,8 +92,8 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp` | — | Partial | Drivers (simulator, fault injector), processing, logging, replay, and timing all have unit tests. Transport does not exist yet; the live sensor drivers do not exist yet. |
-| REQ-TEST-002 | — | — | — | Not started | |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp`, `test_zmq_publisher.cpp` | — | Partial | Drivers (simulator, fault injector), processing, logging, replay, timing, and the ZeroMQ transport all have unit tests. The UDP transport and the live sensor drivers do not exist yet. |
+| REQ-TEST-002 | — | — | TC-005 | Not started | The Python receiver the suite will drive exists (`pipeline/receiver.py`, traced under REQ-TRANS-001) and executed TC-005 by hand (FTS-VR-001 Entry 6); no pytest test exists yet. |
 | REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Measurement of record: CI run 34445017604, 100% branches in every scope, recorded in FTS-VR-001 Entry 5 §5.8. Still Partial only because pytest integration coverage (REQ-TEST-002) is not yet part of the run. |
 | REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings on CI run 34445017604; no release-tagged build has been made yet, so the gate has not been exercised. |
 
@@ -104,16 +104,16 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 12 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
-| Partial | 8 | SENS-006, PROC-005, FAULT-003, TIME-003, LOG-003, TEST-001, TEST-003, TEST-004 |
+| Partial | 10 | SENS-006, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, LOG-003, TEST-001, TEST-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 12 | all others |
+| Not started | 10 | all others |
 | **Total** | **32** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 
 | File | Traced by |
 |---|---|
-| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004, REQ-TIME-001, REQ-TIME-002 |
+| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004, REQ-TIME-001, REQ-TIME-002, REQ-TRANS-001, REQ-TRANS-003 |
 | `src/telemetry_frame.h` / `.cpp` | REQ-PROC-005 |
 | `src/data_source.h` | REQ-LOG-004 |
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006 |
@@ -126,6 +126,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/timing/clock.h` / `.cpp` | REQ-TIME-001 |
 | `src/timing/fixed_rate_scheduler.h` / `.cpp` | REQ-TIME-001, REQ-TIME-002 |
 | `src/timing/jitter_log.h` / `.cpp` | REQ-TIME-002, REQ-TIME-003 |
+| `src/transport/zmq_publisher.h` / `.cpp` | REQ-TRANS-001, REQ-TRANS-003 |
 | `src/processing/altitude.h` / `.cpp` | REQ-PROC-001 |
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002 |

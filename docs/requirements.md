@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.2.0
+> **Version:** 0.2.1
 > **Status:** Draft
-> **Last Updated:** 2026-09-09
+> **Last Updated:** 2026-10-11
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results)
 
 ## Conventions
@@ -72,9 +72,13 @@ REQ-TIME-003: The system shall sustain the configured processing rate, with no m
 
 REQ-TRANS-001: The system shall publish every processed TelemetryFrame over ZeroMQ using the publish/subscribe pattern for local inter-process communication.
 
+> **Rationale:** *publish* means hand the frame to the transport. Delivery to every subscriber is not required: pub/sub has no acknowledgement, a subscriber that joins late misses what was sent before it joined, and a subscriber that falls behind by more than the high-water mark loses frames rather than slowing the publisher (REQ-TRANS-003). The binary log (REQ-LOG-001), not the wire, is the record of a run.
+
 REQ-TRANS-002: The system shall publish every processed TelemetryFrame over UDP to a configurable destination address and port.
 
 REQ-TRANS-003: A transport failure shall not block the processing loop or cause it to miss a cycle deadline (REQ-TIME-001).
+
+> **Rationale:** a transport failure includes no subscriber connected, a subscriber too slow to keep up, an endpoint that cannot be bound at startup, and a send that returns an error. Each is reported (counted, printed at exit, or refused at startup) and none is waited on inside the loop.
 
 ## Logging and Replay
 
