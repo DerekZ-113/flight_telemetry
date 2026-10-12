@@ -24,9 +24,16 @@
 // feed it back through this same method and compare the result.
 class TelemetryProcessor {
 public:
-    // No parameters yet. Later takes a config struct with sampling rate,
-    // filter tuning, and fault thresholds (REQ-CFG-001).
-    TelemetryProcessor() = default;
+    // The IMU communication timeout (REQ-FAULT-001) doubles as the
+    // longest gap the gyroscope is integrated across (REQ-PROC-002).
+    // The default equals FaultDetectorConfig::i2c_timeout_ms; main hands
+    // one config object to the detector and to this class, and a
+    // static_assert there keeps the two defaults equal. Placeholder
+    // until config (REQ-CFG-001), when a config struct replaces it.
+    static constexpr uint64_t kDefaultImuTimeoutMs = 500;
+
+    // explicit: a bare integer must never silently become a processor.
+    explicit TelemetryProcessor(uint64_t imu_timeout_ms = kDefaultImuTimeoutMs);
 
     // Copies all raw fields from `raw`, then fills the computed fields:
     // barometric altitude (REQ-PROC-001), pitch and roll from the
@@ -41,6 +48,10 @@ public:
     // fifty; a failed I2C read inside the timeout window is stale on a
     // channel that is still NOMINAL. Both are normal, and neither may be
     // re-applied as if it were new evidence.
+    //
+    // The gyroscope integrates over the time since the last accepted IMU
+    // sample, up to the IMU timeout. Past it the gap is an outage, and the
+    // attitude is re-seeded from the accelerometer instead (REQ-PROC-002).
     TelemetryFrame process(const TelemetryFrame& raw);
 
 private:
@@ -67,4 +78,8 @@ private:
     // loop period: three stale frames between two fresh ones are 80 ms of
     // rotation, not 20. Empty until the first accepted sample.
     std::optional<uint64_t> imu_last_fresh_ms_;
+
+    // Longest gap the gyroscope is integrated across; a longer one
+    // re-seeds the attitude filter (REQ-PROC-002).
+    uint64_t imu_timeout_ms_;
 };

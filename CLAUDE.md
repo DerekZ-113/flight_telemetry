@@ -4,9 +4,9 @@
 
 Embedded flight telemetry for a Raspberry Pi in C++17, built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and structural coverage, static analysis, and a formal fault model are part of every build.
 
-**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket and never blocks the loop, with a Python receiver that shares the log's byte layout; Google Test unit tests; CI with a branch-coverage gate and cppcheck; six controlled documents under `docs/`.
+**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket and never blocks the loop, with a Python receiver that shares the log's byte layout; an `I2cBus` seam with a Linux device-file implementation and a test fake, the BMP280 (BME280-compatible) and MPU6050 drivers verified against the manufacturers' arithmetic, and a live sensor source selected by `--live`; Google Test unit tests; CI with a branch-coverage gate and cppcheck; six controlled documents under `docs/`.
 
-**Planned:** I2C drivers (BMP280 barometer, MPU6050 IMU) and a UART GPS driver (NEO-6M) behind a live `DataSource`; noise characterization feeding the Kalman constants; a UDP publisher; YAML configuration; pytest integration tests; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
+**Planned:** a UART GPS driver (NEO-6M) behind the live `DataSource`; noise characterization feeding the Kalman constants; a UDP publisher; YAML configuration; pytest integration tests; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
 
 ## The One Rule That Matters
 
@@ -33,6 +33,7 @@ cmake --build build --parallel                      # telemetry_core, telemetry,
 ctest --test-dir build --output-on-failure          # every TEST() is its own CTest case
 ./build/telemetry                                   # 5 paced cycles on the simulator -> logs/telemetry_000.bin
 ./build/telemetry --replay logs/telemetry_000.bin   # same pipeline fed from the log, unpaced -> logs/replay_000.bin
+./build/telemetry --live --cycles 250               # on the Pi: BMP280 and MPU6050 over /dev/i2c-1, paced
 cmp logs/telemetry_000.bin logs/replay_000.bin      # silent: the two logs are byte-identical
 .venv/bin/python -m pipeline.receiver --endpoint tcp://127.0.0.1:5555   # start first; one line per frame, gap count at exit
 ./build/telemetry --zmq tcp://127.0.0.1:5555 --cycles 500             # 10 s at 50 Hz, logged and published
@@ -53,8 +54,9 @@ CI (`.github/workflows/ci.yml`) configures with `-DWARNINGS_AS_ERRORS=ON -DENABL
 src/
   telemetry_frame.h/.cpp  the record: raw fields, computed fields, status, read_ok   built
   data_source.h           abstract DataSource, raw-only contract                      built
-  drivers/                simulated_data, simulated_source, fault_injecting_source    built
-                          I2C bus, BMP280, MPU6050, NEO-6M, live sensor source        planned
+  drivers/                simulated_data, simulated_source, fault_injecting_source,   built
+                          i2c_bus, bmp280, mpu6050, live_sensor_source
+                          NEO-6M (UART)                                                planned
   processing/             altitude, kalman_filter, complementary_filter,
                           fault_detector, processor                                   built
   logging/                log_format, binary_logger, log_reader                       built
@@ -62,7 +64,7 @@ src/
   timing/                 clock, fixed_rate_scheduler, jitter_log                     built
   transport/              zmq_publisher (PUB socket, drop-not-block)                  built
                           UDP publisher                                               planned
-  main.cpp                composition root; --replay <file>                           built
+  main.cpp                composition root; --replay, --zmq, --live                   built
 
 tests/
   unit/                   Google Test, one file per module                            built
@@ -94,10 +96,11 @@ coverage/ static_analysis/   generated reports (committed selectively, see .giti
 ## Key Architecture Decisions
 
 - **Data source abstraction:** abstract base class so the processing engine doesn't know if it's reading live sensors or replaying from a binary log. Sources fill raw fields and `read_ok` only; computed fields and health belong to the pipeline. This is what lets replay use the same code path as live mode (REQ-LOG-004).
+- **Drivers behind the I2C seam:** `I2cBus` is addressed per transaction (one descriptor serves the bus); drivers return `std::optional` readings and never throw, and a failed read becomes `read_ok` false with the fields held; the live source stamps frames with the actual read time from the monotonic clock; the Linux implementation sits behind the second `#if` and compiles to a stub elsewhere; the barometer and IMU constants in `main.cpp` (0x76, 0x68, `Bmp280`) are provisional until the chip IDs are read on the Pi (design §12).
 - **Detector before processor:** the fault detector runs first and owns `ChannelStatus`; the filters consume a reading only when its channel is NOMINAL and the reading is fresh (`read_ok`): predict every cycle, update at each sensor's own rate (REQ-PROC-006). The detector judges timeouts on the frame's own timestamp, never a wall clock, so replay reproduces the same faults at the same frames.
 - **Fault detection → DEGRADED state:** failed sensors don't crash the system. The channel is marked DEGRADED, the fault is logged as a tagged record in the same stream, remaining sensors continue processing, and the channel returns to NOMINAL after M consecutive valid reads.
 - **Log format:** raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker); rotation at record boundaries; bit-identity is claimed for the same build on the same platform only (`docs/design.md` §8 and §9).
-- **Fixed-rate timing with clock_nanosleep:** absolute-time scheduling (`TIMER_ABSTIME` on Linux; the `nanosleep` fallback for other platforms is the only `#if` in the codebase), re-phase and count missed cycles on overrun, never burst. Jitter is logged per cycle to a CSV, not into the telemetry log, so the log stays deterministic.
+- **Fixed-rate timing with clock_nanosleep:** absolute-time scheduling (`TIMER_ABSTIME` on Linux; the `nanosleep` fallback for other platforms is one of the two `#if`s in the codebase, the other being the I2C device file in `src/drivers/i2c_bus.cpp`; both sit on the OS boundary), re-phase and count missed cycles on overrun, never burst. Jitter is logged per cycle to a CSV, not into the telemetry log, so the log stays deterministic.
 - **Kalman filter covariances from measured data:** a noise characterization run on stationary sensors will supply the variances. Until then the five constants in `processor.cpp` are named placeholders and REQ-PROC-004 stays Partial.
 - **Dual transport:** ZeroMQ (built) for local IPC, UDP (planned) for network streaming, mirroring an aircraft-to-ground-station architecture. The wire format is the log format: every message is a one-record log file (header, tag, frame), so one Python module describes both. The publisher never blocks: PUB socket, 100-message high-water mark per subscriber, bounded linger, failures counted; loss is measured at the receiver from timestamp gaps (REQ-TRANS-003).
 

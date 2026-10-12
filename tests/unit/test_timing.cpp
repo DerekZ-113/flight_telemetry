@@ -1,8 +1,9 @@
 // Tests for src/timing (REQ-TIME-001, REQ-TIME-002). Test card TC-009.
 //
-// Almost every test drives the scheduler with a FakeClock that advances
-// time by fiat, so a thousand cycles take microseconds and nothing
-// sleeps (FTS-TP-001 section 2.1). Three tests at the end use the real
+// Almost every test drives the scheduler with a FakeClock (fake_clock.h,
+// shared with the live-source test) that advances time by fiat, so a
+// thousand cycles take microseconds and nothing sleeps (FTS-TP-001
+// section 2.1). Three tests at the end use the real
 // MonotonicClock: the OS boundary has to be exercised once or a typo in
 // the clock_nanosleep call ships. Those assert only what the OS
 // guarantees (never early, monotonic) with loose upper bounds so CI
@@ -16,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "fake_clock.h"
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
@@ -25,29 +27,6 @@ namespace {
 constexpr uint64_t kPeriod = 20'000'000;   // 20 ms, 50 Hz
 constexpr uint64_t kMs = 1'000'000;
 constexpr uint64_t kUs = 1'000;
-
-// A clock whose time moves only when the test says so.
-class FakeClock : public Clock {
-public:
-    uint64_t now_ns() override { return now_; }
-
-    // "Sleep" by jumping to the target, then add whatever wake latency the
-    // test configured. A target already in the past does not move time
-    // backward, matching the real contract.
-    void sleep_until_ns(uint64_t target_ns) override {
-        sleeps_++;
-        if (target_ns > now_) {
-            now_ = target_ns;
-        }
-        now_ += late_by_ns_;
-    }
-
-    void advance(uint64_t ns) { now_ += ns; }   // simulated processing time
-
-    uint64_t now_ = 1'000'000'000ull;           // arbitrary epoch, like the real clock
-    uint64_t late_by_ns_ = 0;
-    int sleeps_ = 0;
-};
 
 }  // namespace
 

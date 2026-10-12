@@ -3,8 +3,8 @@
 > **Document ID:** FTS-TM-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-11
-> **Related:** FTS-SRD-001 v0.3.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
+> **Last Updated:** 2026-10-12
+> **Related:** FTS-SRD-001 v0.4.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -29,10 +29,10 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-SENS-001 | — | — | — | Not started | BMP280 driver, Sprint 1 week 2 |
-| REQ-SENS-002 | — | — | — | Not started | BMP280 driver |
-| REQ-SENS-003 | — | — | — | Not started | MPU6050 driver |
-| REQ-SENS-004 | — | — | — | Not started | MPU6050 driver, shared sample-rate divider |
+| REQ-SENS-001 | `src/drivers/bmp280.cpp` (`Bmp280::init`, `Bmp280::read`, `Bmp280::compensate_temperature`, `Bmp280::compensate_pressure`), `src/drivers/live_sensor_source.cpp` (`LiveSensorSource::read_frame`), `src/drivers/i2c_bus.cpp` (`LinuxI2cBus`, the I2C seam) | `test_bmp280.cpp: Bmp280Test.DatasheetExampleCompensatesExactly`, `ReadsTheExampleThroughTheRegisters`, `InitAcceptsBothChipIdsAndRefusesOthers`, `InitWritesSleepConfigNormalInOrder`, `FailedTransactionsRefuseInit`, `FailedBurstAndSkippedMeasurementAreEmpty`, `ByteSwappedCalibrationGivesAnotherAnswer`, `ZeroCalibrationDoesNotDivideByZero`, `ReadBeforeInitIsEmpty`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly`, `FailedBaroReadHoldsFieldsAndClearsReadOk` | TC-012, TC-014 | Partial | Compensation verified against the datasheet's worked example to the count; register protocol over the fake bus. The read rate is the loop's 50 Hz and "configurable" waits on REQ-CFG-001. On-target evidence (TC-012 step 8, TC-014 steps 11 through 15) pending in FTS-VR-001 Entry 8 §8.6; the driver's name and the 0x76 address are provisional until the chip is read (FTS-DD-001 Section 12). |
+| REQ-SENS-002 | `src/drivers/bmp280.cpp` (`Bmp280::read`: one burst holds both fields, and `t_fine` carries the temperature into the pressure compensation) | `test_bmp280.cpp: Bmp280Test.DatasheetExampleCompensatesExactly`, `ReadsTheExampleThroughTheRegisters`, `FailedBurstAndSkippedMeasurementAreEmpty`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly` | TC-012 | Partial | Nothing in it is configurable: Verified once the on-target run shows temperature read with each pressure (Entry 8 §8.6). |
+| REQ-SENS-003 | `src/drivers/mpu6050.cpp` (`Mpu6050::init`, `Mpu6050::read`, `Mpu6050::sample_rate_divider`), `src/drivers/i2c_bus.cpp` (`LinuxI2cBus`, the I2C seam) | `test_mpu6050.cpp: Mpu6050Test.InitVerifiesIdentityAndWritesConfiguration`, `WrongWhoAmIRefusesInit`, `FailedIdentityReadRefusesInit`, `FailedConfigurationWriteRefusesInit`, `ScalesRawCountsToFrameUnits`, `ByteOrderIsHighByteFirst`, `SampleRateDividerArithmetic`, `UnreachableRateRefusesInit`, `FailedBurstReturnsEmpty`, `ReadBeforeInitReturnsEmpty`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly`, `FailedImuReadHoldsFieldsAndClearsReadOk` | TC-013, TC-014 | Partial | Driver verified against the register map's sensitivity and divider arithmetic over the fake bus; on-target evidence in FTS-VR-001 Entry 8. The sample rate is a constructor parameter (default 100 Hz; the 8-bit divider floors at 4 Hz, the requirement's lower bound); "configurable" through YAML waits on REQ-CFG-001. |
+| REQ-SENS-004 | `src/drivers/mpu6050.cpp` (`Mpu6050::init` writes SMPLRT_DIV once for both sensors; `Mpu6050::read` scales the gyroscope pairs) | `test_mpu6050.cpp: Mpu6050Test.InitVerifiesIdentityAndWritesConfiguration`, `ScalesRawCountsToFrameUnits`, `ByteOrderIsHighByteFirst`, `SampleRateDividerArithmetic` | TC-013 | Partial | One divider register sets both rates, which is the requirement's point. Configurability as for REQ-SENS-003. |
 | REQ-SENS-005 | — | — | — | Not started | NEO-6M driver, NMEA parsing |
 | REQ-SENS-006 | `src/drivers/simulated_data.cpp` (`SimulatedDataGenerator`), `src/drivers/simulated_source.cpp` (`SimulatedSource`) | `test_simulated_data.cpp: SimulatedDataTest.ProducesRawReadingsOnly`, `SameSeedSameSequence`, `DifferentSeedDifferentSequence`, `NoiseIsCenteredOnBaseValues`, `PressureNoiseHasStatedSpread`, `GpsFixOncePerSecond`, `GpsIntervalIsConfigurable`; `SimulatedSourceTest.TimestampsAdvanceByInterval`, `SourceMatchesGeneratorWithSameSeed` | TC-011 (steps 7 and 8) | Partial | Raw-only contract, seed reproducibility, the stated noise level, and the 1 Hz GPS schedule are tested directly. Noise sigmas are hardcoded in the generator constructor and the GPS period is a constructor parameter; "configurable" through YAML waits on REQ-CFG-001. |
 
@@ -41,7 +41,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
 | REQ-PROC-001 | `src/processing/altitude.cpp` (`pressure_to_altitude`) | `test_altitude.cpp: AltitudeTest.*` (8 tests) | TC-001 | Verified | |
-| REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_complementary.cpp: ComplementaryTest.*` (11 tests, including `StaleImuFrameHoldsAttitude` and `GyroIntegratesOverStaleGap` for REQ-PROC-006) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED and stale frames hold the last angles; FAULT-006 requires an invalid marker (FTS-DD-001 Section 6). |
+| REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`, `reset`), `src/processing/processor.cpp` (`TelemetryProcessor::process`, the re-seed gate on `imu_timeout_ms_`) | `test_complementary.cpp: ComplementaryTest.*` (14 tests, including `StaleImuFrameHoldsAttitude` and `GyroIntegratesOverStaleGap` for REQ-PROC-006, and `LongImuGapReseedsFromAccel`, `GapEqualToTimeoutStillIntegrates`, `ReseedAdoptsTiltedAccel` for the re-seed rule) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED and stale frames hold the last angles; a gap longer than the IMU timeout re-initializes them from the accelerometer on the next accepted reading (FTS-DD-001 Section 6); FAULT-006 requires an invalid marker. |
 | REQ-PROC-003 | `src/processing/kalman_filter.cpp` (`KalmanFilter1D`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_kalman.cpp: KalmanTest.*` (12 tests, including the four REQ-PROC-006 gating tests) | TC-007 | Verified | Covariance constants are placeholders (see REQ-PROC-004). |
 | REQ-PROC-004 | — | — | — | Not started | Constants in `processor.cpp` are placeholders pending `docs/noise_profile.md`. |
 | REQ-PROC-005 | `src/processing/processor.cpp` (`TelemetryProcessor::process`), `src/telemetry_frame.cpp`, `src/main.cpp` (`run`) | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `test_complementary.cpp: ComplementaryTest.DegradedImuHoldsAttitude` (indirect) | — | Partial | No fixed-rate loop yet (REQ-TIME-001). No test asserts that every computed field is filled. |
@@ -80,7 +80,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-LOG-001 | `src/logging/log_format.h/.cpp` (`LogFileHeader`, `RecordType`), `src/logging/binary_logger.cpp` (`BinaryLogger`), `src/logging/log_reader.cpp` (`LogReader`), `src/main.cpp` (`run`) | `test_logging.cpp: LoggingTest.*` (22 tests) | TC-008 | Verified | Raw-struct records with a versioned, size-checked header. Same-platform format by design (FTS-DD-001 §8, §9). |
 | REQ-LOG-002 | `src/logging/binary_logger.cpp` (`BinaryLogger::write_record`, `open_next_file`) | `test_logging.cpp: LoggingTest.RotationSplitsAtRecordBoundary`, `TinyLimitStillWritesOneRecordPerFile`, `CurrentPathTracksRotation`, `RotationIntoRemovedDirectoryReportsNotOk` | TC-008 | Verified | Limit is a constant in `main.cpp` until REQ-CFG-001. |
 | REQ-LOG-003 | `src/replay/log_replay_source.cpp` (`LogReplaySource`), `src/logging/log_reader.cpp` | `test_replay.cpp: ReplayTest.ReplayReproducesLiveSession` (500 frames, injected faults, `memcmp` on every frame and event); file-level: `logs/telemetry_000.bin` == `logs/replay_000.bin` | TC-004 | Partial | Unit and file-level identity proven on one toolchain. TC-004's Python parse step (integration level) waits on the receiver. |
-| REQ-LOG-004 | `src/data_source.h` (`DataSource`), `src/drivers/simulated_source.cpp`, `src/replay/log_replay_source.cpp`, `src/main.cpp` (`create_source`, `run`) | `test_replay.cpp: ReplayTest.ReplayStripsComputedFieldsAndStatus`, `ReplaySpansRotatedFiles`, `ReplayReproducesLiveSession` | TC-004 | Verified | Two concrete sources share one pipeline; `main` selects by `--replay`. Replay strips computed fields and status so the pipeline must recompute them. |
+| REQ-LOG-004 | `src/data_source.h` (`DataSource`), `src/drivers/simulated_source.cpp`, `src/drivers/live_sensor_source.cpp`, `src/replay/log_replay_source.cpp`, `src/main.cpp` (`create_source`, `run`) | `test_replay.cpp: ReplayTest.ReplayStripsComputedFieldsAndStatus`, `ReplaySpansRotatedFiles`, `ReplayReproducesLiveSession`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly` (the raw-only contract on the live side) | TC-004, TC-014 (step 14 on hardware) | Verified | Three concrete sources share one pipeline; `main` selects by `--replay` or `--live`. Replay strips computed fields and status so the pipeline must recompute them. |
 
 ## 7. Configuration
 
@@ -105,9 +105,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 13 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
-| Partial | 10 | SENS-006, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, LOG-003, TEST-001, TEST-003, TEST-004 |
+| Partial | 14 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-006, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, LOG-003, TEST-001, TEST-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 10 | all others |
+| Not started | 6 | SENS-005, PROC-004, TRANS-002, CFG-001, CFG-002, TEST-002 |
 | **Total** | **33** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
@@ -120,6 +120,10 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006 |
 | `src/drivers/simulated_source.h` / `.cpp` | REQ-SENS-006, REQ-LOG-004 |
 | `src/drivers/fault_injecting_source.h` / `.cpp` | REQ-TEST-001 (fault injection support) |
+| `src/drivers/i2c_bus.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002, REQ-SENS-003, REQ-SENS-004 (the I2C seam) |
+| `src/drivers/mpu6050.h` / `.cpp` | REQ-SENS-003, REQ-SENS-004 |
+| `src/drivers/bmp280.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002 |
+| `src/drivers/live_sensor_source.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002, REQ-SENS-003, REQ-SENS-004, REQ-LOG-004 |
 | `src/logging/log_format.h` / `.cpp` | REQ-LOG-001 |
 | `src/logging/binary_logger.h` / `.cpp` | REQ-LOG-001, REQ-LOG-002 |
 | `src/logging/log_reader.h` / `.cpp` | REQ-LOG-001, REQ-LOG-003 |

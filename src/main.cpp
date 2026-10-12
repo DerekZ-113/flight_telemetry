@@ -22,8 +22,17 @@
 
 // The only place that knows concrete source types exist. Everything
 // below create_source() sees DataSource and nothing else.
+#include "drivers/i2c_bus.h"
+#include "drivers/live_sensor_source.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
+
+// The processor's default re-seed bound and the detector's default I2C
+// timeout are one number, "the IMU communication timeout" of REQ-PROC-002
+// and REQ-FAULT-001. Checked at compile time so the two cannot drift
+// apart in a header edit; main below also hands both the same value.
+static_assert(FaultDetectorConfig{}.i2c_timeout_ms == TelemetryProcessor::kDefaultImuTimeoutMs,
+              "REQ-PROC-002: the processor's re-seed bound must equal the detector's I2C timeout");
 
 // Log rotation size. Placeholder until config (REQ-CFG-001).
 constexpr uint64_t kMaxLogFileBytes = 1u << 20;   // 1 MiB, about 10,000 frames
@@ -34,6 +43,15 @@ constexpr uint64_t kPeriodNs = 20'000'000;
 
 // Frames per run without --cycles: a quick smoke run.
 constexpr int kDefaultCycles = 5;
+
+// The live source's bus and addresses (REQ-SENS-001 through REQ-SENS-004).
+// Placeholders until config (REQ-CFG-001). The addresses are the boards'
+// defaults, provisional until the first hardware day reads them
+// (design.md section 12): a barometer with SDO to ground answers at
+// 0x76, an MPU6050 with AD0 low at 0x68.
+constexpr const char* kI2cDevicePath = "/dev/i2c-1";
+constexpr uint8_t kBarometerAddress = 0x76;
+constexpr uint8_t kImuAddress = 0x68;
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -69,11 +87,13 @@ void print_event(const FaultEvent& event) {
               << " value=" << event.value << std::endl;
 }
 
-// Command line. Each flag takes one value: --replay <file> swaps the
-// source, --zmq <endpoint> adds the publisher, --cycles <n> sets the run
-// length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
-// run). Parsed once, here; the YAML config (REQ-CFG-001) will replace it.
+// Command line. --live takes no value and swaps the source for the real
+// sensors; the rest take one: --replay <file> swaps the source for a log,
+// --zmq <endpoint> adds the publisher, --cycles <n> sets the run length
+// (TC-005 step 2 needs 200; the default stays the 5-cycle smoke run).
+// Parsed once, here; the YAML config (REQ-CFG-001) will replace it.
 struct Options {
+    bool live = false;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
     int cycles = kDefaultCycles;
@@ -81,7 +101,8 @@ struct Options {
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--replay <log.bin>] [--zmq <endpoint>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--live | --replay <log.bin>] [--zmq <endpoint>] [--cycles <n>]\n"
+              << "  --live               read the BMP280 and MPU6050 on " << kI2cDevicePath << ", paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
@@ -107,23 +128,54 @@ Options parse_args(int argc, const char* const argv[]) {
                 return options;
             }
             options.cycles = static_cast<int>(n);
+        } else if (flag == "--live") {
+            options.live = true;   // a flag without a value
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
         }
     }
+    if (options.live && options.replay_file.has_value()) {
+        options.error = "--live and --replay each choose the source; pass one of them";
+    }
     return options;
 }
 
 // Factory: decides which concrete DataSource to build. Today the choice
-// is one command-line flag; later it reads the YAML config (REQ-CFG-001)
-// and adds the live-sensor source. The return type is the base class, so
-// callers cannot tell which one they got. That is the point (REQ-LOG-004).
+// is two command-line flags; later it reads the YAML config (REQ-CFG-001).
+// The return type is the base class, so callers cannot tell which one
+// they got. That is the point (REQ-LOG-004).
 //
 // std::make_unique constructs the object on the heap and wraps the
 // pointer in a std::unique_ptr<Derived>, which converts implicitly to
 // std::unique_ptr<DataSource> because Derived is-a DataSource.
-std::unique_ptr<DataSource> create_source(const Options& options) {
+//
+// Returns null with `error` set when the live source cannot start: the
+// bus and the source report failure through ok()/error() rather than
+// throwing, the project's shape for startup errors, and a missing device
+// file or a chip answering with the wrong identity is a wiring or
+// configuration error that the first live run wants on one line.
+std::unique_ptr<DataSource> create_source(const Options& options, Clock& clock, std::string& error) {
+    if (options.live) {
+        auto bus = std::make_unique<LinuxI2cBus>(kI2cDevicePath);
+        if (!bus->ok()) {
+            error = bus->error();
+            return nullptr;
+        }
+        // The raw pointer outlives the move below only for the message: the
+        // source owns the bus from here on.
+        const LinuxI2cBus* const bus_view = bus.get();
+        auto live = std::make_unique<LiveSensorSource>(std::move(bus), kBarometerAddress,
+                                                       kImuAddress, clock);
+        if (!live->ok()) {
+            error = live->error();
+            if (bus_view->last_errno() != 0) {
+                error += " (last bus error: " + std::string(std::strerror(bus_view->last_errno())) + ")";
+            }
+            return nullptr;
+        }
+        return live;
+    }
     if (options.replay_file.has_value()) {
         return std::make_unique<LogReplaySource>(
             std::vector<std::filesystem::path>{*options.replay_file});
@@ -170,7 +222,7 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
 
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
-        // would run Bmp280Source::read_frame() or LogReplaySource::read_frame()
+        // would run LiveSensorSource::read_frame() or LogReplaySource::read_frame()
         // tomorrow, with no change to this code.
         TelemetryFrame raw = source.read_frame();
 
@@ -200,6 +252,7 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
 }
 
 // Usage: telemetry                        simulated source, 5 frames
+//        telemetry --live --cycles 250    real sensors on /dev/i2c-1, 5 s paced
 //        telemetry --replay <log.bin>     replay a recorded log instead
 //        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
 //                                         publish every processed frame; 10 s at 50 Hz
@@ -214,15 +267,30 @@ int main(int argc, char* argv[]) {
     }
     const bool replaying = options.replay_file.has_value();
 
+    // One monotonic clock paces the loop (below) and stamps live frames, so
+    // the frame timestamps and the jitter CSV measure the same time
+    // (design.md section 10).
+    MonotonicClock clock;
+
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
-    std::unique_ptr<DataSource> source = create_source(options);
+    std::string source_error;
+    std::unique_ptr<DataSource> source = create_source(options, clock, source_error);
+    if (!source) {
+        std::cerr << "error: " << source_error << std::endl;
+        return 1;
+    }
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
-    FaultDetector detector;   // default thresholds until config (REQ-CFG-001)
-    TelemetryProcessor processor;
+    // One config object feeds both: the IMU timeout is the detector's
+    // fault bound and the processor's re-seed bound (REQ-PROC-002), and
+    // they must be the same number. Default thresholds until config
+    // (REQ-CFG-001).
+    const FaultDetectorConfig config{};
+    FaultDetector detector(config);
+    TelemetryProcessor processor(config.i2c_timeout_ms);
 
     // A replay run logs under a different prefix. The replay source opens
     // its input before the logger opens its output, and both live in
@@ -258,7 +326,6 @@ int main(int argc, char* argv[]) {
     // held to the 50 Hz grid and their jitter is logged; a replay run is
     // unpaced (see run()). The objects are built either way so their
     // lifetime covers the loop; only the pointers decide whether they act.
-    MonotonicClock clock;
     FixedRateScheduler scheduler(clock, kPeriodNs);
     std::optional<JitterLog> jitter;
     if (!replaying) {

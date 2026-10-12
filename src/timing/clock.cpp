@@ -23,8 +23,9 @@ uint64_t MonotonicClock::now_ns() {
 }
 
 void MonotonicClock::sleep_until_ns(uint64_t target_ns) {
-    // The only platform split in the codebase. Everything outside this
-    // function is identical on both platforms.
+    // One of two platform splits in the codebase; the other is the I2C
+    // device file in drivers/i2c_bus.cpp. Everything outside the two is
+    // identical on both platforms.
 #if defined(__linux__)
     // Absolute sleep. A signal can interrupt it early (EINTR); the target
     // is absolute, so the same call is simply re-issued. A relative sleep

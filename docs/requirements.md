@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-11
+> **Last Updated:** 2026-10-12
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results)
 
 ## Conventions
@@ -22,7 +22,9 @@ REQ-SENS-002: The system shall read temperature from the BMP280 sensor via I2C w
 
 > **Rationale:** the BMP280 compensates pressure using its own temperature measurement, so the two are read together and an invalid temperature invalidates the pressure (FAULT-009).
 
-REQ-SENS-003: The system shall read 3-axis accelerometer data from the MPU6050 sensor via I2C at a configurable IMU sample rate between 1 Hz and 100 Hz.
+REQ-SENS-003: The system shall read 3-axis accelerometer data from the MPU6050 sensor via I2C at a configurable IMU sample rate between 4 Hz and 100 Hz.
+
+> **Rationale:** the MPU6050 derives its sample rate from a 1 kHz base through an 8-bit divider, 1 kHz / (1 + n), so the slowest rate the chip can produce is 3.9 Hz; a requirement must not promise a rate the hardware cannot deliver. The upper bound is the loop's need, not the chip's limit. REQ-SENS-004 inherits the range through "the IMU sample rate configured under REQ-SENS-003".
 
 REQ-SENS-004: The system shall read 3-axis gyroscope data from the MPU6050 sensor via I2C at the IMU sample rate configured under REQ-SENS-003.
 
@@ -38,7 +40,9 @@ REQ-SENS-006: The system shall provide a simulated data source that produces Tel
 
 REQ-PROC-001: The system shall convert barometric pressure to altitude using the ISA hypsometric formula, referenced to a configurable sea-level pressure.
 
-REQ-PROC-002: The system shall compute pitch and roll angles from accelerometer and gyroscope data using a complementary filter.
+REQ-PROC-002: The system shall compute pitch and roll angles from accelerometer and gyroscope data using a complementary filter. When the interval since the last IMU reading the filter accepted exceeds the IMU communication timeout of REQ-FAULT-001, the filter shall re-initialize pitch and roll from the accelerometer on the next accepted reading instead of integrating the gyroscope across the gap.
+
+> **Rationale:** one rate sample says nothing about the rotation during an outage; multiplied by the outage it fabricates tilt. An uncalibrated MPU6050 gyroscope offset is several degrees per second, so a 10 s outage would show tens of degrees of false tilt on recovery, which the accelerometer term would take about a time constant to undo. The accelerometer knows the tilt at recovery; re-seeding from it costs nothing when the vehicle is steady and is no worse than the first frame after boot when it is not. Gaps up to the timeout are integrated (REQ-PROC-006): a few missed reads are rotation to account for, not an outage.
 
 REQ-PROC-003: The system shall fuse barometric altitude and GPS altitude using a 1D (single spatial axis) Kalman filter with two states, altitude and vertical velocity.
 

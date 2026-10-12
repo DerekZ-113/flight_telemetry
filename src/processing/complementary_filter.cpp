@@ -62,6 +62,14 @@ void ComplementaryFilter::update(float accel_x, float accel_y, float accel_z,
     }
 }
 
+void ComplementaryFilter::reset() {
+    // Only the seed is dropped. Zeroing the angles would show a level
+    // board for a frame on a vehicle that may not be level; holding the
+    // last estimate until the accelerometer speaks is the same interim
+    // behavior a DEGRADED channel already has (design.md section 6).
+    initialized_ = false;
+}
+
 float ComplementaryFilter::pitch_deg() const {
     return pitch_rad_ * kRadToDeg;
 }

@@ -192,3 +192,81 @@ TEST(ComplementaryTest, GyroIntegratesOverStaleGap) {
     EXPECT_NEAR(out.pitch_deg, 0.98f * 1.0f * 0.080f, 0.001f);
     EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
 }
+
+// ---------------------------------------------------------------------------
+// REQ-PROC-002, second sentence: a gap longer than the IMU communication
+// timeout is an outage, not rotation to account for. Test card TC-006
+// steps 5 to 7. The gap rule lives in the processor, which owns the
+// timestamps, so these drive TelemetryProcessor with hand-built frames.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A NOMINAL frame whose IMU fields are the only ones that matter here.
+// `fresh` is imu_read_ok; the barometer and GPS are fresh and flat.
+TelemetryFrame imu_frame(uint64_t ts, bool fresh, float pitch_rate_dps,
+                         float accel_x, float accel_z) {
+    TelemetryFrame f{};
+    f.timestamp_ms = ts;
+    f.pressure_hpa = 1013.0f;
+    f.temperature_c = 21.0f;
+    f.accel_x = accel_x;
+    f.accel_z = accel_z;
+    f.gyro_y = pitch_rate_dps;
+    f.gps_altitude_m = 3.0f;
+    f.baro_status = ChannelStatus::NOMINAL;
+    f.imu_status = ChannelStatus::NOMINAL;
+    f.gps_status = ChannelStatus::NOMINAL;
+    f.baro_read_ok = true;
+    f.imu_read_ok = fresh;
+    f.gps_read_ok = true;
+    return f;
+}
+
+// Two accepted frames, then stale frames every 20 ms through `last_stale_ms`.
+void run_gap(TelemetryProcessor& processor, uint64_t last_stale_ms) {
+    processor.process(imu_frame(0, true, 0.0f, 0.0f, kG));    // seeds flat
+    processor.process(imu_frame(20, true, 0.0f, 0.0f, kG));   // last accepted sample
+    for (uint64_t ts = 40; ts <= last_stale_ms; ts += 20) {
+        processor.process(imu_frame(ts, false, 0.0f, 0.0f, kG));   // a driver holding the last sample
+    }
+}
+
+}  // namespace
+
+// TC-006 step 5. The fresh frame at 540 ms is 520 ms after the last
+// accepted sample, past the 500 ms timeout. Its 5 deg/s rate must not be
+// integrated over the gap (0.98 * 5 * 0.52 = 2.548 degrees of invented
+// tilt); the filter re-seeds from the flat accelerometer instead.
+// (REQ-PROC-002)
+TEST(ComplementaryTest, LongImuGapReseedsFromAccel) {
+    TelemetryProcessor processor;
+    run_gap(processor, 520);
+    const TelemetryFrame out = processor.process(imu_frame(540, true, 5.0f, 0.0f, kG));
+    EXPECT_NEAR(out.pitch_deg, 0.0f, 0.001f);
+    EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
+}
+
+// TC-006 step 6. A gap of exactly the timeout is still rotation to
+// account for: strictly greater re-seeds, equal integrates, matching the
+// detector's own comparison. 0.98 * 5 deg/s * 0.5 s = 2.45 degrees.
+// (REQ-PROC-002, REQ-PROC-006)
+TEST(ComplementaryTest, GapEqualToTimeoutStillIntegrates) {
+    TelemetryProcessor processor;
+    run_gap(processor, 500);
+    const TelemetryFrame out = processor.process(imu_frame(520, true, 5.0f, 0.0f, kG));
+    EXPECT_NEAR(out.pitch_deg, 2.45f, 0.001f);
+}
+
+// TC-006 step 7. The board was moved during the outage: the recovery
+// frame's accelerometer says 45 degrees. The re-seed adopts it outright,
+// as the first frame after boot would, rather than moving 2% of the way
+// toward it on top of the invented gyro tilt (about 3.4 degrees today).
+// (REQ-PROC-002)
+TEST(ComplementaryTest, ReseedAdoptsTiltedAccel) {
+    TelemetryProcessor processor;
+    run_gap(processor, 520);
+    const TelemetryFrame out = processor.process(imu_frame(540, true, 5.0f, kG, kG));
+    EXPECT_NEAR(out.pitch_deg, 45.0f, 0.1f);
+    EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
+}

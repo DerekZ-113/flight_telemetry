@@ -3,7 +3,7 @@
 > **Document ID:** FTS-FM-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-09-09
+> **Last Updated:** 2026-10-12
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
@@ -21,7 +21,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default), allowing transient errors to be retried.
 - **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers. Before the timeout expires the channel is still NOMINAL, but a frame with no reading (`baro_read_ok` false) is not applied to the filter: it coasts on prediction from the first missed read, not from the fault declaration (REQ-PROC-006).
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver-level I2C error handling is tested with the BMP280 driver.
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver level: `tests/unit/test_bmp280.cpp` → `Bmp280Test.FailedBurstAndSkippedMeasurementAreEmpty` (a failed burst, or data registers still at their reset value, is an empty reading, which the live source reports as `baro_read_ok` false: `LiveSensorSourceTest.FailedBaroReadHoldsFieldsAndClearsReadOk`). On hardware: TC-002 step 8.
 
 ### FAULT-002: MPU6050 I2C timeout
 
@@ -29,9 +29,9 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default).
-- **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers. Between the first missed read and the timeout the attitude is held, and the next fresh sample integrates the gyroscope over the whole gap (REQ-PROC-006).
+- **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers. Between the first missed read and the timeout the attitude is held, and the next fresh sample integrates the gyroscope over the whole gap (REQ-PROC-006). After a gap longer than the timeout the next accepted sample re-initializes pitch and roll from the accelerometer instead (REQ-PROC-002): one rate sample times a long outage would fabricate tilt.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver-level I2C error handling is tested with the MPU6050 driver.
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver level: `tests/unit/test_mpu6050.cpp` → `Mpu6050Test.FailedBurstReturnsEmpty` (a failed burst is an empty reading, which the live source reports as `imu_read_ok` false), `FailedIdentityReadRefusesInit`. On hardware: TC-002 step 8.
 
 ### FAULT-003: NEO-6M UART timeout or GPS fix loss
 
@@ -51,7 +51,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Detection:** Both I2C devices time out within the same I2C timeout window (500 ms by default)
 - **Response:** Mark barometer and IMU channels DEGRADED. Log a single bus-level fault event rather than two separate sensor faults. Continue processing with GPS only. System is heavily degraded but still running — altitude from GPS only, no attitude data.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BusFailureDegradesBothI2cChannels`. Both channels degrade on the same frame. The single bus-level event is deferred: the detector sees two device timeouts and logs two events, because telling a bus fault from two device faults needs driver error codes that do not exist yet.
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BusFailureDegradesBothI2cChannels`. Both channels degrade on the same frame. The single bus-level event is deferred: the detector sees two device timeouts and logs two events, because telling a bus fault from two device faults needs driver error codes that do not exist yet. The drivers now exist and still do not supply them: `LinuxI2cBus::last_errno()` stops at the live source, which reports only `read_ok` per channel. Parked for the faults topic.
 
 ---
 

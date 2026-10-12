@@ -37,6 +37,11 @@ constexpr float kAccelNoiseVariance = 1.0f;
 
 }  // namespace
 
+TelemetryProcessor::TelemetryProcessor(uint64_t imu_timeout_ms)
+    : imu_timeout_ms_(imu_timeout_ms)
+{
+}
+
 TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // Start from a copy so every raw field carries through by default.
     // TelemetryFrame is a plain struct of numbers, so this is a memberwise
@@ -69,10 +74,21 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // A DEGRADED or stale frame holds the angles. FAULT-006 says attitude
     // must be marked invalid rather than held; that needs a validity
     // marker the frame does not carry yet (sidecar decision, Sprint 2).
+    //
+    // A gap longer than the IMU timeout is an outage, not rotation: one
+    // rate sample times ten seconds, with a few degrees per second of
+    // uncalibrated offset in it, would be tens of degrees of invented
+    // tilt. The filter is re-seeded from the accelerometer instead. The
+    // comparison is strictly greater, like the detector's, so a gap of
+    // exactly the timeout is still integrated (TC-006 step 6).
     if (imu_fresh) {
         float imu_dt = 0.0f;
         if (imu_last_fresh_ms_.has_value()) {
-            imu_dt = static_cast<float>(raw.timestamp_ms - *imu_last_fresh_ms_) / 1000.0f;
+            const uint64_t gap_ms = raw.timestamp_ms - *imu_last_fresh_ms_;
+            if (gap_ms > imu_timeout_ms_) {
+                attitude_filter_.reset();
+            }
+            imu_dt = static_cast<float>(gap_ms) / 1000.0f;
         }
         attitude_filter_.update(raw.accel_x, raw.accel_y, raw.accel_z,
                                 raw.gyro_x, raw.gyro_y, raw.gyro_z, imu_dt);

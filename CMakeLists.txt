@@ -40,6 +40,10 @@ add_library(telemetry_core STATIC
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
     src/drivers/fault_injecting_source.cpp
+    src/drivers/i2c_bus.cpp
+    src/drivers/bmp280.cpp
+    src/drivers/live_sensor_source.cpp
+    src/drivers/mpu6050.cpp
     src/logging/log_format.cpp
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp

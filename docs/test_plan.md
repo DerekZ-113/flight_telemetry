@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-11
+> **Last Updated:** 2026-10-12
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -50,6 +50,13 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Randomization:** Randomized schedules use a logged seed so any failing run can be reproduced exactly. A randomized test that cannot be replayed is not evidence.
 - **Location:** `tests/fault_injection/`.
 - **Executed:** Every commit for the deterministic scenarios. Randomized sweeps run nightly.
+
+### 2.4 Hardware Tests
+
+- **Scope:** Behavior that only the target can show: real sensors on the bus, the Linux sleep primitive, a pulled wire.
+- **Method:** Executed by hand on the Raspberry Pi with the live source, following the card's steps. The run's conditions (board, OS, kernel, compiler, date) and the printed output are recorded in FTS-VR-001.
+- **Isolation:** None. This is the level at which the test doubles are removed.
+- **Executed:** On hardware days, never in CI. A card step at this level is marked *Hardware*.
 
 ---
 
@@ -114,8 +121,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 ### TC-002: Sensor Communication Failure Detected Within Bound
 
-- **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004)
-- **Level:** Fault injection
+- **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004, REQ-FAULT-005, and REQ-PROC-002 in step 8)
+- **Level:** Fault injection (steps 1 through 7), Hardware (step 8)
 - **Objective:** Verify that a sensor that stops responding is marked DEGRADED within the required detection bound, and not before.
 - **Preconditions:** The fault detector reads time from `frame.timestamp_ms`; there is no wall clock anywhere in the pipeline, so tests advance time by feeding frames with later timestamps. I2C bound configured at 500 ms. UART bound configured at 2000 ms. Frames are hand-built at 50 Hz with `read_ok` flags cleared per channel; one case uses a `FaultInjectingSource` wrapping the simulator to prove the seam.
 - **Steps:**
@@ -126,8 +133,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Repeat steps 2 through 4 for the IMU channel.
   6. Repeat steps 2 through 4 for the GPS channel, using the 2000 ms UART bound.
   7. For each channel, assert that exactly one fault event was logged, carrying the channel, the fault type, and a timestamp.
-- **Expected result:** Barometer and IMU transition to DEGRADED at a clock time greater than 480 ms and no greater than 500 ms after the first failed read. GPS transitions at a time greater than 1980 ms and no greater than 2000 ms. Healthy channels remain NOMINAL throughout. Processing continues for every frame; no frame is dropped.
-- **Pass/fail:** All three channels detected within their bound and not more than one frame period early. Any detection before 480 ms (or 1980 ms for GPS) fails, because it would false-alarm on a single transient error. Any missing or duplicated fault event fails.
+  8. *(Hardware)* On the Raspberry Pi, during a paced live run of 60 s (`telemetry --live --cycles 3000`, output to a file), pull the barometer board's SDA jumper at about 10 s and reconnect it at about 25 s; pull the MPU6050's SDA jumper at about 35 s, hold the board about 20° nose-up, reconnect at about 50 s, then set it flat. Keep the printed output and the log, and replay the log.
+- **Expected result:** Barometer and IMU transition to DEGRADED at a clock time greater than 480 ms and no greater than 500 ms after the first failed read. GPS transitions at a time greater than 1980 ms and no greater than 2000 ms. Healthy channels remain NOMINAL throughout. Processing continues for every frame; no frame is dropped. Step 8: a `COMM_TIMEOUT` event for BARO 500 to 520 ms after the pull, its value the elapsed time since the last good read, and a `RECOVERY` event on the fifth good read after reconnection, its value the time spent DEGRADED; the same pair for IMU; `baro_read_ok` false from the pull onward while the status stays NOMINAL for the first half second; pitch and roll frozen during the IMU outage and at the tilted value on the first NOMINAL frame after it (REQ-PROC-002); the other I2C channel NOMINAL throughout; the timing summary reports 0 missed cycles; the saved log replays byte-identical.
+- **Pass/fail:** All three channels detected within their bound and not more than one frame period early. Any detection before 480 ms (or 1980 ms for GPS) fails, because it would false-alarm on a single transient error. Any missing or duplicated fault event fails. Step 8: a channel that never degrades, degrades early, recovers before five good reads, or takes the other I2C channel down with it fails; a missed cycle during the pull is a finding, because a failed transaction took longer than one period.
 
 ### TC-003: Stuck Sensor Detection
 
@@ -184,13 +192,16 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-PROC-002
 - **Level:** Unit
-- **Objective:** Verify that the complementary filter recovers static tilt from the accelerometer, follows the gyroscope for short-term motion, and bounds gyroscope bias drift.
-- **Preconditions:** None. The filter is constructed with a chosen alpha; no hardware or simulator is required.
+- **Objective:** Verify that the complementary filter recovers static tilt from the accelerometer, follows the gyroscope for short-term motion, bounds gyroscope bias drift, and re-initializes from the accelerometer after an IMU gap longer than the communication timeout.
+- **Preconditions:** Steps 1 through 4: none; the filter is constructed with a chosen alpha, and no hardware or simulator is required. Steps 5 through 7 drive a `TelemetryProcessor` with hand-built frames, because the gap rule is applied there; the processor's IMU timeout is its default, 500 ms.
 - **Steps:**
   1. Construct a filter with default alpha. Call `update()` once with accelerometer (0, 0, 9.81) m/s² and zero gyroscope rates. Record pitch and roll.
   2. Construct a fresh filter. Call `update()` once with accelerometer (9.81, 0, 9.81) and zero rates. Record pitch and roll.
   3. Construct a filter with alpha = 1.0 (gyroscope only). Seed flat as in step 1, then call `update()` 100 times with accelerometer (0, 0, 9.81), pitch rate 1.0 deg/s, dt = 0.02 s. Record pitch.
   4. Construct a filter with alpha = 0.98. Seed flat, then call `update()` 500 times with the same inputs as step 3. Record pitch.
+  5. Through a `TelemetryProcessor`: fresh flat frames at 0 and 20 ms, then NOMINAL frames with `imu_read_ok` false every 20 ms through 520 ms, then a fresh frame at 540 ms carrying a pitch rate of 5 deg/s and a flat accelerometer. Record pitch and roll.
+  6. As step 5, but the fresh frame arrives at 520 ms, a gap of exactly 500 ms since the last accepted sample. Record pitch.
+  7. As step 5, but the fresh frame carries accelerometer (9.81, 0, 9.81). Record pitch.
 - **Expected result:**
 
   | Step | Expected pitch (deg) | Expected roll (deg) | Tolerance (deg) | Basis |
@@ -199,8 +210,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 2 | 45.0 | 0.0 | 0.1 | atan2(9.81, 9.81) |
   | 3 | 2.0 | 0.0 | 0.01 | 100 × 0.02 s × 1 deg/s, pure integration |
   | 4 | 0.98 | 0.0 | 0.05 | steady state alpha·b·dt/(1−alpha) |
+  | 5 | 0.0 | 0.0 | 0.001 | gap of 520 ms exceeds the 500 ms timeout: re-seeded from the flat accelerometer, the 5 deg/s sample not integrated |
+  | 6 | 2.45 | 0.0 | 0.001 | gap equal to the timeout is integrated: 0.98 × 5 deg/s × 0.5 s |
+  | 7 | 45.0 | 0.0 | 0.1 | re-seeded from the tilted accelerometer |
 
-- **Pass/fail:** All four within tolerance. Step 3 must show the drift (pitch near 2°, not 0°) and step 4 must show it bounded (pitch below 1.5° after ten time constants). A filter that passes step 4 by ignoring the gyroscope fails step 3.
+- **Pass/fail:** All seven within tolerance. Step 3 must show the drift (pitch near 2°, not 0°) and step 4 must show it bounded (pitch below 1.5° after ten time constants). A filter that passes step 4 by ignoring the gyroscope fails step 3. A processor that integrates across the long gap (step 5 near 2.55°, step 7 near 3.4°) or re-seeds at a gap equal to the timeout (step 6 near 0°) fails.
 
 ### TC-007: Altitude Fusion Behavior
 
@@ -331,6 +345,106 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Any stale reading that moves a filter state, any fix applied more than once, any gyroscope gap integrated over the wrong interval, or any frame between fixes that claims a fresh GPS reading fails. Step 6 is the one tolerance in the card: a closed-form value compared at float precision.
 
+### TC-012: Barometer Compensation and Register Protocol
+
+- **Requirement:** REQ-SENS-001, REQ-SENS-002
+- **Level:** Unit (steps 1 through 7), Hardware (step 8)
+- **Objective:** Verify that the barometer driver reproduces the manufacturer's compensation arithmetic exactly, reads the chip through the documented register protocol (identity, little-endian calibration, big-endian burst data, the sleep-config-normal configuration sequence), accepts both Bosch identities and refuses others, and reports a failed or incomplete reading as empty rather than as a number.
+- **Preconditions:** `Bmp280` over a `FakeI2cBus` at 0x76. **Primary oracle:** the worked example on page 23 of BMP280 datasheet revision 1.14 (BST-BMP280-DS001-11, May 2015): trimming set dig_T1 27504, dig_T2 26435, dig_T3 −1000, dig_P1 36477, dig_P2 −10685, dig_P3 3024, dig_P4 2855, dig_P5 140, dig_P6 −7, dig_P7 15500, dig_P8 −14600, dig_P9 6000; raw readings UT 519888 and UP 415148; answers t_fine 128422 and temperature 2508 (25.08 °C) from the int32 code, pressure 100653.27 Pa from the double code, and 25767233 in 1/256 Pa from the int64 code the driver runs (the page prints 25767236 and notes that the integer result may deviate from the double by rounding). The example's measurement table swaps the UT and UP register addresses (confirmed by Bosch, uncorrected); the fake serves UP at 0xF7 to 0xF9 and UT at 0xFA to 0xFC, the chip's real order, so the example tests register order as well as arithmetic. The same compensation code is in the BME280 datasheet (section 4.2.3), so the oracle holds for either chip.
+- **Steps:**
+  1. Call `compensate_temperature()` and `compensate_pressure()` with the example's trimming set and raw readings.
+  2. Load the fake with chip ID 0x58, the 24 calibration bytes at 0x88 little-endian, and the six data bytes at 0xF7; call `init()`, then `read()`.
+  3. Repeat step 2 with chip ID 0x60, then with 0x55 (a BMP180).
+  4. After a good `init()`, record the transaction log.
+  5. Fail, one at a time: the identity read, the calibration read, the first write to 0xF4, the write to 0xF5, the second write to 0xF4 (value 0x2F). Call `init()` each time.
+  6. After a good `init()`: fail the burst at 0xF7 and call `read()`; lift it; load a pressure field of 0x80000 and call `read()`; load a temperature field of 0x80000 and call `read()`; restore the example and call `read()`.
+  7. Serve the calibration words high byte first and read the example.
+  8. *(Hardware)* With the calibration bytes (0x88 to 0x9F) and one data sample (0xF7 to 0xFC) dumped from the real chip on the Raspberry Pi (`i2cdump -y 1 0x76 b`), bake them into a test and compensate them.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | t_fine 128422 and temperature 2508 exactly; pressure 25767233 exactly, and within 0.1 Pa of 100653.27 when divided by 256 |
+  | 2 | `init()` true and `chip_id()` 0x58; 1006.5325 hPa and 25.08 °C within 0.001 |
+  | 3 | 0x60 accepted with `chip_id()` 0x60; 0x55 refused with 0x55, 0x58, and 0x60 in the message, one transaction only |
+  | 4 | read 0xD0; read 24 bytes at 0x88; write 0xF4 = 0x00; write 0xF5 = 0x00; write 0xF4 = 0x2F, in that order |
+  | 5 | each refuses `init()` with the cause named, and `read()` stays empty |
+  | 6 | empty, empty, empty, then a reading |
+  | 7 | a temperature and a pressure both more than 0.01 away from the example's: the suite can tell the byte order apart |
+  | 8 | pressure between 950 and 1050 hPa and temperature between 10 and 35 °C: physically plausible for a bench near sea level |
+
+- **Pass/fail:** Any deviation from the example's integer results, any accepted identity outside {0x58, 0x60}, any configuration write out of order, any number produced from a failed or reset-value burst, or any exception fails. Step 8 fails if the real chip's numbers are implausible, which would mean the register order or the calibration layout is wrong in a way the example did not catch. The test file also covers the division guard in the pressure code (an all-zero calibration yields 0, as the datasheet's code does) and `read()` before `init()`, which is empty and touches the bus not at all.
+
+### TC-013: MPU6050 Scaling and Configuration
+
+- **Requirement:** REQ-SENS-003, REQ-SENS-004
+- **Level:** Unit
+- **Objective:** Verify that the MPU6050 driver checks the chip's identity, configures the one sample-rate divider, the low-pass filter, and both full-scale ranges with the decided values, assembles big-endian two's-complement register pairs in the right order, scales raw counts to the frame's units, and reports a failed transaction as an empty reading rather than an exception.
+- **Preconditions:** `Mpu6050` over a `FakeI2cBus` (TC-014 steps 1 through 3) whose WHO_AM_I register (0x75) holds 0x68. Expected values are arithmetic from the register map (RM-MPU-6000A-00 revision 4.2): 16384 LSB/g at ±2 g, 131 LSB per deg/s at ±250 deg/s, sample rate = 1 kHz / (1 + SMPLRT_DIV) with the low-pass filter enabled.
+- **Steps:**
+  1. Call `init()` with the default 100 Hz. Record the transaction log and the register file.
+  2. Load WHO_AM_I with 0x70 (an MPU-6500's answer) and call `init()`. Record the result, the message, and the transaction count.
+  3. After a good `init()`, load the fourteen output registers with accelerometer counts (0x4000, 0xC000, 0x2000), any temperature pair, and gyroscope counts (0x0083, 0xFF7D, 0x0000); call `read()`.
+  4. Load the accelerometer x pair as (0x00, 0x40) and the gyroscope x pair as (0x7D, 0xFF); call `read()`.
+  5. Call `sample_rate_divider()` with 100, 50, 4, 1000, 1, 3, 30, 0, −50, and 2000.
+  6. Fail the burst at 0x3B and call `read()`; lift the failure and call `read()` again.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | one read of 0x75, then writes in order 0x6B = 0x01, 0x19 = 9, 0x1A = 0x04, 0x1B = 0x00, 0x1C = 0x00; `init()` true |
+  | 2 | `init()` false; the message names 0x70 and 0x68; one transaction only, nothing written to a chip of unknown identity |
+  | 3 | accelerometer (9.81, −9.81, 4.905) m/s² within 1e-4; gyroscope (1.0, −1.0, 0.0) deg/s within 1e-4 |
+  | 4 | accelerometer x 64/16384 × 9.81 = 0.0383 m/s²; gyroscope x 32255/131 = 246.2 deg/s. Swapped bytes are a different number, never the right one with the wrong sign |
+  | 5 | 9, 19, 249, 0; the other six refused |
+  | 6 | empty, then a reading |
+
+- **Pass/fail:** Any write out of order or with another value, any accepted identity other than 0x68, any scale or sign error, any rate accepted that the divider cannot produce exactly, or any exception fails. The test file also covers: a failed identity read and a failed configuration write refuse `init()` and name the cause; an unreachable rate is refused before the bus is touched; `read()` before `init()` is empty and touches the bus not at all.
+
+### TC-014: I2C Bus Seam and Live Sensor Source
+
+- **Requirement:** REQ-SENS-001, REQ-SENS-002, REQ-SENS-003, REQ-SENS-004 (also exercises REQ-FAULT-001's `read_ok` contract and REQ-LOG-004)
+- **Level:** Unit (steps 1 through 10), Hardware (steps 11 through 15)
+- **Objective:** Verify the seam the drivers stand on (the fake's semantics and the Linux implementation's failure paths), and that the live source presents real sensors through the `DataSource` contract: raw fields and `read_ok` only, held values with `read_ok` false on a failed read, zeros before the first good read, timestamps from the monotonic clock, and a startup failure that names the chip.
+- **Preconditions:** `FakeI2cBus` with both chips loaded (the barometer with the TC-012 example, the MPU6050 with one g on z), a `FakeClock` for the timestamps, and `LinuxI2cBus` on files that exist on every machine. The Hardware steps need the Raspberry Pi with both sensors wired, and the Pi and the Mac on one network for step 15.
+- **Steps:**
+  1. Load four bytes at 0x88 on the fake and burst-read them.
+  2. Write one byte to 0x6B on one device; read the register files of both devices.
+  3. Fail reads at one register and writes at another; attempt each, and a neighbour of each, on both devices; lift the failures and retry.
+  4. Construct `LinuxI2cBus("/dev/i2c-99")` and `LinuxI2cBus("/dev/null")`; attempt a transaction on each.
+  5. Construct the live source over the fake and read one frame.
+  6. Fail the barometer burst and read a frame; lift it and read again.
+  7. Fail the IMU burst and read a frame; lift it and read again.
+  8. Load the barometer's data registers with the reset value and fail the IMU burst from the start; read the first frame.
+  9. Read frames with the fake clock advanced by 20 ms, 19.6 ms, 40 ms, and 0.4 ms between them.
+  10. Construct the source with the barometer answering 0x55, then with the MPU6050 answering 0x70, then with both.
+  11. *(Hardware)* `i2cdetect -y 1`; `i2cget -y 1 0x76 0xD0`; `i2cget -y 1 0x68 0x75`.
+  12. *(Hardware)* `telemetry --live --cycles 50` with the board flat.
+  13. *(Hardware)* `telemetry --live --cycles 1500`, watching pitch and roll: raise the end the GY-521's X arrow points to, then roll the board right.
+  14. *(Hardware)* Replay the live log (`telemetry --replay logs/telemetry_000.bin`) and `cmp` the two logs.
+  15. *(Hardware)* Receiver on the Mac, then `telemetry --live --zmq tcp://0.0.0.0:5555 --cycles 500` on the Pi.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | the four bytes, in order; one logged read of length 4 |
+  | 2 | the byte in that device's file and in the log; the other device's register unchanged |
+  | 3 | the failing transactions false and logged, the neighbours true; after lifting, all true |
+  | 4 | `/dev/i2c-99`: not ok, the path in the message, transactions false with a nonzero errno. `/dev/null`: the transaction false with a nonzero errno (ENOTTY on Linux, where the file opens and `I2C_SLAVE` is refused; ENOTSUP from the stub elsewhere) |
+  | 5 | 1006.5325 hPa, 25.08 °C, accelerometer (0, 0, 9.81), gyroscope zero; barometer and IMU `read_ok` true, GPS false; GPS fields zero; every status NOMINAL; every computed field zero; timestamp 0 |
+  | 6 | pressure and temperature equal to the previous frame's, `baro_read_ok` false, IMU fresh and unchanged; then fresh again |
+  | 7 | the six IMU fields equal to the previous frame's, `imu_read_ok` false, barometer fresh; then fresh again |
+  | 8 | both `read_ok` false; pressure, temperature, accelerometer, and gyroscope all exactly zero |
+  | 9 | 0, 20, 40, 80, 80 ms |
+  | 10 | `ok()` false; the message names the barometer and 0x55, then the IMU and 0x70, then both chips; frames are still produced, the failed channel stale |
+  | 11 | 68 and 76 (or 77) in the grid; 0x58 or 0x60; 0x68 |
+  | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; GPS DEGRADED from 2020 ms with one COMM_TIMEOUT event; 0 missed cycles |
+  | 13 | nose up: pitch positive; roll right: roll positive |
+  | 14 | `cmp` silent |
+  | 15 | `received 500 frames`; gaps at or near 0 |
+
+- **Pass/fail:** Steps 1 through 10 exact as listed. Step 12 fails on any out-of-range value or any event other than the GPS timeout; step 13's signs are recorded, and a wrong sign is a one-line change in the driver's axis mapping noted in FTS-DD-001 Section 6, not a failure of the card; step 14 fails on any byte difference; step 15 fails on frames lost at the publisher (gaps the receiver reports may be the network's).
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -372,7 +486,8 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- REQ-SENS-006, REQ-PROC-005, REQ-LOG-003, and REQ-TEST-001 are Partial in FTS-TM-001. The Notes column there states what each is missing.
+- Fourteen requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
+- The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The constants the live source starts from (barometer 0x76, MPU6050 identity 0x68, driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12).
 - The ZeroMQ transport is implemented; TC-005 is executed by hand (FTS-VR-001 Entry 6) until the pytest suite automates it, and TC-010 step 6 waits for the same suite. The UDP transport (REQ-TRANS-002) is not implemented. TC-004's Python comparison step waits on the log parser, which will share the receiver's layout module.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.

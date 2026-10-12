@@ -4,7 +4,7 @@
 
 Embedded flight telemetry for a Raspberry Pi, in C++17: barometer, IMU, and GPS readings fused into altitude and attitude at a fixed 50 Hz, with per-channel fault detection, a binary log that replays bit-for-bit through the same pipeline, and per-cycle timing evidence. Built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and coverage, static analysis, and a formal fault model are part of every build.
 
-**Status:** the deterministic core is complete and verified on simulated and replayed data, and processed frames leave the process over ZeroMQ to a Python receiver. Raspberry Pi hardware integration (sensor drivers, live source, noise characterization) is next.
+**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ to a Python receiver; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi. Noise characterization and the GPS driver are next.
 
 ## Architecture
 
@@ -14,11 +14,12 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
    ├─ SimulatedSource        (built)          paced by FixedRateScheduler(Clock)                        └──▶ ZmqPublisher ──PUB──▶ pipeline/receiver.py
    ├─ LogReplaySource        (built)          jitter → logs/telemetry_jitter.csv                              (--zmq; the same bytes as the log)
    ├─ FaultInjectingSource   (built, wraps any source)
-   └─ live sensor source     (next: BMP280 and MPU6050 over I2C, NEO-6M over UART)
+   └─ LiveSensorSource       (built: BMP280 and MPU6050 over I2C; NEO-6M over UART next)
 ```
 
 - **One seam.** `DataSource` is an abstract base with one virtual `read_frame()`. A source fills raw sensor fields and `read_ok` flags only; computed fields and health belong to the pipeline. Live, simulated, and replayed frames run byte-for-byte the same code.
-- **Detector before processor.** The Kalman and complementary filters carry state across frames and consume a reading only when the detector marked its channel NOMINAL and the driver obtained it this cycle, so a 1 Hz GPS fix is applied once, not fifty times. The detector judges timeouts on the frame's own timestamp, never a wall clock, so a replay reproduces the same faults at the same frames.
+- **Drivers.** The barometer and IMU drivers talk to an `I2cBus` interface, never to the OS, so their register protocol and arithmetic are tested on a machine with no bus, against a fake that serves recorded bytes; the Linux implementation is one descriptor on `/dev/i2c-1`, addressed per transaction, held under RAII. The barometer compensation reproduces Bosch's worked example to the count, and the MPU6050 driver refuses a sample rate its divider cannot produce exactly. A failed read is an empty reading, never an exception: the channel's fields hold, `read_ok` clears, and the detector decides when that has lasted long enough to matter.
+- **Detector before processor.** The Kalman and complementary filters carry state across frames and consume a reading only when the detector marked its channel NOMINAL and the driver obtained it this cycle, so a 1 Hz GPS fix is applied once, not fifty times; an IMU gap longer than the timeout re-seeds attitude from the accelerometer instead of integrating one rate sample across it. The detector judges timeouts on the frame's own timestamp, never a wall clock, so a replay reproduces the same faults at the same frames.
 - **Processing.** ISA pressure-to-altitude; a 2-state Kalman filter (altitude, vertical velocity) fusing barometer and GPS; a complementary filter for pitch and roll with alpha treated as a time constant (about 1 s at 50 Hz).
 - **Fault handling.** Communication timeout, stuck value, out-of-range, and recovery after five consecutive valid reads, per channel. A failed sensor marks its channel DEGRADED and logs an event; the rest of the pipeline keeps running.
 - **Logging and replay.** Records are raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker), with fault events as tagged records in the same stream and rotation at record boundaries. `LogReplaySource` strips a log back to raw readings and feeds the same pipeline; the output log is byte-identical to the original (same build, same platform).
@@ -43,11 +44,11 @@ Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the buil
 
 | Document | ID | What it holds |
 |---|---|---|
-| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.2.0 | 32 "shall" statements with rationale; the scope of record |
+| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.4.0 | 33 "shall" statements with rationale; the scope of record |
 | [Design](docs/design.md) | FTS-DD-001 | software level, every architecture decision with its reason, log format, timing, open decisions |
-| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (12 Verified, 8 Partial, 12 Not started) |
+| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (13 Verified, 14 Partial, 6 Not started) |
 | [Fault model](docs/fault_model.md) | FTS-FM-001 | 11 failure modes, each with cause, detection, response, and the test that proves it |
-| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels, pass/fail criteria, test cards TC-001 to TC-009, coverage thresholds and exclusion policy |
+| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-014, coverage thresholds and exclusion policy |
 | [Verification results](docs/verification_results.md) | FTS-VR-001 | per-commit test and coverage records, justified exclusions, findings, the CI run of record |
 
 Every change follows the same loop: requirement, matrix row, code, test, matrix update, coverage and static analysis, one commit naming the requirement IDs.
@@ -76,6 +77,7 @@ ctest --test-dir build --output-on-failure
 ./build/telemetry                                   # 5 paced cycles at 50 Hz on the simulated source
 ./build/telemetry --replay logs/telemetry_000.bin   # the same pipeline fed from the log, unpaced
 cmp logs/telemetry_000.bin logs/replay_000.bin      # prints nothing: the two logs are byte-identical
+./build/telemetry --live --cycles 250               # on the Pi: BMP280 and MPU6050 over /dev/i2c-1, 5 s paced
 ```
 
 ```bash
@@ -90,7 +92,8 @@ The live run prints each frame, writes `logs/telemetry_000.bin` and `logs/teleme
 
 ```
 src/            telemetry_frame, data_source, main.cpp
-  drivers/      simulated_data, simulated_source, fault_injecting_source
+  drivers/      simulated_data, simulated_source, fault_injecting_source,
+                i2c_bus, bmp280, mpu6050, live_sensor_source
   processing/   altitude, kalman_filter, complementary_filter, fault_detector, processor
   logging/      log_format, binary_logger, log_reader
   replay/       log_replay_source
@@ -104,7 +107,7 @@ scripts/        coverage_check.sh, the per-scope branch threshold gate
 
 ## Roadmap
 
-Planned, no dates: sensor drivers (BMP280 and MPU6050 over I2C, NEO-6M over UART) behind the existing `DataSource` seam; noise characterization on stationary sensors, with the measured variances replacing the Kalman placeholders; a UDP publisher; YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
+Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; noise characterization on stationary sensors, with the measured variances replacing the Kalman placeholders; a UDP publisher; YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
 
 ## License
 

@@ -55,6 +55,14 @@ public:
                 float gyro_x_dps, float gyro_y_dps, float gyro_z_dps,
                 float dt);
 
+    // Forget the seed, keep the angles. The next update with a usable
+    // accelerometer adopts its tilt outright, as the first update did;
+    // until then the last angles stand, as they do on a DEGRADED frame.
+    // The processor calls this after an IMU gap longer than the
+    // communication timeout (REQ-PROC-002): one rate sample integrated
+    // over an outage is not a measurement of the rotation during it.
+    void reset();
+
     float pitch_deg() const;
     float roll_deg() const;
 
