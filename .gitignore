@@ -19,6 +19,10 @@ coverage/*.info
 coverage/html/
 static_analysis/*.txt
 
+# Python virtual environment for the receiver (recreate from requirements.txt) and bytecode
+.venv/
+__pycache__/
+
 # Private context and local Claude Code state (never committed)
 CLAUDE.local.md
 .claude/settings.local.json
