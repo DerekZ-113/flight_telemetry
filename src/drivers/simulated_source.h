@@ -15,10 +15,13 @@ class SimulatedSource : public DataSource {
 public:
     // interval_ms is the simulated sample period. 20 ms models a 50 Hz
     // sensor, the top of the BMP280 range in REQ-SENS-001.
-    // seed is forwarded to the generator so tests stay reproducible.
-    // explicit: with seed defaulted this is effectively a one-argument
+    // seed and gps_interval_ms are forwarded to the generator: the seed
+    // keeps tests reproducible, the GPS period models a 1 Hz receiver
+    // (pass interval_ms to get a fix on every frame).
+    // explicit: with the rest defaulted this is effectively a one-argument
     // constructor, and a bare integer must never silently become a source.
-    explicit SimulatedSource(uint64_t interval_ms, uint32_t seed = 42);
+    explicit SimulatedSource(uint64_t interval_ms, uint32_t seed = 42,
+                             uint64_t gps_interval_ms = SimulatedDataGenerator::kDefaultGpsIntervalMs);
 
     // `override` asks the compiler to confirm this really overrides a
     // virtual function in the base. A typo in the name or signature would

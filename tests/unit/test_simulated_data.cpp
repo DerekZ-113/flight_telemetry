@@ -37,8 +37,9 @@ double sample_sigma(const std::vector<float>& v) {
 }  // namespace
 
 // REQ-SENS-006: raw sensor readings only. Every computed field is zero,
-// every channel NOMINAL, every read successful. The pipeline owns the
-// rest (REQ-LOG-004).
+// every channel NOMINAL, every I2C read successful; the GPS read succeeds
+// on its 1 Hz schedule, which in these 20 frames (0 to 380 ms) is the
+// first frame only. The pipeline owns the rest (REQ-LOG-004).
 TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
     SimulatedDataGenerator generator(42);
     for (int i = 0; i < 20; i++) {
@@ -55,8 +56,62 @@ TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
         EXPECT_EQ(f.gps_status, ChannelStatus::NOMINAL);
         EXPECT_TRUE(f.baro_read_ok);
         EXPECT_TRUE(f.imu_read_ok);
-        EXPECT_TRUE(f.gps_read_ok);
+        EXPECT_EQ(f.gps_read_ok, i == 0) << "frame " << i;
     }
+}
+
+// REQ-SENS-006: the GPS fixes once per second. In a 50 Hz frame stream
+// that is one fresh reading in fifty; the other forty-nine repeat the
+// last fix with gps_read_ok false, as a driver holding stale fields
+// reports it. Barometer and IMU are read every frame.
+TEST(SimulatedDataTest, GpsFixOncePerSecond) {
+    SimulatedDataGenerator generator(42);
+    TelemetryFrame previous{};
+    int fixes = 0;
+    for (int i = 0; i < 100; i++) {
+        const uint64_t ts = static_cast<uint64_t>(i) * kIntervalMs;
+        const TelemetryFrame f = generator.generate(ts);
+        const bool expect_fix = (ts == 0 || ts == 1000);
+        EXPECT_EQ(f.gps_read_ok, expect_fix) << "t=" << ts;
+        EXPECT_TRUE(f.baro_read_ok);
+        EXPECT_TRUE(f.imu_read_ok);
+        if (i > 0 && expect_fix) {
+            EXPECT_NE(f.latitude, previous.latitude) << "a new fix carries new noise, t=" << ts;
+        }
+        if (i > 0 && !expect_fix) {
+            EXPECT_EQ(f.latitude, previous.latitude) << "t=" << ts;
+            EXPECT_EQ(f.longitude, previous.longitude) << "t=" << ts;
+            EXPECT_EQ(f.gps_altitude_m, previous.gps_altitude_m) << "t=" << ts;
+        }
+        fixes += f.gps_read_ok ? 1 : 0;
+        previous = f;
+    }
+    EXPECT_EQ(fixes, 2);
+}
+
+// The fix period is a constructor parameter (configurable until
+// REQ-CFG-001). The frame interval as the period gives a fix on every
+// frame, which tests of the status gate rely on; a period that is not a
+// multiple of the frame interval fixes on the first frame of each new
+// period, not only on exact multiples; zero means every frame.
+TEST(SimulatedDataTest, GpsIntervalIsConfigurable) {
+    SimulatedDataGenerator every_frame(42, kIntervalMs);
+    for (int i = 0; i < 10; i++) {
+        EXPECT_TRUE(every_frame.generate(static_cast<uint64_t>(i) * kIntervalMs).gps_read_ok) << "frame " << i;
+    }
+
+    SimulatedDataGenerator thirty_ms_frames(42, 1000);
+    std::vector<uint64_t> fix_times;
+    for (uint64_t ts = 0; ts <= 2100; ts += 30) {
+        if (thirty_ms_frames.generate(ts).gps_read_ok) {
+            fix_times.push_back(ts);
+        }
+    }
+    EXPECT_EQ(fix_times, (std::vector<uint64_t>{0, 1020, 2010}));
+
+    SimulatedDataGenerator zero(42, 0);
+    EXPECT_TRUE(zero.generate(0).gps_read_ok);
+    EXPECT_TRUE(zero.generate(kIntervalMs).gps_read_ok);
 }
 
 // Same seed, same frames, bit for bit. This is the property the

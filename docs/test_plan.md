@@ -301,6 +301,36 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Any publish that waits past the bound, any exception that reaches the caller, or any missed cycle attributable to the publisher fails. Step 4's drained count is asserted as a range, not a number: ZeroMQ documents that a queue may hold as much as 60 to 70% fewer messages than the configured mark.
 
+### TC-011: Measurement Freshness Gating
+
+- **Requirement:** REQ-PROC-006 (also exercises REQ-PROC-002, REQ-PROC-003, REQ-SENS-006)
+- **Level:** Unit
+- **Objective:** Verify that each filter predicts every cycle and applies a channel's reading only on a cycle in which the channel is NOMINAL and the reading is fresh, that no reading is applied twice, that the gyroscope is integrated over the interval since its last accepted sample, and that the simulator delivers GPS fixes at the configured rate.
+- **Preconditions:** `TelemetryProcessor` with its default tuning. Frames are built by hand so each step controls which channel is fresh, or come from `SimulatedSource` where its 1 Hz GPS schedule is the subject. "Twin" means a second processor fed the same frames with one field changed; equality is exact (`EXPECT_EQ` on the float outputs), because the claim is that the computation is identical, not close.
+- **Steps:**
+  1. Feed 20 fresh frames, then 10 frames whose barometer read failed (`baro_read_ok` false, pressure held, channel NOMINAL, GPS stale). Compare fused altitude and vertical speed with a twin whose 10 frames mark the barometer DEGRADED.
+  2. Warm up on 20 frames with GPS on every frame, then feed 20 frames with `gps_read_ok` false and a GPS altitude of 9999 m. Compare with a twin whose stale frames carry the held fix.
+  3. Feed 100 frames from the default simulator (fixes at 0 and 1000 ms). Compare with a twin told the GPS is DEGRADED on every non-fix frame, and with a twin told the GPS is DEGRADED after its first fix.
+  4. Feed a first frame whose barometer read failed, then a fresh one. Record the fused outputs of both.
+  5. Process one frame, then a NOMINAL frame with `imu_read_ok` false carrying 45° of accelerometer tilt. Record pitch and roll.
+  6. Fresh flat frames at 0 and 20 ms, stale frames at 40, 60, and 80 ms, then a fresh frame at 100 ms with a 1 deg/s pitch rate and a flat accelerometer. Record pitch.
+  7. Generate 100 frames at 20 ms from the default generator. Record `gps_read_ok` and the GPS fields of each.
+  8. Generate frames with the fix period equal to the frame interval; with a 1000 ms period at a 30 ms frame interval; with a period of zero.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | identical on all 10 frames |
+  | 2 | identical on all 20 frames |
+  | 3 | identical to the first twin on all 100 frames; identical to the second until 980 ms and different at 1000 ms |
+  | 4 | frame 0: fused altitude and vertical speed 0; frame 1: fused altitude equal to its barometric altitude, vertical speed 0 |
+  | 5 | pitch and roll unchanged |
+  | 6 | pitch 0.0784° (0.98 × 1 deg/s × 0.080 s) within 0.001°; roll 0 |
+  | 7 | `gps_read_ok` true at 0 and 1000 ms only; GPS fields repeat the previous frame's between fixes and change at 1000 ms; barometer and IMU `read_ok` true throughout |
+  | 8 | every frame fresh; fixes at 0, 1020, and 2010 ms; every frame fresh |
+
+- **Pass/fail:** Any stale reading that moves a filter state, any fix applied more than once, any gyroscope gap integrated over the wrong interval, or any frame between fixes that claims a fresh GPS reading fails. Step 6 is the one tolerance in the card: a closed-form value compared at float precision.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage

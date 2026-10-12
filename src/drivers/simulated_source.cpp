@@ -1,7 +1,7 @@
 #include "drivers/simulated_source.h"
 
-SimulatedSource::SimulatedSource(uint64_t interval_ms, uint32_t seed)
-    : generator_(seed),
+SimulatedSource::SimulatedSource(uint64_t interval_ms, uint32_t seed, uint64_t gps_interval_ms)
+    : generator_(seed, gps_interval_ms),
       interval_ms_(interval_ms),
       next_timestamp_ms_(0)
 {

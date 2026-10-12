@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-11
-> **Related:** FTS-SRD-001 v0.2.1 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
+> **Related:** FTS-SRD-001 v0.3.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -34,17 +34,18 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-SENS-003 | — | — | — | Not started | MPU6050 driver |
 | REQ-SENS-004 | — | — | — | Not started | MPU6050 driver, shared sample-rate divider |
 | REQ-SENS-005 | — | — | — | Not started | NEO-6M driver, NMEA parsing |
-| REQ-SENS-006 | `src/drivers/simulated_data.cpp` (`SimulatedDataGenerator`), `src/drivers/simulated_source.cpp` (`SimulatedSource`) | `test_simulated_data.cpp: SimulatedDataTest.ProducesRawReadingsOnly`, `SameSeedSameSequence`, `DifferentSeedDifferentSequence`, `NoiseIsCenteredOnBaseValues`, `PressureNoiseHasStatedSpread`; `SimulatedSourceTest.TimestampsAdvanceByInterval`, `SourceMatchesGeneratorWithSameSeed` | — | Partial | Raw-only contract, seed reproducibility, and the stated noise level are tested directly. Noise sigmas are still hardcoded in the generator constructor; "configurable noise" waits on REQ-CFG-001. |
+| REQ-SENS-006 | `src/drivers/simulated_data.cpp` (`SimulatedDataGenerator`), `src/drivers/simulated_source.cpp` (`SimulatedSource`) | `test_simulated_data.cpp: SimulatedDataTest.ProducesRawReadingsOnly`, `SameSeedSameSequence`, `DifferentSeedDifferentSequence`, `NoiseIsCenteredOnBaseValues`, `PressureNoiseHasStatedSpread`, `GpsFixOncePerSecond`, `GpsIntervalIsConfigurable`; `SimulatedSourceTest.TimestampsAdvanceByInterval`, `SourceMatchesGeneratorWithSameSeed` | TC-011 (steps 7 and 8) | Partial | Raw-only contract, seed reproducibility, the stated noise level, and the 1 Hz GPS schedule are tested directly. Noise sigmas are hardcoded in the generator constructor and the GPS period is a constructor parameter; "configurable" through YAML waits on REQ-CFG-001. |
 
 ## 2. Data Processing
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
 | REQ-PROC-001 | `src/processing/altitude.cpp` (`pressure_to_altitude`) | `test_altitude.cpp: AltitudeTest.*` (8 tests) | TC-001 | Verified | |
-| REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_complementary.cpp: ComplementaryTest.*` (7 tests) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED holds the last angles; FAULT-006 requires an invalid marker (FTS-DD-001 Section 6). |
-| REQ-PROC-003 | `src/processing/kalman_filter.cpp` (`KalmanFilter1D`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_kalman.cpp: KalmanTest.*` (6 tests) | TC-007 | Verified | Covariance constants are placeholders (see REQ-PROC-004). |
+| REQ-PROC-002 | `src/processing/complementary_filter.cpp` (`ComplementaryFilter`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_complementary.cpp: ComplementaryTest.*` (11 tests, including `StaleImuFrameHoldsAttitude` and `GyroIntegratesOverStaleGap` for REQ-PROC-006) | TC-006 | Verified | Axis and sign convention is an assumption until verified on hardware. DEGRADED and stale frames hold the last angles; FAULT-006 requires an invalid marker (FTS-DD-001 Section 6). |
+| REQ-PROC-003 | `src/processing/kalman_filter.cpp` (`KalmanFilter1D`), `src/processing/processor.cpp` (`TelemetryProcessor::process`) | `test_kalman.cpp: KalmanTest.*` (12 tests, including the four REQ-PROC-006 gating tests) | TC-007 | Verified | Covariance constants are placeholders (see REQ-PROC-004). |
 | REQ-PROC-004 | — | — | — | Not started | Constants in `processor.cpp` are placeholders pending `docs/noise_profile.md`. |
 | REQ-PROC-005 | `src/processing/processor.cpp` (`TelemetryProcessor::process`), `src/telemetry_frame.cpp`, `src/main.cpp` (`run`) | `test_kalman.cpp: KalmanTest.ConvergenceReducesNoise`, `test_complementary.cpp: ComplementaryTest.DegradedImuHoldsAttitude` (indirect) | — | Partial | No fixed-rate loop yet (REQ-TIME-001). No test asserts that every computed field is filled. |
+| REQ-PROC-006 | `src/processing/processor.cpp` (`TelemetryProcessor::process`: the fresh-and-NOMINAL gate per channel, `imu_last_fresh_ms_`, filter construction on the first fresh barometer reading) | `test_kalman.cpp: KalmanTest.StaleBaroInsideTimeoutIsPredictOnly`, `StaleGpsIsNotApplied`, `OneGpsUpdatePerFix`, `FilterWaitsForFirstFreshBaro`; `test_complementary.cpp: ComplementaryTest.StaleImuFrameHoldsAttitude`, `GyroIntegratesOverStaleGap` | TC-011 | Verified | Predict every cycle, update only on a fresh NOMINAL reading. Found 2026-10-11: the gate was on status only, invisible while the simulator fixed GPS on every frame (FTS-VR-001 Entry 7). |
 
 ## 3. Fault Detection
 
@@ -103,11 +104,11 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 12 | PROC-001, PROC-002, PROC-003, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
+| Verified | 13 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-004, TIME-001, TIME-002 |
 | Partial | 10 | SENS-006, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, LOG-003, TEST-001, TEST-003, TEST-004 |
 | Implemented | 0 | |
 | Not started | 10 | all others |
-| **Total** | **32** | |
+| **Total** | **33** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 
@@ -131,6 +132,6 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002 |
 | `src/processing/fault_detector.h` / `.cpp` | REQ-FAULT-001, REQ-FAULT-002, REQ-FAULT-003, REQ-FAULT-004, REQ-FAULT-005 |
-| `src/processing/processor.h` / `.cpp` | REQ-PROC-002, REQ-PROC-003, REQ-PROC-005 |
+| `src/processing/processor.h` / `.cpp` | REQ-PROC-002, REQ-PROC-003, REQ-PROC-005, REQ-PROC-006 |
 
 Adding a file under `src/` without adding it to this table is a traceability failure.

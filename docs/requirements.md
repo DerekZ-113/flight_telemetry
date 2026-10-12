@@ -1,7 +1,7 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.2.1
+> **Version:** 0.3.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-11
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results)
@@ -30,9 +30,9 @@ REQ-SENS-004: The system shall read 3-axis gyroscope data from the MPU6050 senso
 
 REQ-SENS-005: The system shall read position (latitude, longitude, altitude), ground speed, and course over ground (heading) from the NEO-6M GPS module via UART as NMEA sentences.
 
-REQ-SENS-006: The system shall provide a simulated data source that produces TelemetryFrames of raw sensor readings with configurable noise.
+REQ-SENS-006: The system shall provide a simulated data source that produces TelemetryFrames of raw sensor readings with configurable noise, delivering each channel's readings at a configurable rate and marking the frames between readings as not fresh (`read_ok` false).
 
-> **Rationale:** the pipeline can be developed and tested without hardware. Replay of recorded sessions is a separate function (REQ-LOG-003).
+> **Rationale:** the pipeline can be developed and tested without hardware, so the simulator must model the one timing fact that changes the pipeline's behavior: a GPS that fixes once per second while the barometer and IMU are read every cycle. The rate is a constructor parameter until REQ-CFG-001. Replay of recorded sessions is a separate function (REQ-LOG-003).
 
 ## Data Processing
 
@@ -45,6 +45,10 @@ REQ-PROC-003: The system shall fuse barometric altitude and GPS altitude using a
 REQ-PROC-004: The Kalman filter's covariance parameters (measurement noise, process noise, and initial state covariance) shall be derived from sensor noise characteristics measured and recorded in docs/noise_profile.md.
 
 REQ-PROC-005: Once per processing cycle (REQ-TIME-001), the system shall produce a TelemetryFrame containing the raw sensor readings, the computed and fused values, and the status of every channel.
+
+REQ-PROC-006: The processing pipeline shall run each filter's prediction step every cycle, and shall apply a channel's reading as a measurement update only on a cycle in which that channel is NOMINAL and the reading is fresh (`read_ok` true). A reading shall be used as a measurement at most once.
+
+> **Rationale:** sensors run at their own rates; the loop runs at its own. A channel's health (REQ-FAULT-004) says whether its readings can be trusted over time; `read_ok` says whether this cycle produced one. Re-applying a reading treats a copy as new evidence: the filter's covariance shrinks as if independent sensors had agreed, and the state is pinned to a value that is no longer current. With a 1 Hz GPS in a 50 Hz loop, one fix applied 50 times carries the information weight of a 0.7 m sensor instead of the 5 m sensor it is.
 
 ## Fault Detection
 

@@ -134,3 +134,61 @@ TEST(ComplementaryTest, UnseededUntilAccelUsable) {
     filter.update(kG, 0.0f, kG, 0.0f, 0.0f, 0.0f, kDt);
     EXPECT_NEAR(filter.pitch_deg(), 45.0f, 0.1f);
 }
+
+// ---------------------------------------------------------------------------
+// REQ-PROC-006 at the processor: a reading is used only on the cycle it
+// was obtained. Test card TC-011.
+// ---------------------------------------------------------------------------
+
+// TC-011 step 5. A NOMINAL IMU frame whose read failed carries the
+// previous sample; here it carries 45 degrees of tilt so any use of it is
+// visible. The attitude must not move. (REQ-PROC-006, REQ-PROC-002)
+TEST(ComplementaryTest, StaleImuFrameHoldsAttitude) {
+    SimulatedSource source(20, 42);
+    TelemetryProcessor processor;
+    const TelemetryFrame first = processor.process(source.read_frame());
+
+    TelemetryFrame stale = source.read_frame();
+    stale.imu_read_ok = false;
+    stale.accel_x = kG;
+    stale.accel_y = 0.0f;
+    stale.accel_z = kG;
+    const TelemetryFrame second = processor.process(stale);
+
+    EXPECT_EQ(second.pitch_deg, first.pitch_deg);
+    EXPECT_EQ(second.roll_deg, first.roll_deg);
+}
+
+// TC-011 step 6. Three stale IMU frames between two fresh ones. The fresh
+// frame after the gap carries a 1 deg/s pitch rate and a flat
+// accelerometer; the gyro term must integrate over the 80 ms since the
+// last accepted sample, not over one 20 ms period:
+// alpha * rate * gap = 0.98 * 1 * 0.080 = 0.0784 degrees.
+// (REQ-PROC-006, REQ-PROC-002)
+TEST(ComplementaryTest, GyroIntegratesOverStaleGap) {
+    TelemetryProcessor processor;
+    auto flat = [](uint64_t ts, bool fresh, float pitch_rate_dps) {
+        TelemetryFrame f{};
+        f.timestamp_ms = ts;
+        f.pressure_hpa = 1013.0f;
+        f.temperature_c = 21.0f;
+        f.accel_z = kG;
+        f.gyro_y = pitch_rate_dps;
+        f.gps_altitude_m = 3.0f;
+        f.baro_status = ChannelStatus::NOMINAL;
+        f.imu_status = ChannelStatus::NOMINAL;
+        f.gps_status = ChannelStatus::NOMINAL;
+        f.baro_read_ok = true;
+        f.imu_read_ok = fresh;
+        f.gps_read_ok = true;
+        return f;
+    };
+    processor.process(flat(0, true, 0.0f));     // seeds the attitude from the accelerometer
+    processor.process(flat(20, true, 0.0f));    // first integration step, rate zero
+    processor.process(flat(40, false, 0.0f));   // stale: a driver holding the last sample
+    processor.process(flat(60, false, 0.0f));
+    processor.process(flat(80, false, 0.0f));
+    const TelemetryFrame out = processor.process(flat(100, true, 1.0f));
+    EXPECT_NEAR(out.pitch_deg, 0.98f * 1.0f * 0.080f, 0.001f);
+    EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
+}

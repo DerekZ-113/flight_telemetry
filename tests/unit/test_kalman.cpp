@@ -102,7 +102,8 @@ TEST(KalmanTest, LargeRMovesStateLess) {
 // End-to-end: the simulator adds sigma 0.2 hPa (about 1.7 m) of pressure
 // noise. The fused output must scatter far less than the raw barometric
 // altitude, or the filter is not filtering. The 0.5 factor is a loose
-// bound; the measured ratio at the current tuning is about 0.15.
+// bound; the measured ratio at the current tuning is about 0.13 (0.15
+// before the simulator's GPS went to 1 Hz).
 // (REQ-PROC-003)
 TEST(KalmanTest, ConvergenceReducesNoise) {
     SimulatedSource source(20, 42);
@@ -158,9 +159,11 @@ TEST(KalmanTest, PredictWithZeroDtIsNoOp) {
 
 // A DEGRADED GPS channel contributes nothing: the fused altitude must be
 // identical whether the frame carries a sane GPS altitude or garbage.
+// GPS on every frame (third argument), so the status gate is exercised on
+// all 20 frames rather than on the one fix a 1 Hz schedule would give.
 // (REQ-PROC-003, REQ-FAULT-004)
 TEST(KalmanTest, DegradedGpsIsIgnored) {
-    SimulatedSource source(20, 42);
+    SimulatedSource source(20, 42, 20);
     TelemetryProcessor a;
     TelemetryProcessor b;
     for (int i = 0; i < 20; i++) {
@@ -170,4 +173,138 @@ TEST(KalmanTest, DegradedGpsIsIgnored) {
         g.gps_altitude_m = 9999.0f;
         EXPECT_EQ(a.process(f).fused_altitude_m, b.process(g).fused_altitude_m) << "frame " << i;
     }
+}
+
+// ---------------------------------------------------------------------------
+// REQ-PROC-006: predict every cycle, update only on a fresh NOMINAL reading.
+// Test card TC-011. "Twin" means a second processor fed the same frames
+// with one field changed; equality is exact, because the claim is that
+// the computation is identical, not close.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A fresh, healthy frame at `ts`, built by hand so each test controls
+// exactly which channel is fresh. Pressure wobbles slightly so the
+// barometric altitude is not constant.
+TelemetryFrame fresh_frame(uint64_t ts) {
+    TelemetryFrame f{};
+    f.timestamp_ms = ts;
+    f.pressure_hpa = 1013.0f + static_cast<float>(ts % 5) * 0.01f;
+    f.temperature_c = 21.0f;
+    f.accel_z = 9.81f;
+    f.gps_altitude_m = 3.0f;
+    f.baro_status = ChannelStatus::NOMINAL;
+    f.imu_status = ChannelStatus::NOMINAL;
+    f.gps_status = ChannelStatus::NOMINAL;
+    f.baro_read_ok = true;
+    f.imu_read_ok = true;
+    f.gps_read_ok = true;
+    return f;
+}
+
+}  // namespace
+
+// TC-011 step 1. A failed barometer read inside the timeout window leaves
+// the channel NOMINAL and the pressure field stale. The filter must coast
+// exactly as it would if the channel were DEGRADED: predict only, no
+// update from a reading nobody took this cycle. (REQ-PROC-006, REQ-PROC-003)
+TEST(KalmanTest, StaleBaroInsideTimeoutIsPredictOnly) {
+    TelemetryProcessor stale;      // sees baro_read_ok false, status NOMINAL
+    TelemetryProcessor degraded;   // sees the same frames with baro_status DEGRADED
+    uint64_t ts = 0;
+    for (int i = 0; i < 20; i++, ts += 20) {
+        const TelemetryFrame f = fresh_frame(ts);
+        stale.process(f);
+        degraded.process(f);
+    }
+    const float held_pressure = fresh_frame(ts - 20).pressure_hpa;
+    for (int i = 0; i < 10; i++, ts += 20) {
+        TelemetryFrame f = fresh_frame(ts);
+        f.pressure_hpa = held_pressure;   // a driver that got no reply holds the field
+        f.baro_read_ok = false;
+        f.gps_read_ok = false;            // between GPS fixes, so prediction is all that remains
+        TelemetryFrame d = f;
+        d.baro_status = ChannelStatus::DEGRADED;
+        const TelemetryFrame a = stale.process(f);
+        const TelemetryFrame b = degraded.process(d);
+        EXPECT_EQ(a.fused_altitude_m, b.fused_altitude_m) << "frame " << i;
+        EXPECT_EQ(a.vertical_speed_mps, b.vertical_speed_mps) << "frame " << i;
+    }
+}
+
+// TC-011 step 2. Between fixes the GPS fields are stale. A stale frame's
+// GPS altitude must not reach the filter, whatever value it holds: the
+// output is identical whether the stale frame carries the held fix or
+// garbage. (REQ-PROC-006, REQ-PROC-003)
+TEST(KalmanTest, StaleGpsIsNotApplied) {
+    SimulatedSource source(20, 42, 20);   // GPS on every frame for the warm-up
+    TelemetryProcessor sane;
+    TelemetryProcessor garbage;
+    for (int i = 0; i < 20; i++) {
+        const TelemetryFrame f = source.read_frame();
+        sane.process(f);
+        garbage.process(f);
+    }
+    for (int i = 0; i < 20; i++) {
+        TelemetryFrame f = source.read_frame();
+        f.gps_read_ok = false;            // no fix this cycle; the fields are stale
+        TelemetryFrame g = f;
+        g.gps_altitude_m = 9999.0f;
+        EXPECT_EQ(sane.process(f).fused_altitude_m, garbage.process(g).fused_altitude_m) << "frame " << i;
+    }
+}
+
+// TC-011 step 3. With the simulator's 1 Hz GPS in a 50 Hz stream, the
+// filter applies GPS on the fix frames and nowhere else: its output is
+// identical to a twin told the GPS is DEGRADED on every non-fix frame,
+// and it parts from a twin told the GPS is DEGRADED after the first fix
+// exactly at the second fix, which proves that fix was applied once and
+// the frames between were not. (REQ-PROC-006, REQ-PROC-003, REQ-SENS-006)
+TEST(KalmanTest, OneGpsUpdatePerFix) {
+    SimulatedSource source(20, 42);       // 1 Hz GPS: fixes at 0 and 1000 ms
+    TelemetryProcessor gated;
+    TelemetryProcessor explicit_schedule;
+    TelemetryProcessor first_fix_only;
+    for (int i = 0; i < 100; i++) {
+        const TelemetryFrame f = source.read_frame();
+        TelemetryFrame e = f;
+        if (!f.gps_read_ok) {
+            e.gps_status = ChannelStatus::DEGRADED;
+        }
+        TelemetryFrame n = f;
+        if (f.timestamp_ms > 0) {
+            n.gps_status = ChannelStatus::DEGRADED;
+        }
+        const float a = gated.process(f).fused_altitude_m;
+        const float b = explicit_schedule.process(e).fused_altitude_m;
+        const float d = first_fix_only.process(n).fused_altitude_m;
+        EXPECT_EQ(a, b) << "frame " << i;
+        if (f.timestamp_ms < 1000) {
+            EXPECT_EQ(a, d) << "frame " << i << ": no GPS update is due";
+        } else if (f.timestamp_ms == 1000) {
+            EXPECT_NE(a, d) << "the second fix must be applied";
+        }
+    }
+}
+
+// TC-011 step 4. A driver reports read_ok false until its first successful
+// transaction. The filter must not be born from a pressure nobody
+// measured: the fused outputs keep the "not computed" zero until the
+// first fresh barometer reading, and the filter starts there.
+// (REQ-PROC-006, REQ-PROC-003)
+TEST(KalmanTest, FilterWaitsForFirstFreshBaro) {
+    TelemetryProcessor processor;
+    TelemetryFrame f0 = fresh_frame(0);
+    f0.baro_read_ok = false;
+    f0.gps_read_ok = false;
+    const TelemetryFrame out0 = processor.process(f0);
+    EXPECT_EQ(out0.fused_altitude_m, 0.0f);
+    EXPECT_EQ(out0.vertical_speed_mps, 0.0f);
+
+    TelemetryFrame f1 = fresh_frame(20);
+    f1.gps_read_ok = false;               // no GPS, so the first estimate is the baro altitude exactly
+    const TelemetryFrame out1 = processor.process(f1);
+    EXPECT_EQ(out1.fused_altitude_m, out1.baro_altitude_m);
+    EXPECT_EQ(out1.vertical_speed_mps, 0.0f);
 }

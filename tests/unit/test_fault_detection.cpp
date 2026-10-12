@@ -561,9 +561,11 @@ TEST(FaultDetectionTest, MissingReadDuringRecoveryNeitherCountsNorResets) {
     EXPECT_EQ(d.check(healthy_frame(ts)).baro_status, ChannelStatus::NOMINAL);   // 5th valid
 }
 
-// Injector paths for the IMU and GPS channels mirror the barometer.
+// Injector paths for the IMU and GPS channels mirror the barometer. The
+// inner simulator fixes GPS on every frame (third argument) so the
+// gps_read_ok assertions are about the injector, not the 1 Hz schedule.
 TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
-    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42, kDtMs));
     const TelemetryFrame a = source.read_frame();
     source.fail_reads(Channel::IMU, true);
     source.fail_reads(Channel::GPS, true);
@@ -577,7 +579,7 @@ TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
 }
 
 TEST(FaultInjectingSourceTest, HoldValuesImuAndGps) {
-    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42, kDtMs));
     const TelemetryFrame a = source.read_frame();
     source.hold_values(Channel::IMU, true);
     source.hold_values(Channel::GPS, true);

@@ -14,7 +14,7 @@
 // inside generate() defines the sequence. Reordering two lines there
 // changes every frame that follows.
 
-SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed)
+SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed, uint64_t gps_interval_ms)
     : rng_(seed),
       pressure_noise_(0.0f, 0.2f),       // sigma 0.2 hPa. Intentionally pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS, 15 to 100x lower.
       temperature_noise_(0.0f, 0.1f),    // sigma 0.1 °C
@@ -22,7 +22,8 @@ SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed)
       gyro_noise_(0.0f, 0.1f),           // sigma 0.1 deg/s. Roughly 2x the MPU6050 datasheet figure at 100 Hz.
       gps_lat_noise_(0.0, 0.00002),      // sigma 0.00002 deg, about 2.2 m of latitude
       gps_lon_noise_(0.0, 0.00002),      // sigma 0.00002 deg, about 1.8 m of longitude at 37.5 N
-      gps_alt_noise_(0.0f, 2.0f)         // sigma 2 m. Optimistic: NEO-6M vertical error is typically closer to 5 m.
+      gps_alt_noise_(0.0f, 2.0f),        // sigma 2 m. Optimistic: NEO-6M vertical error is typically closer to 5 m.
+      gps_interval_ms_(gps_interval_ms == 0 ? 1 : gps_interval_ms)   // 0 would divide by zero; 1 ms is "every frame"
 {
 }
 
@@ -61,10 +62,27 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.pitch_deg = 0.0f;
     frame.roll_deg = 0.0f;
 
-    // NEO-6M simulation — stationary in Foster City
-    frame.latitude = 37.5585 + gps_lat_noise_(rng_);
-    frame.longitude = -122.2711 + gps_lon_noise_(rng_);
-    frame.gps_altitude_m = 3.0f + gps_alt_noise_(rng_);
+    // NEO-6M simulation — stationary in Foster City. A real receiver fixes
+    // once per second while the loop runs at 50 Hz, so most frames carry
+    // no new GPS reading. A fix is due when this frame's timestamp falls
+    // in a period not yet served; the first frame always is. Between
+    // fixes the fields repeat the last fix and gps_read_ok says so: the
+    // frame carries a value, and the value is stale (REQ-PROC-006 is what
+    // keeps the pipeline from using it twice). Noise is drawn only when a
+    // fix is produced, so a frame between fixes consumes no random
+    // numbers and the sequence stays a function of the timestamps.
+    const uint64_t fix_index = timestamp_ms / gps_interval_ms_;
+    const bool gps_fix = !have_fix_ || fix_index != last_fix_index_;
+    if (gps_fix) {
+        last_latitude_ = 37.5585 + gps_lat_noise_(rng_);
+        last_longitude_ = -122.2711 + gps_lon_noise_(rng_);
+        last_gps_altitude_m_ = 3.0f + gps_alt_noise_(rng_);
+        have_fix_ = true;
+        last_fix_index_ = fix_index;
+    }
+    frame.latitude = last_latitude_;
+    frame.longitude = last_longitude_;
+    frame.gps_altitude_m = last_gps_altitude_m_;
     frame.ground_speed_mps = 0.0f;
     frame.heading_deg = 0.0f;
 
@@ -73,14 +91,16 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.vertical_speed_mps = 0.0f;
 
     // All channels healthy in simulation mode. Status is NOMINAL because
-    // the fault detector owns it; every read succeeds because there is no
-    // bus to fail. Fault injection wraps this source rather than editing it.
+    // the fault detector owns it; the I2C reads succeed because there is
+    // no bus to fail; the GPS read "succeeds" only on a fix, because
+    // freshness is a fact about this cycle, not about health. Fault
+    // injection wraps this source rather than editing it.
     frame.baro_status = ChannelStatus::NOMINAL;
     frame.imu_status = ChannelStatus::NOMINAL;
     frame.gps_status = ChannelStatus::NOMINAL;
     frame.baro_read_ok = true;
     frame.imu_read_ok = true;
-    frame.gps_read_ok = true;
+    frame.gps_read_ok = gps_fix;
 
     return frame;
 }

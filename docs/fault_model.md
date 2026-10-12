@@ -19,7 +19,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default), allowing transient errors to be retried.
-- **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers.
+- **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers. Before the timeout expires the channel is still NOMINAL, but a frame with no reading (`baro_read_ok` false) is not applied to the filter: it coasts on prediction from the first missed read, not from the fault declaration (REQ-PROC-006).
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver-level I2C error handling is tested with the BMP280 driver.
 
@@ -29,7 +29,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
 - **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default).
-- **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers.
+- **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers. Between the first missed read and the timeout the attitude is held, and the next fresh sample integrates the gyroscope over the whole gap (REQ-PROC-006).
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver-level I2C error handling is tested with the MPU6050 driver.
 
@@ -39,7 +39,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **Cause:** (a) Loose wire, wrong baud rate, module power issue. (b) Indoor operation, obstructed sky view.
 - **Likelihood:** (a) Low. (b) Medium, especially indoors or near windows with partial sky.
 - **Detection:** (a) No NMEA sentence received within the configured UART timeout. The timeout must exceed the module's 1 Hz default output period, so it is configurable rather than fixed at 500 ms. (b) Fix quality indicator in the GGA sentence reads 0.
-- **Response:** Mark GPS channel DEGRADED. Log fault event with the condition (timeout or no-fix). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer. Position, heading, and ground speed marked invalid.
+- **Response:** Mark GPS channel DEGRADED. Log fault event with the condition (timeout or no-fix). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer. Position, heading, and ground speed marked invalid. Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the UART timeout must exceed the fix period (REQ-PROC-006).
 - **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003. Both: REQ-FAULT-004
 - **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`. (b) Deferred: the frame carries no fix-quality field yet; lands with the NEO-6M driver.
 
@@ -153,3 +153,5 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 | All DEGRADED | System logs fault, continues running (processing loop doesn't crash), but every output is flagged invalid. |
 
 The system never stops. A crashed telemetry process is worse than a degraded one producing partial data. This is the fundamental principle: degrade gracefully, never crash.
+
+Freshness is separate from degradation. A NOMINAL channel contributes a measurement only on the cycles that produced a reading; between readings its filter predicts. The table above describes what a DEGRADED channel removes; REQ-PROC-006 describes what a stale cycle removes: one update, never the channel.

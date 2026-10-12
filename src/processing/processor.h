@@ -31,16 +31,25 @@ public:
     // Copies all raw fields from `raw`, then fills the computed fields:
     // barometric altitude (REQ-PROC-001), pitch and roll from the
     // complementary filter (REQ-PROC-002), fused altitude and vertical
-    // speed from the Kalman filter (REQ-PROC-003). Channel status passes
-    // through unchanged until the fault detection module owns it.
+    // speed from the Kalman filter (REQ-PROC-003). Channel status is the
+    // fault detector's and passes through unchanged.
+    //
+    // Each filter predicts every cycle and takes a measurement from a
+    // channel only when that channel is NOMINAL and its reading is fresh
+    // (read_ok), so a reading is used once, on the cycle it was obtained
+    // (REQ-PROC-006). A 1 Hz GPS in a 50 Hz loop is fresh on one cycle in
+    // fifty; a failed I2C read inside the timeout window is stale on a
+    // channel that is still NOMINAL. Both are normal, and neither may be
+    // re-applied as if it were new evidence.
     TelemetryFrame process(const TelemetryFrame& raw);
 
 private:
     // std::optional because the filter cannot be built until the first
-    // frame arrives: its initial altitude is the first barometric reading.
-    // Empty means "no frame seen yet". Constructing it with a made-up
-    // altitude and overwriting later would work, but would leave a window
-    // where the filter holds a value nobody chose.
+    // fresh barometric reading arrives: that reading is its initial
+    // altitude. Empty means "no estimate yet". Constructing it with a
+    // made-up altitude and overwriting later would work, but would leave
+    // a window where the filter holds a value nobody measured; a driver
+    // reports read_ok false until its first successful transaction.
     std::optional<KalmanFilter1D> altitude_filter_;
 
     // Not optional, unlike the Kalman member: its constructor takes only
@@ -48,7 +57,14 @@ private:
     // own angles from the accelerometer on the first update.
     ComplementaryFilter attitude_filter_;
 
-    // Timestamp of the previous frame, used to compute dt for the filters.
-    // Only meaningful once altitude_filter_ has a value.
+    // Timestamp of the previous frame: the Kalman filter's prediction
+    // interval, because time passes every cycle whether or not a sensor
+    // reported. Read only while altitude_filter_ has a value.
     uint64_t previous_timestamp_ms_ = 0;
+
+    // Timestamp of the last IMU sample the attitude filter accepted. The
+    // gyroscope integrates over the time since that sample, not over the
+    // loop period: three stale frames between two fresh ones are 80 ms of
+    // rotation, not 20. Empty until the first accepted sample.
+    std::optional<uint64_t> imu_last_fresh_ms_;
 };

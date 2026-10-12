@@ -45,65 +45,86 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
 
     // REQ-PROC-001: barometric altitude from pressure. The sea-level
     // reference is the ISA default until config supplies it (REQ-CFG-001).
+    // A stale frame carries the previous pressure, so this reproduces the
+    // previous altitude; the gate below keeps it out of the filter.
     out.baro_altitude_m = pressure_to_altitude(raw.pressure_hpa);
 
-    // Time since the previous frame, shared by both filters. Timestamps
-    // are integer ms; the filters work in seconds. On the first frame
-    // there is no previous timestamp, and neither filter integrates.
-    const bool first_frame = !altitude_filter_.has_value();
-    float dt = 0.0f;
-    if (!first_frame) {
-        dt = static_cast<float>(raw.timestamp_ms - previous_timestamp_ms_) / 1000.0f;
-    }
+    // REQ-PROC-006: a reading enters a filter only when its channel is
+    // NOMINAL and the reading was taken this cycle. Health is the
+    // detector's judgment over time; read_ok is this cycle's fact. Both
+    // must hold: a NOMINAL GPS is stale on 49 of 50 cycles, and a frame
+    // whose I2C read failed inside the timeout window carries the previous
+    // sample on a channel that is still NOMINAL. Re-applying a copy would
+    // shrink the covariance as if new evidence had arrived and pin the
+    // state to a value that is no longer current (design.md section 5).
+    const bool baro_fresh = raw.baro_status == ChannelStatus::NOMINAL && raw.baro_read_ok;
+    const bool imu_fresh = raw.imu_status == ChannelStatus::NOMINAL && raw.imu_read_ok;
+    const bool gps_fresh = raw.gps_status == ChannelStatus::NOMINAL && raw.gps_read_ok;
 
-    // REQ-PROC-002: pitch and roll from the complementary filter.
-    // A DEGRADED IMU contributes nothing and the last angles are held.
-    // FAULT-006 says attitude must be marked invalid rather than held;
-    // that needs a validity marker the frame does not carry yet (sidecar
-    // decision, Sprint 2), so hold is the interim behavior.
-    if (raw.imu_status == ChannelStatus::NOMINAL) {
+    // REQ-PROC-002: pitch and roll from the complementary filter. The
+    // gyroscope integrates over the time since the last sample this filter
+    // accepted, not over the loop period, so a gap of stale frames is
+    // rotation accounted for, not lost. On the first accepted sample the
+    // interval is zero and the filter seeds itself from the accelerometer.
+    // A DEGRADED or stale frame holds the angles. FAULT-006 says attitude
+    // must be marked invalid rather than held; that needs a validity
+    // marker the frame does not carry yet (sidecar decision, Sprint 2).
+    if (imu_fresh) {
+        float imu_dt = 0.0f;
+        if (imu_last_fresh_ms_.has_value()) {
+            imu_dt = static_cast<float>(raw.timestamp_ms - *imu_last_fresh_ms_) / 1000.0f;
+        }
         attitude_filter_.update(raw.accel_x, raw.accel_y, raw.accel_z,
-                                raw.gyro_x, raw.gyro_y, raw.gyro_z, dt);
+                                raw.gyro_x, raw.gyro_y, raw.gyro_z, imu_dt);
+        imu_last_fresh_ms_ = raw.timestamp_ms;
     }
     out.pitch_deg = attitude_filter_.pitch_deg();
     out.roll_deg = attitude_filter_.roll_deg();
 
     // REQ-PROC-003: Kalman fusion of barometric and GPS altitude.
-    if (first_frame) {
-        // There is no previous estimate to predict from, so the filter is
-        // born at the first barometric altitude with zero vertical
-        // velocity. emplace() constructs the filter in place inside the
-        // optional; the arguments go straight to the KalmanFilter1D
-        // constructor.
+    // Prediction runs on every cycle the filter exists: time passes
+    // whether or not a sensor reported, and the covariance must grow to
+    // say so. Timestamps are integer ms; the filter works in seconds.
+    if (altitude_filter_.has_value()) {
+        const float dt = static_cast<float>(raw.timestamp_ms - previous_timestamp_ms_) / 1000.0f;
+        altitude_filter_->predict(dt);
+    } else if (baro_fresh) {
+        // No estimate exists yet, and this cycle measured the barometer,
+        // so the filter is born here: at this barometric altitude, with
+        // zero vertical velocity, and no predict because there is no
+        // previous state. emplace() constructs the filter in place inside
+        // the optional; the arguments go straight to the KalmanFilter1D
+        // constructor. A frame whose barometer read failed cannot start
+        // it: a filter born from an unmeasured pressure would start 44 km
+        // up. Until a fresh reading arrives the fused fields keep the
+        // zero every source leaves in them.
         altitude_filter_.emplace(out.baro_altitude_m,
                                  0.0f,
                                  kInitialAltitudeVariance,
                                  kInitialVelocityVariance,
                                  kAccelNoiseVariance);
-    } else {
-        altitude_filter_->predict(dt);
     }
 
-    // Measurement updates. Each sensor is applied only when its channel
-    // is healthy; a DEGRADED channel contributes nothing and the filter
-    // coasts on its prediction. Baro is applied first because it is the
-    // primary altitude reference; GPS refines it. On the first frame the
-    // baro update has zero innovation (the state was set from this same
-    // reading), so it only tightens the covariance.
-    if (raw.baro_status == ChannelStatus::NOMINAL) {
-        altitude_filter_->update(out.baro_altitude_m, kBaroMeasurementVariance);
+    if (altitude_filter_.has_value()) {
+        // Measurement updates, each behind its own freshness gate. Baro is
+        // applied first because it is the primary altitude reference; GPS
+        // refines it. On the filter's first cycle the baro update has zero
+        // innovation (the state was set from this same reading), so it
+        // only tightens the covariance.
+        if (baro_fresh) {
+            altitude_filter_->update(out.baro_altitude_m, kBaroMeasurementVariance);
+        }
+        if (gps_fresh) {
+            altitude_filter_->update(raw.gps_altitude_m, kGpsMeasurementVariance);
+        }
+        out.fused_altitude_m = altitude_filter_->altitude();
+        out.vertical_speed_mps = altitude_filter_->vertical_velocity();
     }
-    if (raw.gps_status == ChannelStatus::NOMINAL) {
-        altitude_filter_->update(raw.gps_altitude_m, kGpsMeasurementVariance);
-    }
-
-    out.fused_altitude_m = altitude_filter_->altitude();
-    out.vertical_speed_mps = altitude_filter_->vertical_velocity();
 
     previous_timestamp_ms_ = raw.timestamp_ms;
 
     // Channel status (baro_status, imu_status, gps_status) is left as the
-    // source set it. Fault detection (REQ-FAULT-001..005) will own these.
+    // fault detector set it (REQ-FAULT-004); this class only reads it.
 
     return out;
 }
