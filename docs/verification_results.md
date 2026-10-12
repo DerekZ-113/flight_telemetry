@@ -388,3 +388,72 @@ cppcheck 2.21.0, same flags as CI: 0 findings. One `constParameter` style note o
 - CI run of record for these commits: 6.7, and the README verification table, which still cites run 34445017604.
 - TC-005 automation and TC-010 step 6 (a subscriber stalled at loop level) wait for the pytest suite (REQ-TEST-002); REQ-TRANS-001 and REQ-TRANS-003 stay Partial until then.
 - The receiver's 10 ms reconnect interval is what lets a subscriber started first catch frame 0 of a paced run; a burst still loses what is sent inside that window (run d). A publisher-side start delay was considered and not added: no requirement asks for it, and the pytest suite can start the receiver first and wait for the first frame.
+
+---
+
+## Entry 7 — 2026-10-11, freshness gating commit
+
+### 7.1 Finding: stale readings re-applied as measurements
+
+`TelemetryProcessor::process` gated each filter update on channel status alone and read `read_ok` nowhere. A frame whose read failed inside the timeout window (`read_ok` false on a channel still NOMINAL), or a 1 Hz GPS on the 49 cycles between fixes, carries the previous sample, and the processor applied it as a new measurement every cycle. A Kalman filter cannot tell a copy from a new sample: each update multiplies the altitude variance by (1 − k), so one reading applied N times shrinks the covariance as if N sensors had agreed and pins the state to a value that is no longer current. With the project's constants, a 1 Hz fix applied 50 times carries the information weight of R/50 = 0.5 m², a 0.7 m sensor in place of the 5 m sensor it is; a 500 ms barometer dropout re-applied 25 times leaves the altitude variance at 0.061 m² where prediction alone gives 0.101 m², so the next real reading is trusted with gain 0.020 instead of 0.033; in a 2 m/s climb the stale window leaves the estimate 0.25 m low with the velocity at 1.875 m/s, where prediction alone is right to the millimeter. The complementary filter had the same gate: a stale IMU frame moved the attitude, and a gap of stale frames lost its rotation.
+
+No test could see it. The simulator produced a fresh GPS fix on every frame, so the pipeline never met a stale NOMINAL reading in a test; `ReplayTest.ReplayReproducesLiveSession` injects a 40-frame barometer dropout and passed, because live and replay misbehaved identically. The defect was found by reading the processor against FTS-DD-001 §7's definition of `read_ok`, not by a failing test, which is the gap the simulator change closes: from now on every test that runs the simulator meets the real GPS cadence.
+
+Fix (REQ-PROC-006, FTS-SRD-001 0.3.0): `process()` predicts on every cycle the filter exists and applies a channel's reading only when the channel is NOMINAL and the reading is fresh; the gyroscope integrates over the time since the last accepted IMU sample (`imu_last_fresh_ms_`); the Kalman filter is constructed on the first fresh barometer frame rather than on the first frame, because a real driver reports `read_ok` false until its first successful transaction. The simulator fixes GPS once per second (REQ-SENS-006 reworded), holding the fields with `gps_read_ok` false between fixes.
+
+Guards (TC-011): six processor tests written before the fix and failing on the old code, plus two simulator tests.
+
+| Test | Old code | Required |
+|---|---|---|
+| `ComplementaryTest.StaleImuFrameHoldsAttitude` | pitch moved 0.475° → 1.366° on a stale frame carrying 45° of tilt | unchanged |
+| `ComplementaryTest.GyroIntegratesOverStaleGap` | 0.0196° (one 20 ms step) | 0.0784° (the 80 ms gap) |
+| `KalmanTest.StaleBaroInsideTimeoutIsPredictOnly` | fused 2.1776 m against predict-only 2.1830 m on the first stale frame; velocity pinned at 0.006 m/s while predict-only reached 0.034 m/s | identical to the DEGRADED twin |
+| `KalmanTest.StaleGpsIsNotApplied` | a stale 9999 m GPS field pulled the fused altitude to 67 m, then 128 m | identical to the held fix |
+| `KalmanTest.OneGpsUpdatePerFix` | frame 1 already differed from the explicit schedule (1.8797 against 1.9270 m) | identical; parts from the first-fix-only twin exactly at the second fix |
+| `KalmanTest.FilterWaitsForFirstFreshBaro` | filter born at 2.134 m from an unmeasured pressure | 0 until the first fresh reading, then that reading |
+| `SimulatedDataTest.GpsFixOncePerSecond`, `GpsIntervalIsConfigurable` | every frame a fix; no rate parameter | fixes at 0 and 1000 ms only; period configurable |
+
+### 7.2 Re-baselined numbers
+
+GPS noise is no longer drawn on the 490 frames between fixes, so the seed-42 sequence shifts from frame 1 on. No test asserted a number; these records did, and were updated (FTS-DD-001 §5, the `ConvergenceReducesNoise` comment, the Kalman knowledge-base note):
+
+| Quantity (seed 42, 20 ms, 500 frames) | Before | Now |
+|---|---|---|
+| Barometric altitude sigma / mean | 1.647 / 1.961 m | 1.734 / 2.058 m |
+| Fused altitude sigma / mean | 0.244 / 2.060 m | 0.228 / 2.038 m |
+| Fused over barometric sigma (TC-007 step 5 bound 0.5) | 0.15 | 0.13 |
+| GPS updates in 500 frames | 500 | 10 (mean 2.716 m) |
+| Vertical speed startup transient | peak near 1 m/s around frame 49, settling near 0.05 m/s | peak 0.78 m/s at frame 31, settling 0.04 m/s |
+
+### 7.3 Test results (preview)
+
+| Item | Value |
+|---|---|
+| Platform | macOS 26, Apple clang 21 (preview; CI run pending) |
+| Compiler warnings | 0 |
+| Test suites | AltitudeTest (8), KalmanTest (12), ComplementaryTest (11), FaultDetectionTest (28), FaultInjectingSourceTest (4), SimulatedDataTest (7), SimulatedSourceTest (2), LoggingTest (22), ReplayTest (6), TimingTest (14), ZmqPublisherTest (8) |
+| Tests passed | 122 of 122 |
+| Replay identity | the default 5-frame pair and a 100-frame pair identical by `cmp`; the unit-level identity test's dropout now contains 25 stale-NOMINAL frames and still reproduces |
+| End to end | 100 frames published to the Python receiver: 100 received, gaps 0, every channel NOMINAL on every frame |
+
+### 7.4 Structural coverage (preview)
+
+| Scope | Lines | Branches | Threshold (branch) | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% | 100.0% (`processor.cpp` 20 of 20) | 90% | pass |
+| `src/drivers/` | 100.0% | 100.0% (`simulated_data.cpp` 6 of 6) | 70% | pass |
+| `src/logging/` | 100.0% | 83.3% (55 of 66) | 80% | pass |
+| `src/timing/`, `src/replay/`, `src/transport/` | 100.0% | 100.0% | 80% | pass |
+| **Overall** | **100.0%** (739 of 739) | **94.4%** (187 of 198) | 80% | **pass** |
+
+The 11 untaken branches are the `log_reader.cpp` clang edges of every Mac preview (Entry 6 §6.2). `processor.cpp` now carries 20 branches, each `&&` operand and each `if` of the gate among them, all taken: the false side of every `*_fresh` by the stale tests, the DEGRADED side by the existing status tests, the deferred-construction path by `FilterWaitsForFirstFreshBaro`. No marker was added.
+
+### 7.5 Static analysis
+
+cppcheck 2.21.0, same flags as CI: 0 findings.
+
+### 7.6 Open
+
+- CI run of record for this commit, and for the ZeroMQ commits if theirs has not been recorded.
+- On recovery from a long DEGRADED span the complementary filter integrates one rate sample over the whole span (FTS-DD-001 §6); a re-seed from the accelerometer after a long gap would be a refinement, not a correction, and is not planned.
+- The GPS driver (Week 2 map, Day 14) must set `gps_read_ok` only on a cycle in which a sentence completed; that is now what the pipeline assumes, and the simulator models.
