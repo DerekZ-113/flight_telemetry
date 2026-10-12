@@ -1,8 +1,14 @@
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
+
+#include <zmq.hpp>
+
 #include "telemetry_frame.h"
 #include "data_source.h"
 #include "logging/binary_logger.h"
@@ -12,6 +18,7 @@
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
+#include "transport/zmq_publisher.h"
 
 // The only place that knows concrete source types exist. Everything
 // below create_source() sees DataSource and nothing else.
@@ -24,6 +31,9 @@ constexpr uint64_t kMaxLogFileBytes = 1u << 20;   // 1 MiB, about 10,000 frames
 // Processing period, 50 Hz (REQ-TIME-001). Placeholder until config
 // (REQ-CFG-001). Digit separators: 20 ms in nanoseconds.
 constexpr uint64_t kPeriodNs = 20'000'000;
+
+// Frames per run without --cycles: a quick smoke run.
+constexpr int kDefaultCycles = 5;
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -59,6 +69,52 @@ void print_event(const FaultEvent& event) {
               << " value=" << event.value << std::endl;
 }
 
+// Command line. Each flag takes one value: --replay <file> swaps the
+// source, --zmq <endpoint> adds the publisher, --cycles <n> sets the run
+// length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
+// run). Parsed once, here; the YAML config (REQ-CFG-001) will replace it.
+struct Options {
+    std::optional<std::string> replay_file;
+    std::optional<std::string> zmq_endpoint;
+    int cycles = kDefaultCycles;
+    std::string error;   // non-empty: a usage error; main prints it and exits
+};
+
+void print_usage() {
+    std::cerr << "usage: telemetry [--replay <log.bin>] [--zmq <endpoint>] [--cycles <n>]\n"
+              << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
+              << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555\n"
+              << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
+}
+
+// Both levels const: the pointers and the characters are only read.
+// main's `char* argv[]` converts to this without a cast.
+Options parse_args(int argc, const char* const argv[]) {
+    Options options;
+    for (int i = 1; i < argc; i++) {
+        const std::string flag = argv[i];
+        const bool has_value = (i + 1 < argc);
+        if (flag == "--replay" && has_value) {
+            options.replay_file = argv[++i];
+        } else if (flag == "--zmq" && has_value) {
+            options.zmq_endpoint = argv[++i];
+        } else if (flag == "--cycles" && has_value) {
+            // strtol with an end pointer, not atoi: "12x" is an error, not 12.
+            char* end = nullptr;
+            const long n = std::strtol(argv[++i], &end, 10);
+            if (*end != '\0' || n < 1) {
+                options.error = "--cycles needs a positive whole number";
+                return options;
+            }
+            options.cycles = static_cast<int>(n);
+        } else {
+            options.error = "unknown or incomplete argument: " + flag;
+            return options;
+        }
+    }
+    return options;
+}
+
 // Factory: decides which concrete DataSource to build. Today the choice
 // is one command-line flag; later it reads the YAML config (REQ-CFG-001)
 // and adds the live-sensor source. The return type is the base class, so
@@ -67,10 +123,10 @@ void print_event(const FaultEvent& event) {
 // std::make_unique constructs the object on the heap and wraps the
 // pointer in a std::unique_ptr<Derived>, which converts implicitly to
 // std::unique_ptr<DataSource> because Derived is-a DataSource.
-std::unique_ptr<DataSource> create_source(int argc, char* argv[]) {
-    if (argc >= 3 && std::strcmp(argv[1], "--replay") == 0) {
+std::unique_ptr<DataSource> create_source(const Options& options) {
+    if (options.replay_file.has_value()) {
         return std::make_unique<LogReplaySource>(
-            std::vector<std::filesystem::path>{argv[2]});
+            std::vector<std::filesystem::path>{*options.replay_file});
     }
     // 20 ms interval = 50 Hz. Seed 42 keeps the run reproducible (REQ-SENS-006).
     // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
@@ -93,13 +149,14 @@ std::unique_ptr<DataSource> create_source(int argc, char* argv[]) {
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
 //
-// The scheduler and jitter log are pointers, not references, because they
-// may be absent: a reference cannot be null, a pointer can. Replay passes
-// nullptr and runs unpaced; the frames carry their own timestamps and
-// pacing would add nothing to the identity check (REQ-LOG-003).
+// The publisher, scheduler, and jitter log are pointers, not references,
+// because each may be absent: a reference cannot be null, a pointer can.
+// Replay passes a null scheduler and runs unpaced; the frames carry their
+// own timestamps and pacing would add nothing to the identity check
+// (REQ-LOG-003). The publisher is null without --zmq.
 void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
-         BinaryLogger& logger, FixedRateScheduler* scheduler, JitterLog* jitter,
-         int frame_count) {
+         BinaryLogger& logger, ZmqPublisher* publisher, FixedRateScheduler* scheduler,
+         JitterLog* jitter, int frame_count) {
     for (int i = 0; i < frame_count; i++) {
         // The wait is the first thing in the cycle, so everything below it
         // starts on the deadline grid and the jitter measured is the
@@ -126,6 +183,13 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
         // strips them back to raw before the pipeline sees them again.
         logger.log_frame(processed);
 
+        // The wire carries a copy of the record, never the record itself:
+        // the log is written first, and a publisher that drops or fails
+        // (REQ-TRANS-003) changes nothing about what was logged.
+        if (publisher != nullptr) {
+            publisher->publish(processed);
+        }
+
         print_frame(processed);
         for (const FaultEvent& event : detector.take_events()) {
             logger.log_event(event);
@@ -135,15 +199,25 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
     }
 }
 
-// Usage: telemetry                      simulated source, 5 frames
-//        telemetry --replay <log.bin>   replay a recorded log instead
+// Usage: telemetry                        simulated source, 5 frames
+//        telemetry --replay <log.bin>     replay a recorded log instead
+//        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
+//                                         publish every processed frame; 10 s at 50 Hz
 int main(int argc, char* argv[]) {
     std::cout << "flight-telemetry v0.1.0\n" << std::endl;
+
+    const Options options = parse_args(argc, argv);
+    if (!options.error.empty()) {
+        std::cerr << "error: " << options.error << std::endl;
+        print_usage();
+        return 1;
+    }
+    const bool replaying = options.replay_file.has_value();
 
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
-    std::unique_ptr<DataSource> source = create_source(argc, argv);
+    std::unique_ptr<DataSource> source = create_source(options);
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
@@ -155,11 +229,29 @@ int main(int argc, char* argv[]) {
     // ./logs; with the same prefix the logger would truncate the very
     // file being replayed. Different names keep session A and session B
     // side by side, which is also what TC-004 compares.
-    const bool replaying = (argc >= 3 && std::strcmp(argv[1], "--replay") == 0);
     BinaryLogger logger("logs", replaying ? "replay" : "telemetry", kMaxLogFileBytes);
     if (!logger.ok()) {
         std::cerr << "cannot open log file in ./logs" << std::endl;
         return 1;
+    }
+
+    // ZeroMQ (REQ-TRANS-001). One context per process, declared before the
+    // publisher so it is destroyed after it: terminating the context waits
+    // for every socket on it to close, so this order is the difference
+    // between a clean exit and a hang. Both exist only with --zmq. A bind
+    // that fails is a startup error, loud and fatal like an unwritable log
+    // directory; failures during the loop are counted, never fatal
+    // (REQ-TRANS-003).
+    std::optional<zmq::context_t> zmq_context;
+    std::optional<ZmqPublisher> publisher;
+    if (options.zmq_endpoint.has_value()) {
+        zmq_context.emplace(1);   // one I/O thread moves messages to the wire
+        publisher.emplace(*zmq_context, *options.zmq_endpoint);
+        if (!publisher->ok()) {
+            std::cerr << "cannot bind ZeroMQ publisher to " << *options.zmq_endpoint
+                      << ": " << publisher->error() << std::endl;
+            return 1;
+        }
     }
 
     // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
@@ -177,9 +269,10 @@ int main(int argc, char* argv[]) {
     // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
     // comes from the detector (REQ-FAULT-004); the simulator never faults.
     run(*source, detector, processor, logger,
+        publisher.has_value() ? &publisher.value() : nullptr,
         replaying ? nullptr : &scheduler,
         jitter.has_value() ? &jitter.value() : nullptr,
-        5);
+        options.cycles);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
@@ -193,6 +286,16 @@ int main(int argc, char* argv[]) {
                   << "  (logs/telemetry_jitter.csv)" << std::endl;
     } else {
         std::cout << "Timing:    unpaced (replay)" << std::endl;
+    }
+
+    if (publisher.has_value()) {
+        const PublishStats& ps = publisher->stats();
+        std::cout << "Transport: " << ps.published << " frames published on "
+                  << *options.zmq_endpoint << ", send failures = " << ps.send_failures;
+        if (ps.send_failures > 0) {
+            std::cout << " (last errno " << ps.last_errno << ")";
+        }
+        std::cout << std::endl;
     }
 
     // Sanity checks
