@@ -385,8 +385,8 @@ cppcheck 2.21.0, same flags as CI: 0 findings. One `constParameter` style note o
 
 ### 6.6 Open
 
-- CI run of record for these commits: 6.7, and the README verification table, which still cites run 34445017604.
-- TC-005 automation and TC-010 step 6 (a subscriber stalled at loop level) wait for the pytest suite (REQ-TEST-002); REQ-TRANS-001 and REQ-TRANS-003 stay Partial until then.
+- CI run of record for these commits: 6.7, and the README verification table, which still cites run 34445017604. (6.7 was never written; the transport scope's first GCC measurement is Entry 10 §10.6, which also lists the runs that went unrecorded in between.)
+- TC-005 automation and TC-010 step 6 (a subscriber stalled at loop level) wait for the pytest suite (REQ-TEST-002); REQ-TRANS-001 and REQ-TRANS-003 stay Partial until then. (Closed by Entry 10: `tests/integration/test_transport.py`, over both transports; both rows Verified.)
 - The receiver's 10 ms reconnect interval is what lets a subscriber started first catch frame 0 of a paced run; a burst still loses what is sent inside that window (run d). A publisher-side start delay was considered and not added: no requirement asks for it, and the pytest suite can start the receiver first and wait for the first frame.
 
 ---
@@ -592,7 +592,96 @@ Reserved for the capture of 2026-10-13 (TC-015 steps 9 to 12): the provenance, t
 ### 9.7 Open
 
 - The capture and everything in §9.6.
-- Python in CI: the suite runs locally; the CI topic adds the step (FTS-TP-001 §7).
+- Python in CI: the suite runs locally; the CI topic adds the step (FTS-TP-001 §7). (Closed by Entry 10: the "Integration tests" step.)
 - `--replay` takes one file, so a rotated capture is replayed one file at a time (FTS-DD-001 §12).
 - A stale rotated file from an aborted earlier capture would join a later run's sequence seamlessly; the frame total, the mtime warning, and clearing `logs/` before the capture are the guards (FTS-DD-001 §3).
 - The BMP280 datasheet's per-mode noise figure at ×4 oversampling is still to be confirmed for FTS-NP-001 §3.1.
+
+---
+
+## Entry 10 — 2026-10-12, UDP transport, the transport pytest, the suite in CI (macOS preview)
+
+REQ-TRANS-002 at unit and process level, REQ-TRANS-003 over both transports, REQ-TEST-002 with TC-005 and TC-010 automated, and the pytest suite in the workflow. The first CI run with the "Integration tests" step is the measurement of record and goes in §10.6; everything else here is a macOS preview. No hardware.
+
+### 10.1 What was built
+
+- `src/transport/publisher.h`: the `Publisher` seam (`publish`, `stats`, a virtual destructor) and `PublishStats`. `run()` in `main.cpp` takes `const std::vector<Publisher*>&` and never learns which transports it has; `--zmq` and `--udp` may be combined, one `Transport:` line each at exit.
+- `src/logging/log_format.h/.cpp`: `kFrameMessageBytes` and `frame_message()`, the 121-byte one-record log file both publishers send; `ZmqPublisher::publish` now calls it, its eight tests unchanged; `LoggingTest.FrameMessageIsHeaderTagAndFrame`.
+- `src/transport/udp_publisher.h/.cpp`: the port (1 to 65535) and the IPv4 dotted quad checked before any system call, `INADDR_ANY` and `INADDR_BROADCAST` refused by name, `socket`, `connect` (an unroutable destination is refused at startup), `send` with `MSG_DONTWAIT`, every refusal counted with its errno and never retried, the descriptor closed in the destructor; no platform split. `main.cpp` parses `--udp <ipv4>:<port>` at the last colon and exits 1 with the reason when the publisher refuses the destination. Ten tests in `test_udp_publisher.cpp` (TC-005 unit steps, TC-010 steps 8 to 12), among them `SocketFailureIsReportedNotThrown`, which lowers `RLIMIT_NOFILE` to zero around the construction so `socket()` failing is a test rather than an exclusion.
+- `pipeline/receiver.py`: `ZmqSource` (pyzmq imported inside it) and `UdpSource` (standard library, runs on the Pi without the venv) behind one `FrameReceiver`; `FrameAccounting` gains `out_of_order`; `--udp HOST:PORT`; the exit line reports gaps and out-of-order frames.
+- `tests/integration/test_transport.py` (16 tests: four on the accounting without a binary, TC-005 and TC-010 steps 6 and 7 over each transport, five startup refusals, both transports at once) and the `run_published` harness in `conftest.py` (the binary's stdout to a file, the receiver read in the test thread, collection until the process exits and the receiver has been quiet for one timeout).
+- `.github/workflows/ci.yml`: `actions/setup-python@v5` on 3.13 with the pip cache, `pip install -r requirements.txt`, "Integration tests" between "Unit tests" and "Coverage report" (section 10.3 on why there), `timeout-minutes: 20`.
+- Documents: FTS-SRD-001 0.5.1 (the TRANS-002 rationale; one sentence in TRANS-003's); TC-005 and TC-010 over both transports (section 10.4 on what changed in them); FTS-TM-001 19 Verified, 11 Partial, 3 Not started, TRANS-002 Partial for REQ-CFG-001 alone, since the SRD defines *configurable* as its configuration file; FTS-DD-001 §9 (the second transport, the seam, the kernel's buffers between the high-water marks), §10, §12 (the sequence-number deferral the Week Plan already cited); FTS-TP-001 §2.2, §6.1, §7.
+
+### 10.2 Test results (preview)
+
+| Item | Value |
+|---|---|
+| Platform | macOS 27.2, Apple clang, Python 3.13.0, pyzmq 27.2.0 / libzmq 4.3.5 |
+| C++ suite | 168 of 168 (157, plus one logging test, plus ten UDP tests); the ten UDP tests passed 30 of 30 repeats |
+| pytest | 66 of 66 in 52 s (50 in 14 s before); `test_transport.py` 16 in 38 s, of which the two 10 s stall runs are the cost |
+| TC-005, 200 frames | ZeroMQ: join index 0, 200 received; UDP: 200 received; every frame byte-identical to the log, gaps 0, out of order 0; 200 published and 0 refused on both |
+| TC-010 step 6, 500 frames, a 3 s stall after 50 | ZeroMQ: 500 received, gaps 0 (the kernel's TCP buffers held the stall); UDP with a 4 KB receive buffer: 373 received, gaps 127 of the 150 stalled frames; missed cycles 0 on both; 500 published, 0 refused on both |
+| TC-010 step 7, 50 frames, nobody listening | ZeroMQ: 50 published, 0 refused; UDP: 41 published, 9 refused with ECONNREFUSED (the port-unreachable the kernel reports on later sends, about one per 100 ms here); exit 0 and 50 frames in the log on both |
+| Startup refusals | `--udp not-an-address`, `127.0.0.1:99999`, `0.0.0.0:5556`, `localhost:5556`, `--zmq not-an-endpoint`: exit 1, the reason named, no frame logged |
+| Both transports at once, 100 frames | both receivers complete and byte-identical to the log; two `Transport:` lines, 100 published and 0 refused each |
+| cppcheck 2.21.0 | 0 findings |
+
+### 10.3 Structural coverage (preview)
+
+macOS, Apple clang, `llvm-cov gcov` through lcov 2.5 with the workflow's flags, captured twice: after the unit tests alone, and after the pytest suite was run against the same instrumented binary (`TELEMETRY_BIN=build-cov/telemetry`).
+
+| Scope | Branches, unit tests | Branches, unit tests plus pytest | Threshold | Result |
+|---|---|---|---|---|
+| `src/processing/` | 100.0% | 100.0% | 90% | pass |
+| `src/timing/` | 100.0% | 100.0% | 80% | pass |
+| `src/logging/` | 83.3% | 83.3% | 80% | pass |
+| `src/transport/` | 89.3% (25 of 28) | 89.3% | 80% | pass |
+| `src/replay/` | 100.0% | 100.0% | 80% | pass |
+| `src/drivers/` | 100.0% | 100.0% | 70% | pass |
+| Overall | 95.2% | 95.2% | 80% | pass |
+
+Per file in the transport scope: `zmq_publisher.cpp` 4 of 4, `udp_publisher.cpp` 21 of 24, and `log_format.cpp` 8 of 8. The three untaken branches in `udp_publisher.cpp` are at two lines: the `connect` conditional (line 45), whose failure outcome macOS cannot reach because it routes the loopback broadcast like unicast (section 10.5; Linux reaches it through `DirectedBroadcastIsRefusedOrRouted`), together with its clang unwind edge; and one clang unwind edge at the `inet_pton` conditional (line 25), whose two logical outcomes are both taken (five addresses refused, three accepted). These are the clang exception edges every Mac preview has shown since Entry 2; the record is GCC's (§10.6), where the expectation is 24 of 24 with no marker. The logging scope's 83.3% is Entry 8's figure (`log_reader.cpp`'s clang edges, 100% on GCC with the Entry 5 markers).
+
+The pytest runs did merge into the counters (the UDP publisher's line execution count rose from 17,169 to 24,106 between the two captures) and took no branch the unit tests had not already taken: every file's branch set is identical in the two captures. Placing the step before the capture is therefore a measurement choice with no effect on today's figures, documented in FTS-TP-001 §6.1; it would matter for a branch reachable only through a real run of `main`, and `main.cpp` is excluded by design (§6.2).
+
+### 10.4 TC-005 and TC-010: what the cards got wrong, and the measurements that corrected them
+
+- **TC-005 step 1** named the wrong mechanism. A settle delay before starting the publisher cannot act on a publisher that does not exist yet; what catches frame 0 is the subscriber's reconnect interval against the loop's 20 ms first deadline (Entry 6 §6.6 had it right). Measured 2026-10-12 on this Mac with a PUB binding late and the first frame exactly 20 ms after the bind, 40 trials each: at the shipped 10 ms reconnect interval the subscription reached the publisher 2.4 to 22 ms after the bind (median 9.5) and frame 0 was lost 3 times; at 1 ms, 1.2 to 4.7 ms (median 1.7) and never. Entry 6's hand run (500 of 500) was the 92% case. **Step 5** now asserts exactly 200 over UDP, where a bound socket has no join, and over ZeroMQ contiguity from the first frame received with the join bounded to five frames and recorded; the pytest's receiver reconnects every 1 ms (`ZmqSource(reconnect_ivl_ms=1)`), the tool's default stays 10 ms. REQ-TRANS-001's rationale already says a late join is not loss.
+- **TC-010 step 6** expected "gaps greater than 0" from a 3 s stall. Over `tcp://` the kernel's TCP buffers on both ends sit between the two ZeroMQ high-water marks and hold minutes of 121-byte frames (a 3 s stall is 18 KB), so the expectation would have failed against correct code: the first run received 500 of 500 across the stall. The step now asserts the requirement (published 500, missed cycles under 75 against the 150 a blocked 3 s send would cost, contiguity after the stall, out of order 0) and records the gaps. The UDP variant shrinks the receiver's kernel buffer to 4 KB and asserts the drop on Linux, where the limit is strict, recording it on macOS, where the kernel held 22, 104 and 301 of 1000 datagrams past that buffer in different runs. The drop at the high-water mark stays proven at unit level over `inproc://` (step 4), where there are no kernel buffers.
+- **TC-010 step 11**, the UDP stalled receiver, asserts "at least 1 and fewer than 1000" delivered of 1000 for the same reason; the plan's "at most 100" failed 2 of 40 repeats on this Mac.
+- **TC-010 step 12** expected a directed broadcast to be refused at connect (Linux) or at the first send; macOS routes `127.255.255.255` to `127.0.0.1` like unicast (its route table lists the address as a host route on `lo0`) and delivers it, so the step accepts that third outcome, and the limited broadcast `255.255.255.255` is refused by name in step 8 on both kernels.
+- **TC-010 step 7** is a pytest step at 50 frames per transport; the 500-frame manual run of Entry 6 stands.
+
+### 10.5 Socket behaviour measured on this Mac, the design's inputs
+
+| Case | Result |
+|---|---|
+| Connected datagram socket, nobody bound on the loopback port, six sends 10 ms apart | ok, ECONNREFUSED, ok, ok, ok, ok: one refusal per ICMP, reported on the next send, that datagram not transmitted |
+| Same, 20 sends 5 ms apart; 1000 back to back; sends 50 ms apart | 2 refused; 1 refused (on the send after the burst); every one refused: macOS suppresses an unreachable that follows another within about 50 ms on the same socket |
+| Unconnected `sendto` to the same dead port, four sends | no error, ever |
+| Never-reading receiver, `SO_RCVBUF` 2048, 500 sends | 500 accepted at the sender in 2.3 ms; 11 kept |
+| 150 datagrams (a 3 s stall at 50 Hz) into a default receiver (786,896 bytes) | all 150 held |
+| 1000 datagrams into a 4 KB receiver | 22, 104 and 301 kept in different runs; no error at the sender |
+| `connect` to 255.255.255.255 without `SO_BROADCAST`, then `send`, 30 fresh sockets, default SIGPIPE | `send` EACCES 30 of 30, no signal; an unconnected `sendto` the same |
+| `connect` to 127.255.255.255, 10.255.255.255, 192.168.255.255 | ok, and the send succeeds: routed like unicast |
+| `connect` to 0.0.0.0 then `send` | arrives on 127.0.0.1 (the reason the publisher refuses it by name) |
+| Oversize datagram (70,000 bytes) | EMSGSIZE; a datagram send never returns a short count |
+| `inet_pton` | accepts 127.0.0.1 and 0.0.0.0; refuses localhost, 256.1.1.1, 1.2.3 |
+| A PUB binding late, first frame 20 ms after the bind, a SUB connected first, 40 trials each | 10 ms reconnect: frame 0 lost 3 times; 1 ms: never |
+
+Linux, from the kernel's documented behaviour, to be confirmed in §10.6: the ICMP unreachable on a connected socket is reported as ECONNREFUSED on the next send and loopback is exempt from the ICMP rate limits, so a burst to a dead port alternates ok and refused; `connect` to a broadcast address without `SO_BROADCAST` fails with EACCES; `SO_RCVBUF` is doubled on set with a floor near 2.3 KB and each 121-byte loopback datagram charged about 1.2 KB, so a 4 KB request keeps a handful of 150; no SIGPIPE path for a datagram socket on either kernel.
+
+### 10.6 Measurement of record
+
+Reserved for the first CI run with the "Integration tests" step: the pytest line on the runner (count, duration), every scope on GCC, `udp_publisher.cpp`'s branches (24 of 24 expected, the `connect` failure reached through the directed-broadcast test), the ZeroMQ join index CI saw, the stall test's missed cycles and the UDP gap count on Linux, and the kernel's ECONNREFUSED count with nobody listening.
+
+The same section records the four green runs that went unrecorded between Entry 5 §5.8 (run 34445017604, the measurement of record every document still cites: 106 tests, no transport or driver scope) and this entry: 38204693995 on `7f216e1` (Entry 6), 38210190313 on `233f965` (Entry 7), 38291216217 on `79afc7e` (Entry 8), and 38307718743 on `a0d088d` (Entry 9), the last reporting 157 tests, branches 90.6% (270 of 298), processing, timing, logging, transport and replay at 100%, and drivers at 81.3% against their 70% threshold (the Linux I2C error paths that only hardware reaches, FTS-TP-001 §6.3's stated reason for that threshold). Entry 6 reserved §6.7 for the transport scope's first GCC measurement and it was never written; §10.6 is it.
+
+### 10.7 Open
+
+- §10.6, then the README verification table and the FTS-TM-001 TEST-003 row move to that run.
+- REQ-TRANS-002 stays Partial until REQ-CFG-001 carries the destination; no name resolution until then either (`--udp` takes a dotted quad).
+- A sequence number on the wire: deferred with its three placements and its trigger (FTS-DD-001 §12).
+- The `connect` failure branch of `udp_publisher.cpp` is unreachable on macOS; the record is GCC's.
+- Entry 9 §9.6, the stationary capture, is unchanged by this entry.
