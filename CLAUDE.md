@@ -4,9 +4,9 @@
 
 Embedded flight telemetry for a Raspberry Pi in C++17, built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and structural coverage, static analysis, and a formal fault model are part of every build.
 
-**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket and never blocks the loop, with a Python receiver that shares the log's byte layout; an `I2cBus` seam with a Linux device-file implementation and a test fake, the BMP280 (BME280-compatible) and MPU6050 drivers verified against the manufacturers' arithmetic, and a live sensor source selected by `--live`; a Python log reader that is the C++ reader's twin, the replay-identity pytest, and the noise analysis (per-channel sigma, Allan deviation, gyro bias, the derived Kalman constants) verified against simulated logs; Google Test unit tests and a pytest suite; CI with a branch-coverage gate and cppcheck; seven controlled documents under `docs/`.
+**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; two transports behind one `Publisher` seam: a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket, and a UDP publisher that sends the same message as one datagram to a unicast destination over a connected non-blocking socket, neither ever blocking the loop, with a Python receiver that reads either transport through the log's byte layout; an `I2cBus` seam with a Linux device-file implementation and a test fake, the BMP280 (BME280-compatible) and MPU6050 drivers verified against the manufacturers' arithmetic, and a live sensor source selected by `--live`; a Python log reader that is the C++ reader's twin, the replay-identity pytest, the noise analysis (per-channel sigma, Allan deviation, gyro bias, the derived Kalman constants) verified against simulated logs, and the transport pytest over both transports; Google Test unit tests and a pytest suite that runs in CI on every push; CI with a branch-coverage gate and cppcheck; seven controlled documents under `docs/`.
 
-**Planned:** a UART GPS driver (NEO-6M) behind the live `DataSource`; the stationary capture that feeds the measured constants into `processor.cpp`; a UDP publisher; YAML configuration; the ZeroMQ pytest and Python in CI; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
+**Planned:** a UART GPS driver (NEO-6M) behind the live `DataSource`; the stationary capture that feeds the measured constants into `processor.cpp`; YAML configuration; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
 
 ## The One Rule That Matters
 
@@ -37,19 +37,21 @@ ctest --test-dir build --output-on-failure          # every TEST() is its own CT
 cmp logs/telemetry_000.bin logs/replay_000.bin      # silent: the two logs are byte-identical
 .venv/bin/python -m pipeline.receiver --endpoint tcp://127.0.0.1:5555   # start first; one line per frame, gap count at exit
 ./build/telemetry --zmq tcp://127.0.0.1:5555 --cycles 500             # 10 s at 50 Hz, logged and published
-.venv/bin/python -m pytest                                              # 50 tests; runs one 10 s simulated session
+python3 -m pipeline.receiver --udp 127.0.0.1:5556                      # the same receiver over UDP, standard library only
+./build/telemetry --udp 127.0.0.1:5556 --cycles 500                   # one datagram per frame; --zmq and --udp may be combined
+.venv/bin/python -m pytest                                              # 66 tests in about 50 s: one simulated session, the transport runs
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # the noise profile
 ```
 
 Prerequisites beyond CMake and a C++17 compiler: the ZeroMQ C library (`brew install zeromq` / `apt-get install libzmq3-dev`; cppzmq is fetched and pinned by CMake) and, for the Python side, `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` (pyzmq, numpy, matplotlib, pytest, pinned).
 
-CI (`.github/workflows/ci.yml`) configures with `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`, builds, runs ctest, captures lcov branch coverage, enforces the per-scope thresholds in `scripts/coverage_check.sh` (from `docs/test_plan.md` §6.3), and runs cppcheck (reports on every push, gates on `v*` tags). The coverage measurement of record is the CI run on GCC; developer-Mac (clang) numbers are previews. Results and justified exclusions are recorded per commit in `docs/verification_results.md`.
+CI (`.github/workflows/ci.yml`) configures with `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`, builds, runs ctest, runs the pytest suite against the instrumented binary (its runs count toward coverage, test plan §6.1), captures lcov branch coverage, enforces the per-scope thresholds in `scripts/coverage_check.sh` (from `docs/test_plan.md` §6.3), and runs cppcheck (reports on every push, gates on `v*` tags). The coverage measurement of record is the CI run on GCC; developer-Mac (clang) numbers are previews. Results and justified exclusions are recorded per commit in `docs/verification_results.md`.
 
 ## Tech Stack
 
-- **Built:** C++17 (CMake 3.16+, g++ or clang++), Google Test via FetchContent, ZeroMQ (system libzmq 4.3.5, cppzmq v4.11.0 via FetchContent), Python 3.12+ with pyzmq, numpy, matplotlib, and pytest (pinned in `requirements.txt`), gcov/lcov, cppcheck, GitHub Actions
-- **Planned:** Python in CI, UDP (network streaming), YAML (configuration), React (PFD dashboard)
+- **Built:** C++17 (CMake 3.16+, g++ or clang++), Google Test via FetchContent, ZeroMQ (system libzmq 4.3.5, cppzmq v4.11.0 via FetchContent), POSIX UDP sockets, Python 3.12+ with pyzmq, numpy, matplotlib, and pytest (pinned in `requirements.txt`; CI runs 3.13), gcov/lcov, cppcheck, GitHub Actions
+- **Planned:** YAML (configuration), React (PFD dashboard)
 
 ## Project Structure
 
@@ -65,15 +67,15 @@ src/
   logging/                log_format, binary_logger, log_reader                       built
   replay/                 log_replay_source                                           built
   timing/                 clock, fixed_rate_scheduler, jitter_log                     built
-  transport/              zmq_publisher (PUB socket, drop-not-block)                  built
-                          UDP publisher                                               planned
-  main.cpp                composition root; --replay, --zmq, --live                   built
+  transport/              publisher (the seam), zmq_publisher (PUB socket),
+                          udp_publisher (connected datagram socket); drop-not-block  built
+  main.cpp                composition root; --replay, --zmq, --udp, --live            built
 
 tests/
   unit/                   Google Test, one file per module                            built
-  integration/            pytest: conftest (one simulated session), synthetic_log,
-                          test_log_reader, test_replay_identity, test_noise_profile   built
-                          the ZeroMQ pipeline test (TC-005)                            planned
+  integration/            pytest: conftest (one simulated session, the published-run
+                          harness), synthetic_log, test_log_reader, test_replay_identity,
+                          test_noise_profile, test_transport (TC-005, TC-010, both)    built
   fault_injection/        parameterized fault scenarios                               planned
 
 docs/                     requirements, design, traceability_matrix, fault_model,
@@ -81,7 +83,7 @@ docs/                     requirements, design, traceability_matrix, fault_model
                           display_spec                                                planned
 scripts/                  coverage_check.sh                                           built
 pipeline/                 frame_format (byte layout shared by log and wire),
-                          receiver (ZeroMQ SUB, reusable by the dashboard),
+                          receiver (ZeroMQ SUB or UDP, reusable by the dashboard),
                           log_reader (files, rotation, the numpy layout)              built
 analysis/                 noise_profile (per-channel noise, Allan deviation,
                           the derived Kalman constants)                               built
@@ -110,7 +112,7 @@ coverage/ static_analysis/   generated reports (committed selectively, see .giti
 - **Log format:** raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker); rotation at record boundaries; bit-identity is claimed for the same build on the same platform only (`docs/design.md` §8 and §9).
 - **Fixed-rate timing with clock_nanosleep:** absolute-time scheduling (`TIMER_ABSTIME` on Linux; the `nanosleep` fallback for other platforms is one of the two `#if`s in the codebase, the other being the I2C device file in `src/drivers/i2c_bus.cpp`; both sit on the OS boundary), re-phase and count missed cycles on overrun, never burst. Jitter is logged per cycle to a CSV, not into the telemetry log, so the log stays deterministic.
 - **Kalman filter constants: two measured, two retained, one chosen by replay (REQ-PROC-004, `docs/noise_profile.md`):** the barometric measurement variance is the white part of the barometric altitude noise on a stationary capture (the one-sample Allan deviation squared, immune to the weather's trend) and the initial altitude variance equals it; the process noise describes the vehicle, not a sensor, and stays a documented tuning choice (a Q taken from the accelerometer's own noise would lag a real climb by ten seconds); the GPS variance stays the datasheet figure until a GPS exists; the initial velocity variance, which owns the startup transient, is chosen by replaying the capture through candidates under a rule written before the data. The analysis script and its oracles are built; the capture supplies the values.
-- **Dual transport:** ZeroMQ (built) for local IPC, UDP (planned) for network streaming, mirroring an aircraft-to-ground-station architecture. The wire format is the log format: every message is a one-record log file (header, tag, frame), so one Python module describes both. The publisher never blocks: PUB socket, 100-message high-water mark per subscriber, bounded linger, failures counted; loss is measured at the receiver from timestamp gaps (REQ-TRANS-003).
+- **Dual transport behind one seam:** ZeroMQ for local IPC and UDP for network streaming, mirroring an aircraft-to-ground-station architecture; both built. `Publisher` is `DataSource`'s twin on the output side: the loop holds base pointers and never learns which transport it has, `main` owns the concrete objects, and `--zmq` and `--udp` may be combined. The wire format is the log format: every message and every datagram is a one-record log file (header, tag, frame) assembled by one function in `log_format`, so one Python module describes both and the receiver reads either. Neither publisher blocks (REQ-TRANS-003): the PUB socket has a 100-message high-water mark per subscriber and a bounded linger; the UDP socket is connected at startup (an unroutable or non-unicast destination is refused before the loop), sends with `MSG_DONTWAIT`, and counts every kernel refusal, including the port-unreachable the kernel reports on a later send. No sequence number travels on the wire (design §12); loss and reordering are measured at the receiver from timestamp gaps.
 
 ## Scope Discipline
 

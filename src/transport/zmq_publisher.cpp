@@ -1,6 +1,6 @@
 #include "transport/zmq_publisher.h"
 
-#include <cstring>
+#include <array>
 
 namespace {
 
@@ -36,16 +36,11 @@ bool ZmqPublisher::publish(const TelemetryFrame& frame) {
         return false;
     }
 
-    // The message is laid out exactly as BinaryLogger::write_record lays a
-    // record down after the file header: header, one tag byte, then the
-    // frame's bytes verbatim. memcpy is licensed by the static_asserts in
-    // log_format.h: both structs are trivially copyable.
-    zmq::message_t message(kFrameMessageBytes);
-    auto* out = static_cast<uint8_t*>(message.data());
-    const LogFileHeader header = make_log_header();
-    std::memcpy(out, &header, sizeof(header));
-    out[sizeof(header)] = static_cast<uint8_t>(RecordType::FRAME);
-    std::memcpy(out + sizeof(header) + 1, &frame, sizeof(frame));
+    // The message is the one-record log file frame_message lays out
+    // (log_format.h): header, one tag byte, then the frame's bytes
+    // verbatim. The UDP publisher sends the same bytes as a datagram.
+    const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame);
+    zmq::message_t message(bytes.data(), bytes.size());
 
     // dontwait states the intent. A PUB socket never waits anyway
     // (zmq_socket(3)); if the socket type ever changed, this flag is what

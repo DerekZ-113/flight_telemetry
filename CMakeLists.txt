@@ -52,6 +52,7 @@ add_library(telemetry_core STATIC
     src/timing/fixed_rate_scheduler.cpp
     src/timing/jitter_log.cpp
     src/transport/zmq_publisher.cpp
+    src/transport/udp_publisher.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)

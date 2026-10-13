@@ -1,7 +1,7 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.5.0
+> **Version:** 0.5.1
 > **Status:** Draft
 > **Last Updated:** 2026-10-12
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
@@ -86,9 +86,11 @@ REQ-TRANS-001: The system shall publish every processed TelemetryFrame over Zero
 
 REQ-TRANS-002: The system shall publish every processed TelemetryFrame over UDP to a configurable destination address and port.
 
+> **Rationale:** the UDP transport is the network analog of a telemetry downlink: one datagram per frame, laid out as the same one-record log message the ZeroMQ transport sends (FTS-DD-001 Section 9), to one unicast destination, with no acknowledgement and no retransmission, because a frame resent after the next one is due is stale. Loss and reordering are measured at the receiver from frame timestamps; the sender counts only what the kernel refuses (REQ-TRANS-003). The destination is the `--udp <ipv4>:<port>` argument until the configuration file of REQ-CFG-001 carries it, which is why this requirement stays Partial until then. The binary log, not the wire, is the record of a run.
+
 REQ-TRANS-003: A transport failure shall not block the processing loop or cause it to miss a cycle deadline (REQ-TIME-001).
 
-> **Rationale:** a transport failure includes no subscriber connected, a subscriber too slow to keep up, an endpoint that cannot be bound at startup, and a send that returns an error. Each is reported (counted, printed at exit, or refused at startup) and none is waited on inside the loop.
+> **Rationale:** a transport failure includes no subscriber connected, a subscriber too slow to keep up, an endpoint that cannot be bound at startup, and a send that returns an error. Each is reported (counted, printed at exit, or refused at startup) and none is waited on inside the loop. For the UDP transport the same rule reads: a destination that cannot be routed or is not a unicast address is refused at startup; a send the kernel refuses, whether its buffer is full or it is reporting the port-unreachable it learned from an earlier datagram, is counted and never retried.
 
 ## Logging and Replay
 

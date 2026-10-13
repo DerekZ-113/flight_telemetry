@@ -1,10 +1,13 @@
 # Continuous integration (REQ-TEST-003, REQ-TEST-004).
 #
-# One job, one clean Ubuntu machine, every push. The steps are the six
-# pass/fail criteria in docs/test_plan.md section 4, in order: the build
-# must be warning-free, every test must pass, branch coverage must meet
-# the section 6.3 thresholds, and cppcheck must report zero findings on a
-# release tag (it reports without blocking on ordinary pushes).
+# One job, one clean Ubuntu machine, every push. The steps are the pass/fail
+# criteria in docs/test_plan.md section 4, in order: the build must be
+# warning-free, every Google Test must pass, every pytest must pass
+# (REQ-TEST-002; the suite drives the instrumented binary, so its runs
+# count toward the coverage captured next, test_plan.md 6.1), branch
+# coverage must meet the section 6.3 thresholds, and cppcheck must report
+# zero findings on a release tag (it reports without blocking on ordinary
+# pushes).
 #
 # GCC + libstdc++ here, clang + libc++ on the development Mac. Tests pass
 # on both because each compares a run to itself or to physics with a
@@ -22,6 +25,7 @@ on:
 jobs:
   build-test-coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # the whole job runs in about three; a hung receiver must not run for six hours
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +49,25 @@ jobs:
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Set up Python
+        # The pins in requirements.txt were resolved against 3.13, the
+        # development venv; the runner gets the same interpreter.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the Python side
+        run: pip install -r requirements.txt
+
+      - name: Integration tests
+        # Section 4 criterion 2. pytest runs build/telemetry about a dozen
+        # times (one simulated session, the transport runs); the binary is
+        # the instrumented telemetry_core, so these runs add their counts
+        # to the .gcda files the unit tests wrote (test_plan.md 6.1).
+        run: python -m pytest
 
       - name: Coverage report
         run: |

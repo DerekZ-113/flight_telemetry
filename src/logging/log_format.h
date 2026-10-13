@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -55,3 +57,14 @@ static_assert(std::is_trivially_copyable<FaultEvent>::value,
               "FaultEvent is written to the log as raw bytes; it must stay trivially copyable");
 static_assert(std::is_trivially_copyable<LogFileHeader>::value, "header is written as raw bytes");
 static_assert(sizeof(LogFileHeader) == 16, "header layout changed; bump kLogFormatVersion");
+
+// Bytes in one frame message: header, tag, frame.
+constexpr size_t kFrameMessageBytes = sizeof(LogFileHeader) + 1 + sizeof(TelemetryFrame);
+
+// A frame as a complete one-record log file: the header, the FRAME tag,
+// then the frame's bytes verbatim, laid out exactly as BinaryLogger writes
+// a record after the file header. This is what a transport sends
+// (REQ-TRANS-001, REQ-TRANS-002; design.md section 9: the wire format is
+// the log format). Both publishers call this one function, so they cannot
+// disagree by a byte. memcpy is licensed by the static_asserts above.
+std::array<uint8_t, kFrameMessageBytes> frame_message(const TelemetryFrame& frame);

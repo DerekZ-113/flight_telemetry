@@ -4,16 +4,16 @@
 
 Embedded flight telemetry for a Raspberry Pi, in C++17: barometer, IMU, and GPS readings fused into altitude and attitude at a fixed 50 Hz, with per-channel fault detection, a binary log that replays bit-for-bit through the same pipeline, and per-cycle timing evidence. Built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and coverage, static analysis, and a formal fault model are part of every build.
 
-**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ to a Python receiver; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi; the Python log reader, the replay-identity pytest, and the noise analysis are built and verified against simulated logs, ready for the first stationary capture. The measured constants and the GPS driver are next.
+**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ and over UDP to a Python receiver that reads either; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi; the Python log reader, the replay-identity pytest, and the noise analysis are built and verified against simulated logs, ready for the first stationary capture; the pytest suite runs in CI on every push. The measured constants and the GPS driver are next.
 
 ## Architecture
 
 ```
 DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──▶ TelemetryProcessor ──raw + computed──▶ BinaryLogger ──▶ logs/*.bin
    │                                                                                                   │
-   ├─ SimulatedSource        (built)          paced by FixedRateScheduler(Clock)                        └──▶ ZmqPublisher ──PUB──▶ pipeline/receiver.py
-   ├─ LogReplaySource        (built)          jitter → logs/telemetry_jitter.csv                              (--zmq; the same bytes as the log)
-   ├─ FaultInjectingSource   (built, wraps any source)
+   ├─ SimulatedSource        (built)          paced by FixedRateScheduler(Clock)                        ├──▶ ZmqPublisher ──PUB socket──▶ pipeline/receiver.py --endpoint
+   ├─ LogReplaySource        (built)          jitter → logs/telemetry_jitter.csv                        └──▶ UdpPublisher ──datagrams──▶ pipeline/receiver.py --udp
+   ├─ FaultInjectingSource   (built, wraps any source)                                                      (--zmq, --udp, or both; one Publisher seam; the same bytes as the log)
    └─ LiveSensorSource       (built: BMP280 and MPU6050 over I2C; NEO-6M over UART next)
 ```
 
@@ -24,7 +24,7 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
 - **Fault handling.** Communication timeout, stuck value, out-of-range, and recovery after five consecutive valid reads, per channel. A failed sensor marks its channel DEGRADED and logs an event; the rest of the pipeline keeps running.
 - **Logging and replay.** Records are raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker), with fault events as tagged records in the same stream and rotation at record boundaries. `LogReplaySource` strips a log back to raw readings and feeds the same pipeline; the output log is byte-identical to the original (same build, same platform).
 - **Timing.** Absolute deadlines (`clock_nanosleep` with `TIMER_ABSTIME` on Linux), re-phase and count missed cycles on overrun, never burst to catch up. Jitter goes to a CSV per run so the telemetry log stays deterministic.
-- **Transport.** With `--zmq <endpoint>` every processed frame also goes out on a ZeroMQ PUB socket as a one-record log message (the 16-byte header, the tag, the frame bytes), so the Python receiver parses the wire with the same layout module as the log. The publisher never blocks the loop: a PUB socket drops to a slow or absent subscriber at a 100-message high-water mark, failures are counted, and loss is measured at the receiver from timestamp gaps.
+- **Transport.** Two publishers behind one `Publisher` seam, so the loop knows neither: with `--zmq <endpoint>` every processed frame goes out on a ZeroMQ PUB socket, with `--udp <ipv4>:<port>` as one datagram to one unicast destination, both as the same one-record log message (the 16-byte header, the tag, the frame bytes), assembled by one function, so `pipeline/receiver.py` reads either transport with the layout module it uses for the log. Neither blocks the loop: the PUB socket drops to a slow or absent subscriber at a 100-message high-water mark; the datagram socket is connected at startup and sends with `MSG_DONTWAIT`, so a destination that cannot be routed is refused before the loop starts and every refusal the kernel reports later (a full buffer, the port-unreachable it learns from an earlier datagram) is counted and never retried. Loss and reordering are measured at the receiver from timestamp gaps.
 
 ## Verification
 
@@ -44,9 +44,9 @@ Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the buil
 
 | Document | ID | What it holds |
 |---|---|---|
-| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.5.0 | 33 "shall" statements with rationale; the scope of record |
+| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.5.1 | 33 "shall" statements with rationale; the scope of record |
 | [Design](docs/design.md) | FTS-DD-001 | software level, every architecture decision with its reason, log format, timing, open decisions |
-| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (14 Verified, 15 Partial, 4 Not started) |
+| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (19 Verified, 11 Partial, 3 Not started) |
 | [Fault model](docs/fault_model.md) | FTS-FM-001 | 11 failure modes, each with cause, detection, response, and the test that proves it |
 | [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-015, coverage thresholds and exclusion policy |
 | [Verification results](docs/verification_results.md) | FTS-VR-001 | per-commit test and coverage records, justified exclusions, findings, the CI run of record |
@@ -85,15 +85,17 @@ cmp logs/telemetry_000.bin logs/replay_000.bin      # prints nothing: the two lo
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt       # once: pyzmq, numpy, matplotlib, pytest, pinned
 .venv/bin/python -m pipeline.receiver --endpoint tcp://127.0.0.1:5555   # start first; one line per frame, gap count at exit
 ./build/telemetry --zmq tcp://127.0.0.1:5555 --cycles 500             # 10 s at 50 Hz, logged and published
+python3 -m pipeline.receiver --udp 127.0.0.1:5556                      # the same receiver over UDP, standard library only
+./build/telemetry --udp 127.0.0.1:5556 --cycles 500                   # one datagram per frame; --zmq and --udp may be combined
 ```
 
 ```bash
-.venv/bin/python -m pytest                                              # 50 tests: one 10 s simulated session, replay identity, the log reader, the noise oracles
+.venv/bin/python -m pytest                                              # 66 tests in about 50 s: one simulated session, replay identity, the log reader, the noise oracles, both transports
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence: counts, steps, freshness, events
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # per-channel noise, Allan deviation, the derived Kalman constants
 ```
 
-The live run prints each frame, writes `logs/telemetry_000.bin` and `logs/telemetry_jitter.csv`, and prints a timing summary. The replay writes `logs/replay_000.bin`. A run with `--zmq` adds a transport summary (frames published, send failures); `--replay` and `--zmq` together publish the log as a burst. Coverage and static analysis run in CI; the exact lcov and cppcheck invocations are in [.github/workflows/ci.yml](.github/workflows/ci.yml).
+The live run prints each frame, writes `logs/telemetry_000.bin` and `logs/telemetry_jitter.csv`, and prints a timing summary. The replay writes `logs/replay_000.bin`. A run with `--zmq`, `--udp`, or both adds one transport summary line per publisher (frames published, send failures); `--replay` with either publishes the log as a burst. The pytest suite, coverage, and static analysis run in CI on every push; the exact lcov and cppcheck invocations are in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Layout
 
@@ -105,19 +107,19 @@ src/            telemetry_frame, data_source, main.cpp
   logging/      log_format, binary_logger, log_reader
   replay/       log_replay_source
   timing/       clock, fixed_rate_scheduler, jitter_log
-  transport/    zmq_publisher
-pipeline/       frame_format (the byte layout, shared by log and wire), receiver (ZeroMQ SUB),
+  transport/    publisher (the seam), zmq_publisher, udp_publisher
+pipeline/       frame_format (the byte layout, shared by log and wire), receiver (ZeroMQ SUB or UDP),
                 log_reader (files, rotation, the numpy layout)
 analysis/       noise_profile (per-channel noise, Allan deviation, the derived Kalman constants)
 tests/unit/     one Google Test file per module
-tests/integration/  pytest: replay identity, the log reader, the noise oracles
+tests/integration/  pytest: replay identity, the log reader, the noise oracles, both transports
 docs/           the seven controlled documents above
 scripts/        coverage_check.sh, the per-scope branch threshold gate
 ```
 
 ## Roadmap
 
-Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); a UDP publisher; YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
+Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
 
 ## License
 

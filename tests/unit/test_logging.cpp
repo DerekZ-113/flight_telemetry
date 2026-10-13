@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -319,4 +320,23 @@ TEST_F(LoggingTest, NextOnRejectedReaderReturnsFalse) {
 
 TEST_F(LoggingTest, ListLogFilesOnMissingDirectoryIsEmpty) {
     EXPECT_TRUE(list_log_files(dir_ / "nope", "t").empty());
+}
+
+// A frame message is a complete one-record log file: the header, the FRAME
+// tag, then the frame's bytes verbatim. Both transports send this
+// (REQ-TRANS-001, REQ-TRANS-002); TC-005 step 4 at unit level.
+TEST_F(LoggingTest, FrameMessageIsHeaderTagAndFrame) {
+    SimulatedSource source(20, 42);
+    const TelemetryFrame frame = source.read_frame();
+
+    const std::array<uint8_t, kFrameMessageBytes> message = frame_message(frame);
+    ASSERT_EQ(message.size(), kHeader + kFrameRecord);
+
+    LogFileHeader header{};
+    std::memcpy(&header, message.data(), sizeof(header));
+    EXPECT_TRUE(header_is_valid(header));
+    const LogFileHeader expected = make_log_header();
+    EXPECT_EQ(std::memcmp(&header, &expected, sizeof(header)), 0);
+    EXPECT_EQ(message[kHeader], static_cast<uint8_t>(RecordType::FRAME));
+    EXPECT_EQ(std::memcmp(message.data() + kHeader + 1, &frame, sizeof(frame)), 0);
 }

@@ -18,6 +18,8 @@
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
+#include "transport/publisher.h"
+#include "transport/udp_publisher.h"
 #include "transport/zmq_publisher.h"
 
 // The only place that knows concrete source types exist. Everything
@@ -80,6 +82,17 @@ void print_frame(const TelemetryFrame& frame) {
               << " gps=" << frame.gps_read_ok << std::endl;
 }
 
+// One line per transport at exit: what the publisher accepted and what it
+// could see refused (REQ-TRANS-003). Loss is the receiver's number.
+void print_transport_summary(const PublishStats& stats, const std::string& where) {
+    std::cout << "Transport: " << stats.published << " frames published " << where
+              << ", send failures = " << stats.send_failures;
+    if (stats.send_failures > 0) {
+        std::cout << " (last errno " << stats.last_errno << ")";
+    }
+    std::cout << std::endl;
+}
+
 void print_event(const FaultEvent& event) {
     std::cout << "[FAULT] t=" << event.timestamp_ms << " ms"
               << " channel=" << channel_name(event.channel)
@@ -89,22 +102,27 @@ void print_event(const FaultEvent& event) {
 
 // Command line. --live takes no value and swaps the source for the real
 // sensors; the rest take one: --replay <file> swaps the source for a log,
-// --zmq <endpoint> adds the publisher, --cycles <n> sets the run length
+// --zmq <endpoint> and --udp <ipv4>:<port> each add a publisher (both may
+// be given), --cycles <n> sets the run length
 // (TC-005 step 2 needs 200; the default stays the 5-cycle smoke run).
 // Parsed once, here; the YAML config (REQ-CFG-001) will replace it.
 struct Options {
     bool live = false;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
+    std::optional<std::string> udp_destination;   // as typed, for messages
+    std::string udp_host;                         // the two halves, split here
+    int udp_port = 0;
     int cycles = kDefaultCycles;
     std::string error;   // non-empty: a usage error; main prints it and exits
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--live | --replay <log.bin>] [--zmq <endpoint>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --live               read the BMP280 and MPU6050 on " << kI2cDevicePath << ", paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555\n"
+              << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
 }
 
@@ -119,6 +137,25 @@ Options parse_args(int argc, const char* const argv[]) {
             options.replay_file = argv[++i];
         } else if (flag == "--zmq" && has_value) {
             options.zmq_endpoint = argv[++i];
+        } else if (flag == "--udp" && has_value) {
+            // host:port at the last colon; the port a whole number in range
+            // here, the address the publisher's to judge (inet_pton) with
+            // its own message. Both refusals end the run before it starts.
+            options.udp_destination = argv[++i];
+            const std::string& destination = *options.udp_destination;
+            const size_t colon = destination.rfind(':');
+            if (colon == std::string::npos) {
+                options.error = "--udp needs <ipv4>:<port>";
+                return options;
+            }
+            options.udp_host = destination.substr(0, colon);
+            char* end = nullptr;
+            const long port = std::strtol(destination.c_str() + colon + 1, &end, 10);
+            if (end == destination.c_str() + colon + 1 || *end != '\0' || port < 1 || port > 65535) {
+                options.error = "--udp port must be a whole number from 1 to 65535";
+                return options;
+            }
+            options.udp_port = static_cast<int>(port);
         } else if (flag == "--cycles" && has_value) {
             // strtol with an end pointer, not atoi: "12x" is an error, not 12.
             char* end = nullptr;
@@ -201,14 +238,18 @@ std::unique_ptr<DataSource> create_source(const Options& options, Clock& clock, 
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
 //
-// The publisher, scheduler, and jitter log are pointers, not references,
-// because each may be absent: a reference cannot be null, a pointer can.
-// Replay passes a null scheduler and runs unpaced; the frames carry their
-// own timestamps and pacing would add nothing to the identity check
-// (REQ-LOG-003). The publisher is null without --zmq.
+// The scheduler and jitter log are pointers, not references, because each
+// may be absent: a reference cannot be null, a pointer can. Replay passes
+// a null scheduler and runs unpaced; the frames carry their own timestamps
+// and pacing would add nothing to the identity check (REQ-LOG-003).
+//
+// The publishers are base pointers in a vector, empty without --zmq or
+// --udp. The loop publishes to each one it is given and never learns which
+// transport it is: the DataSource rule applied to the output side
+// (REQ-TRANS-001, REQ-TRANS-002).
 void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
-         BinaryLogger& logger, ZmqPublisher* publisher, FixedRateScheduler* scheduler,
-         JitterLog* jitter, int frame_count) {
+         BinaryLogger& logger, const std::vector<Publisher*>& publishers,
+         FixedRateScheduler* scheduler, JitterLog* jitter, int frame_count) {
     for (int i = 0; i < frame_count; i++) {
         // The wait is the first thing in the cycle, so everything below it
         // starts on the deadline grid and the jitter measured is the
@@ -238,7 +279,7 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
         // The wire carries a copy of the record, never the record itself:
         // the log is written first, and a publisher that drops or fails
         // (REQ-TRANS-003) changes nothing about what was logged.
-        if (publisher != nullptr) {
+        for (Publisher* publisher : publishers) {
             publisher->publish(processed);
         }
 
@@ -256,6 +297,8 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
 //        telemetry --replay <log.bin>     replay a recorded log instead
 //        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
 //                                         publish every processed frame; 10 s at 50 Hz
+//        telemetry --udp 127.0.0.1:5556 --cycles 500
+//                                         the same, one datagram per frame; both flags may be given
 int main(int argc, char* argv[]) {
     std::cout << "flight-telemetry v0.1.0\n" << std::endl;
 
@@ -322,6 +365,32 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // UDP (REQ-TRANS-002): one datagram per frame to one unicast
+    // destination, the same startup rule as ZeroMQ: a destination the
+    // publisher refuses (not an IPv4 address, not unicast, no route) is
+    // fatal here; a send the kernel refuses inside the loop is counted
+    // (REQ-TRANS-003).
+    std::optional<UdpPublisher> udp_publisher;
+    if (options.udp_destination.has_value()) {
+        udp_publisher.emplace(options.udp_host, options.udp_port);
+        if (!udp_publisher->ok()) {
+            std::cerr << "cannot send UDP to " << *options.udp_destination
+                      << ": " << udp_publisher->error() << std::endl;
+            return 1;
+        }
+    }
+
+    // The loop takes every transport as the same base pointer (run()). The
+    // vector owns nothing: the optionals above own the objects, and the
+    // vector is declared after them so it is destroyed first.
+    std::vector<Publisher*> publishers;
+    if (publisher.has_value()) {
+        publishers.push_back(&publisher.value());
+    }
+    if (udp_publisher.has_value()) {
+        publishers.push_back(&udp_publisher.value());
+    }
+
     // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
     // held to the 50 Hz grid and their jitter is logged; a replay run is
     // unpaced (see run()). The objects are built either way so their
@@ -335,8 +404,7 @@ int main(int argc, char* argv[]) {
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
     // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
     // comes from the detector (REQ-FAULT-004); the simulator never faults.
-    run(*source, detector, processor, logger,
-        publisher.has_value() ? &publisher.value() : nullptr,
+    run(*source, detector, processor, logger, publishers,
         replaying ? nullptr : &scheduler,
         jitter.has_value() ? &jitter.value() : nullptr,
         options.cycles);
@@ -356,13 +424,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (publisher.has_value()) {
-        const PublishStats& ps = publisher->stats();
-        std::cout << "Transport: " << ps.published << " frames published on "
-                  << *options.zmq_endpoint << ", send failures = " << ps.send_failures;
-        if (ps.send_failures > 0) {
-            std::cout << " (last errno " << ps.last_errno << ")";
-        }
-        std::cout << std::endl;
+        print_transport_summary(publisher->stats(), "on " + *options.zmq_endpoint + " (ZeroMQ)");
+    }
+    if (udp_publisher.has_value()) {
+        print_transport_summary(udp_publisher->stats(), "to " + *options.udp_destination + " (UDP)");
     }
 
     // Sanity checks

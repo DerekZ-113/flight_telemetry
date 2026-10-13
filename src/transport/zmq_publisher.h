@@ -8,6 +8,7 @@
 
 #include "logging/log_format.h"
 #include "telemetry_frame.h"
+#include "transport/publisher.h"
 
 // Publishes processed frames on a ZeroMQ PUB socket (REQ-TRANS-001) in a
 // way that can never hold up the processing loop (REQ-TRANS-003).
@@ -44,16 +45,9 @@
 // open decision (FTS-DD-001 section 12).
 constexpr int kDefaultSendHighWaterMark = 100;
 
-// Bytes in one frame message: header, tag, frame.
-constexpr size_t kFrameMessageBytes = sizeof(LogFileHeader) + 1 + sizeof(TelemetryFrame);
-
-struct PublishStats {
-    uint64_t published = 0;       // messages the library accepted
-    uint64_t send_failures = 0;   // sends refused or thrown; the loop went on
-    int last_errno = 0;           // from the most recent failure, e.g. ETERM
-};
-
-class ZmqPublisher {
+// Implements Publisher (publisher.h), the seam the loop sees; PublishStats
+// lives there too, shared with the UDP publisher.
+class ZmqPublisher : public Publisher {
 public:
     // Binds a PUB socket to `endpoint` ("tcp://127.0.0.1:5555",
     // "inproc://name"). A failed bind (address in use, malformed endpoint)
@@ -73,9 +67,9 @@ public:
 
     // Hands one frame to the library and returns at once. false means the
     // frame was not sent; stats() says how often that has happened.
-    bool publish(const TelemetryFrame& frame);
+    bool publish(const TelemetryFrame& frame) override;
 
-    const PublishStats& stats() const { return stats_; }
+    const PublishStats& stats() const override { return stats_; }
 
 private:
     zmq::socket_t socket_;

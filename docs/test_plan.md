@@ -40,7 +40,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Framework:** pytest, with numpy and matplotlib for the analysis.
 - **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it.
 - **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
-- **Executed:** Every commit locally; in CI once the workflow gains its Python step (Section 7).
+- **Executed:** Every commit, locally and in CI: the workflow's "Integration tests" step runs `python -m pytest` after the unit tests and before the coverage capture, so the integration runs count toward structural coverage (Section 6.1).
 
 ### 2.3 Fault Injection Tests
 
@@ -169,22 +169,22 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Expected result:** 500 frames in each log. Zero field differences; the two files byte-identical; every frame's bytes equal to its repacking (padding zero); timestamps 0 to 9980 ms in both.
 - **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
 
-### TC-005: Pipeline Data Integrity over ZeroMQ
+### TC-005: Pipeline Data Integrity over ZeroMQ and UDP
 
-- **Requirement:** REQ-TRANS-001 (also exercises REQ-TEST-002)
-- **Level:** Integration (steps 4 and 7 are also executed at unit level, see Preconditions)
-- **Objective:** Verify that every frame published by the C++ process arrives at the Python receiver intact, in order, and without loss under normal conditions.
-- **Preconditions:** C++ binary built with the ZeroMQ publisher (`telemetry --zmq <endpoint> --cycles 200`). Python receiver subscribed on the same endpoint with an empty subscription. Simulated source with seed 42 so the expected frame sequence is known in advance. Message layout (FTS-DD-001 Section 9): every message is a one-record log file, the 16-byte `LogFileHeader`, the `FRAME` tag byte, then the 104 frame bytes, so the receiver parses a message with the same code it uses for a log on disk. The byte identity of steps 4 and 7 is executed at unit level over `inproc://` by `ZmqPublisherTest.MessageIsHeaderTagAndFrameBytes` and `EveryPublishedFrameArrivesInOrder`; the process-level steps were executed by hand on 2026-10-11 (FTS-VR-001 Entry 6) and are automated by the pytest suite (REQ-TEST-002).
+- **Requirement:** REQ-TRANS-001, REQ-TRANS-002 (also exercises REQ-TEST-002)
+- **Level:** Integration (`tests/integration/test_transport.py`, parametrized over the two transports); steps 4 and 7 are also executed at unit level, see Preconditions
+- **Objective:** Verify that every frame published by the C++ process arrives at the Python receiver intact, in order, and without loss under normal conditions, over each transport.
+- **Preconditions:** C++ binary built with both publishers (`telemetry --zmq <endpoint> --cycles 200`, `telemetry --udp <ipv4>:<port> --cycles 200`). Simulated source with seed 42 so the expected frame sequence is known in advance. Message layout (FTS-DD-001 Section 9): every ZeroMQ message and every UDP datagram is a one-record log file, the 16-byte `LogFileHeader`, the `FRAME` tag byte, then the 104 frame bytes, 121 bytes in all, so the receiver parses the wire with the same code it uses for a log on disk. The receiver is `pipeline/receiver.py`'s `FrameReceiver`, driven in-process by the test with the matching source: for ZeroMQ a SUB socket with an empty subscription, connected before the publisher binds and retrying its connect every 10 ms as shipped and every 1 ms in the test (`ZmqSource(reconnect_ivl_ms=1)`); for UDP a socket bound to the destination before the publisher starts, which needs no subscription and no join. The byte identity of steps 4 and 7 is executed at unit level by `ZmqPublisherTest.MessageIsHeaderTagAndFrameBytes` and `EveryPublishedFrameArrivesInOrder` over `inproc://`, by `UdpPublisherTest.DatagramIsHeaderTagAndFrameBytes` and `EveryPublishedFrameArrivesInOrder` over loopback, and by `LoggingTest.FrameMessageIsHeaderTagAndFrame` on the one function both publishers call; the process-level steps were executed by hand over ZeroMQ on 2026-10-11 (FTS-VR-001 Entry 6) and are automated for both transports by the pytest (Entry 10).
 - **Steps:**
-  1. Start the Python subscriber and allow 200 ms for the subscription to settle. ZeroMQ pub/sub drops messages sent before a subscriber is connected, so the settle delay is part of the procedure, not a workaround.
-  2. Start the C++ process configured for 200 frames at 50 Hz, then exit.
-  3. Collect all received messages until the publisher exits or 5 s elapses.
-  4. Treat each message as a one-record log: validate the 16-byte header (magic, format version, frame and event sizes equal to the receiver's own layout, endianness marker), then the tag, then unpack the frame with the layout defined in `telemetry_frame.h`.
-  5. Assert 200 frames were received.
-  6. Assert timestamps are strictly increasing in steps of 20 ms.
-  7. Compare each received frame against the binary log written by the C++ process during the same run. Assert every received frame is byte-identical to the corresponding logged frame. (Python cannot regenerate the expected frames from the seed, because its random number generator differs from the C++ one, so the C++ log is the reference.)
-- **Expected result:** 200 frames received, ordered, byte-identical to the log; every header valid.
-- **Pass/fail:** Any missing, reordered, or altered frame fails, and so does any header the receiver would have to guess at. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is TC-010.
+  1. Start the receiver first. ZeroMQ: connect the subscriber; it retries until the publisher binds, and pub/sub drops whatever is sent before the subscription reaches the publisher, so the subscriber must be the one waiting. A settle delay before starting the publisher does nothing, since there is nothing to subscribe to until the bind; what catches frame 0 is the reconnect interval against the loop's 20 ms first deadline. UDP: bind the receiving socket; a datagram socket has no join.
+  2. Start the C++ process configured for 200 frames at 50 Hz, with its stdout to a file (a pipe nobody drains fills and blocks the loop), then let it exit.
+  3. Collect all received messages until the process has exited and the receiver has been quiet for one timeout (1 s).
+  4. Treat each message as a one-record log: validate the 16-byte header (magic, format version, frame and event sizes equal to the receiver's own layout, endianness marker), then the tag, then unpack the frame with the layout defined in `telemetry_frame.h` (`frame_format.parse_message`).
+  5. UDP: assert 200 frames were received. ZeroMQ: assert the first frame received is within the first five (100 ms) and that every frame from it to the last published arrived, so the count is 200 minus the join index; record the join index, 0 expected. A subscriber that joins late misses what was sent before it joined, which REQ-TRANS-001's rationale says is not loss.
+  6. Assert timestamps are strictly increasing in steps of 20 ms from the first received frame to 3980 ms, with the receiver's gap and out-of-order counts zero.
+  7. Compare each received frame against the binary log written by the C++ process during the same run. Assert every received frame is byte-identical to the logged frame with the same timestamp. (Python cannot regenerate the expected frames from the seed, because its random number generator differs from the C++ one, so the C++ log is the reference.) Assert the process's transport summary reports 200 published and no send failure.
+- **Expected result:** every frame from the join to the end received, ordered, byte-identical to the log; every header valid; 200 frames over UDP, and over ZeroMQ whenever the subscription precedes frame 0, which the test's 1 ms reconnect makes the usual case.
+- **Pass/fail:** Any missing frame after the join, any reordered or altered frame, a ZeroMQ join later than frame 5, or any header the receiver would have to guess at fails. This test exercises the normal path only. Transport failure behavior (REQ-TRANS-003) is TC-010.
 
 ---
 
@@ -296,18 +296,23 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 ### TC-010: Publisher Never Blocks the Processing Loop
 
-- **Requirement:** REQ-TRANS-003 (also exercises REQ-TRANS-001)
-- **Level:** Unit (steps 1 through 5), Integration (step 6), manual (step 7)
-- **Objective:** Verify that nothing on the far side of the ZeroMQ socket, absent, slow, misconfigured, or broken, delays a publish call or reaches the loop as an exception, and that the loss the publisher cannot observe is visible at the receiver.
-- **Preconditions:** `ZmqPublisher` over `inproc://` in a test-owned context; every test subscriber sets a 1 s receive timeout so a missing message fails instead of hanging. A PUB socket never blocks on send (zmq_socket(3)): when a subscriber's queue reaches the high-water mark, messages to that subscriber are dropped silently and the send still reports success. The publisher therefore counts accepted sends and refused sends only; loss is counted at the receiver from gaps in frame timestamps.
+- **Requirement:** REQ-TRANS-003 (also exercises REQ-TRANS-001, REQ-TRANS-002)
+- **Level:** Unit (steps 1 through 5 for ZeroMQ, 8 through 12 for UDP), Integration (steps 6 and 7, `tests/integration/test_transport.py`, parametrized over the two transports)
+- **Objective:** Verify that nothing on the far side of either transport, absent, slow, misconfigured, or broken, delays a publish call or reaches the loop as an exception, and that the loss the publisher cannot observe is visible at the receiver.
+- **Preconditions:** `ZmqPublisher` over `inproc://` in a test-owned context; `UdpPublisher` over loopback with a test-owned receiving socket bound to port 0, the port read back; every test receiver sets a 1 s receive timeout so a missing message fails instead of hanging. A PUB socket never blocks on send (zmq_socket(3)): when a subscriber's queue reaches the high-water mark, messages to that subscriber are dropped silently and the send still reports success. A datagram send with `MSG_DONTWAIT` never waits either: the kernel queues the datagram whole or refuses it with an error code, and a receiver whose buffer is full drops on its own side. Both publishers therefore count accepted sends and refused sends only; loss is counted at the receiver from gaps in frame timestamps. Over `tcp://` the kernel's TCP buffers on both ends sit between the two ZeroMQ high-water marks and hold minutes of 121-byte frames, so a subscriber that stalls for seconds loses nothing at process level; the drop at the mark is proven at unit level over `inproc://` (step 4), and the UDP variant of step 6 shrinks the receiver's kernel buffer so the drop is visible there.
 - **Steps:**
   1. Bind a second publisher to an endpoint already bound by a first one. Record `ok()`, `error()`, and the result of one `publish()`.
   2. Construct a publisher on the string `not-an-endpoint`. Record the same three things.
   3. With no subscriber connected, publish 1000 frames. Record the wall time and the statistics.
   4. Publisher high-water mark 10, subscriber receive high-water mark 10, subscription confirmed live. Publish 1000 frames without the subscriber reading. Record the wall time and the statistics, then drain the subscriber and count what arrived.
   5. Shut the context down, then publish one frame. Record the return value, the failure count, and the error code.
-  6. *(pytest)* Run `telemetry --zmq` for 500 frames with a subscriber that stops reading for 3 s in the middle of the run, then resumes. Read `logs/telemetry_jitter.csv` and the receiver's gap count.
-  7. *(manual, recorded in FTS-VR-001)* Run `telemetry --zmq tcp://127.0.0.1:5555 --cycles 500` with no subscriber. Read the jitter CSV and the transport summary.
+  6. *(pytest, each transport)* Run `telemetry` publishing 500 frames with a receiver that reads 50 frames, stops reading for 3 s, then drains; the UDP receiver's `SO_RCVBUF` is 4096 bytes. Read the process's timing summary, the receiver's gap and out-of-order counts, and compare the frames after the stall with the log.
+  7. *(pytest, each transport)* Run `telemetry` publishing 50 frames with no receiver. Read the timing summary and the transport summary. (The 500-frame run by hand over ZeroMQ is on record in FTS-VR-001 Entry 6.)
+  8. Construct `UdpPublisher` on `localhost`, on `256.1.1.1`, on port 0, on port 70000, on `0.0.0.0`, on `255.255.255.255`, and once with the process's descriptor limit at zero. Record `ok()`, `error()`, and the result of one `publish()` each time.
+  9. With no receiver bound, publish 1000 frames. Record the wall time and the statistics.
+  10. With no receiver bound, publish one frame, then publish again every millisecond for up to 100 ms. Record the first failure's error code and the result of the publish after it.
+  11. Receiver bound with `SO_RCVBUF` 4096 and never reading. Publish 1000 frames. Record the wall time and the statistics, then drain the receiver and count what arrived.
+  12. Construct on `127.255.255.255`, the loopback's directed broadcast address, with `SO_BROADCAST` not set, and publish once. Record `ok()`, the result, and the error code.
 - **Expected result:**
 
   | Step | Expected |
@@ -317,10 +322,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | 1000 publishes complete in under 2 s; `published` 1000, `send_failures` 0 |
   | 4 | 1000 publishes complete in under 2 s; `published` 1000 plus the warm-ups, `send_failures` 0; drained count at least 1 and fewer than 1000 |
   | 5 | `publish()` false, `send_failures` 1, `last_errno` `ETERM`, no exception |
-  | 6 | `missed_cycles` 0 on every line; the receiver reports gaps greater than 0 and the publisher reports `send_failures` 0 |
-  | 7 | `missed_cycles` 0 on every line; `published` 500, `send_failures` 0 |
+  | 6 | `published` 500, `send_failures` 0; missed cycles fewer than 75, which is under half the 150 a 3 s blocked send would cost, with the unstalled session run's count recorded beside it; every received frame in order and byte-identical to the log, at most one jump in the timestamps (the drop) and none after it, out-of-order count 0; gaps recorded per transport: UDP at least 50 on Linux, where the 4 KB buffer holds a handful of the 150 stalled frames, recorded only on macOS, where the kernel sometimes holds hundreds; ZeroMQ 0 expected, recorded |
+  | 7 | exit 0 and 50 frames in the log; `published` plus `send_failures` 50; ZeroMQ `send_failures` 0; UDP `send_failures` 0 or the kernel's port-unreachable count, recorded |
+  | 8 | `ok()` false with a message naming the address, the port, "unicast", or the descriptor; `publish()` false and counted; no exception |
+  | 9 | 1000 publishes complete in under 2 s; `published` plus `send_failures` 1000; any `last_errno` is `ECONNREFUSED` |
+  | 10 | at least one `publish()` false with `last_errno` `ECONNREFUSED` within the 100 ms; the publish after it true; no exception |
+  | 11 | 1000 publishes complete in under 2 s; `published` plus `send_failures` 1000; drained count at least 1 and fewer than 1000 (the step 4 range: how many a kernel keeps past a 4 KB buffer is its business; macOS held 22, 104 and 301 in different runs) |
+  | 12 | no exception, and one of: `ok()` false with `EACCES` named (Linux marks the address broadcast in its local table and refuses the connect), `publish()` false with `last_errno` `EACCES` (a kernel that refuses at the first send), or one publish that succeeds (macOS routes it to 127.0.0.1 like unicast, measured 2026-10-12); the limited broadcast 255.255.255.255 is refused by name in step 8 on both kernels |
 
-- **Pass/fail:** Any publish that waits past the bound, any exception that reaches the caller, or any missed cycle attributable to the publisher fails. Step 4's drained count is asserted as a range, not a number: ZeroMQ documents that a queue may hold as much as 60 to 70% fewer messages than the configured mark.
+- **Pass/fail:** Any publish that waits past the bound, any exception that reaches the caller, or any missed cycle attributable to the publisher fails. Step 4's drained count is asserted as a range, not a number: ZeroMQ documents that a queue may hold as much as 60 to 70% fewer messages than the configured mark. Steps 9 to 12 assert what both kernels guarantee and record what differs between them (FTS-VR-001 Entry 10): how many port-unreachables the kernel reports, and whether a directed broadcast is refused at connect, refused at the first send, or routed as unicast.
 
 ### TC-011: Measurement Freshness Gating
 
@@ -484,6 +494,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 This project measures both and gates on branch coverage. Statement coverage is reported for completeness but does not block a build.
 
+The figure is taken after both the Google Test suite and the pytest suite have run the instrumented build: the integration tests drive `build/telemetry`, whose code is `telemetry_core`'s, so their counts merge into the same files the unit tests wrote. Both levels are requirements-based tests, which is what structural coverage analysis is performed over (DO-178C 6.4.4.2), and a count can only rise. verification_results.md names the branches only the integration level reaches.
+
 ### 6.2 Why Not 100%
 
 Some branches cannot be reached from automated tests in CI:
@@ -515,11 +527,10 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Fifteen requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
-- Section 2.2 says integration tests run in CI; the workflow has no Python step yet, so the pytest suite (50 tests) runs locally until the CI topic adds `pip install -r requirements.txt` and `python -m pytest` after ctest.
+- Eleven requirements are Partial in FTS-TM-001, the four I2C sensor requirements and the UDP transport among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
 - TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (REQ-SENS-005).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The constants the live source starts from (barometer 0x76, MPU6050 identity 0x68, driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12).
-- The ZeroMQ transport is implemented; TC-005 is executed by hand (FTS-VR-001 Entry 6) until the pytest suite automates it, and TC-010 step 6 waits for the same suite. The UDP transport (REQ-TRANS-002) is not implemented. TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
+- Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both. REQ-TRANS-002 stays Partial until REQ-CFG-001 carries the destination. TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.

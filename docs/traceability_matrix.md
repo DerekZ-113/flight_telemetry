@@ -4,7 +4,7 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-12
-> **Related:** FTS-SRD-001 v0.5.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model), FTS-NP-001 (noise profile)
+> **Related:** FTS-SRD-001 v0.5.1 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model), FTS-NP-001 (noise profile)
 
 This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
 
@@ -69,9 +69,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TRANS-001 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher::publish`), `src/main.cpp` (`run`, `--zmq`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`FrameReceiver`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindsAndReportsOk`, `MessageIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder` | TC-005 | Partial | Unit level: round trip over `inproc://`, every message byte-identical to the log record behind its own header. Process level ("every processed frame" from `telemetry --zmq` reaches the receiver) is TC-005, executed by hand on 2026-10-11 (FTS-VR-001 Entry 6) and automated by the pytest suite (REQ-TEST-002). |
-| REQ-TRANS-002 | — | — | — | Not started | UDP publisher. |
-| REQ-TRANS-003 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher` constructor, `publish`, `kDefaultSendHighWaterMark`, `kLingerMs`), `src/main.cpp` (`run`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindFailureIsReportedNotThrown`, `InvalidEndpointIsReportedNotThrown`, `NoSubscriberNeverBlocks`, `StalledSubscriberDropsInsteadOfBlocking`, `SendErrorIsCountedNotThrown` | TC-010 | Partial | Non-blocking proven at unit level for the ZeroMQ publisher; the no-subscriber loop run (TC-010 step 7) recorded in FTS-VR-001 Entry 6. Loop level with a stalled subscriber (TC-010 step 6) is the pytest suite. UDP not implemented. |
+| REQ-TRANS-001 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher::publish`), `src/transport/publisher.h` (`Publisher`, the seam), `src/logging/log_format.cpp` (`frame_message`), `src/main.cpp` (`run`, `--zmq`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`FrameReceiver`, `ZmqSource`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindsAndReportsOk`, `MessageIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder`; `test_logging.cpp: LoggingTest.FrameMessageIsHeaderTagAndFrame`; `tests/integration/test_transport.py` (TC-005 over `tcp://`; both transports at once) | TC-005 | Verified | Unit level: round trip over `inproc://`, every message byte-identical to the log record behind its own header. Process level: TC-005 automated by the pytest over `tcp://` with the join index recorded (FTS-VR-001 Entry 10), after the hand run of 2026-10-11 (Entry 6). |
+| REQ-TRANS-002 | `src/transport/udp_publisher.cpp` (`UdpPublisher`), `src/transport/publisher.h`, `src/logging/log_format.cpp` (`frame_message`), `src/main.cpp` (`run`, `--udp`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`UdpSource`) | `test_udp_publisher.cpp: UdpPublisherTest.ConnectsAndReportsOk`, `DatagramIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder`; `tests/integration/test_transport.py` (TC-005 over UDP; both transports at once) | TC-005, TC-010 | Partial | One datagram per frame, the same one-record log message as ZeroMQ, to one unicast destination given by `--udp <ipv4>:<port>`; verified at unit and process level (FTS-VR-001 Entry 10). "Configurable" through YAML waits on REQ-CFG-001, the row's only gap. |
+| REQ-TRANS-003 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher` constructor, `publish`, `kDefaultSendHighWaterMark`, `kLingerMs`), `src/transport/udp_publisher.cpp` (`UdpPublisher` constructor: refusals at startup; `publish`: `MSG_DONTWAIT`, every refusal counted), `src/main.cpp` (`run`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindFailureIsReportedNotThrown`, `InvalidEndpointIsReportedNotThrown`, `NoSubscriberNeverBlocks`, `StalledSubscriberDropsInsteadOfBlocking`, `SendErrorIsCountedNotThrown`; `test_udp_publisher.cpp: UdpPublisherTest.BadAddressOrPortIsRefusedNotThrown`, `NonUnicastAddressIsRefused`, `SocketFailureIsReportedNotThrown`, `NoReceiverNeverBlocks`, `PortUnreachableIsCountedNotThrown`, `StalledReceiverDropsInsteadOfBlocking`, `DirectedBroadcastIsRefusedOrRouted`; `tests/integration/test_transport.py` (TC-010 steps 6 and 7 over both transports; the startup refusals) | TC-010 | Verified | Non-blocking proven at unit level for both publishers and at loop level by the pytest: a receiver stalled for 3 s and no receiver at all, each over both transports, with the loop's missed cycles and the receiver's counts recorded (FTS-VR-001 Entry 10). |
 
 ## 6. Logging and Replay
 
@@ -93,9 +93,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp`, `test_zmq_publisher.cpp`, `test_i2c_bus.cpp`, `test_bmp280.cpp`, `test_mpu6050.cpp`, `test_live_sensor_source.cpp` | — | Partial | Drivers (simulator, fault injector, the I2C seam, BMP280, MPU6050, the live source), processing, logging, replay, timing, and the ZeroMQ transport all have unit tests. The UDP transport does not exist yet. |
-| REQ-TEST-002 | `pytest.ini`, `tests/integration/conftest.py` (the binary, one simulated session and its replay per run, in a temporary directory), `pipeline/log_reader.py` | `tests/integration/test_replay_identity.py` (6 tests), `test_log_reader.py` (18), `test_noise_profile.py` (26) | TC-004, TC-008, TC-015 | Partial | The first pytest tests exist and pass locally (50 in 14 s). TC-005's automation over ZeroMQ (`pipeline/receiver.py` executed it by hand, FTS-VR-001 Entry 6), TC-010 step 6, and the CI step that runs the suite are pending. |
-| REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Partial | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push. Measurement of record: CI run 34445017604, 100% branches in every scope, recorded in FTS-VR-001 Entry 5 §5.8. Still Partial only because pytest integration coverage (REQ-TEST-002) is not yet part of the run. |
+| REQ-TEST-001 | `CMakeLists.txt` (`telemetry_core`, `unit_tests`, `gtest_discover_tests`), `src/drivers/fault_injecting_source.cpp` (fault injection support, FTS-TP-001 §2.3) | `tests/unit/test_altitude.cpp`, `test_kalman.cpp`, `test_complementary.cpp`, `test_fault_detection.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_timing.cpp`, `test_simulated_data.cpp`, `test_zmq_publisher.cpp`, `test_udp_publisher.cpp`, `test_i2c_bus.cpp`, `test_bmp280.cpp`, `test_mpu6050.cpp`, `test_live_sensor_source.cpp` | — | Verified | Every module the requirement names has unit tests: drivers (simulator, fault injector, the I2C seam, BMP280, MPU6050, the live source), processing, timing, logging, replay, and both transports. |
+| REQ-TEST-002 | `pytest.ini`, `tests/integration/conftest.py` (the binary, one simulated session and its replay per run, in a temporary directory; a free port and a published run for the transport tests), `pipeline/log_reader.py`, `pipeline/receiver.py` | `tests/integration/test_replay_identity.py` (6 tests), `test_log_reader.py` (18), `test_noise_profile.py` (26), `test_transport.py` (16) | TC-004, TC-005, TC-008, TC-010, TC-015 | Verified | 66 tests in about 50 s. TC-005 and TC-010 steps 6 and 7 automated over both transports; the suite runs in CI on every push (`.github/workflows/ci.yml`, step "Integration tests"), measurement of record FTS-VR-001 Entry 10 §10.6. |
+| REQ-TEST-003 | `CMakeLists.txt` (`ENABLE_COVERAGE`), `.github/workflows/ci.yml` (coverage steps), `scripts/coverage_check.sh` | CI job `build-test-coverage`, step "Coverage thresholds" | — | Verified | Branch coverage measured with gcov/lcov and gated per FTS-TP-001 §6.3 on every push, the pytest suite's runs of the instrumented binary counted since its step landed before the capture. Measurement of record: the CI run named in FTS-VR-001 Entry 10 §10.6 (before it, run 34445017604, Entry 5 §5.8). |
 | REQ-TEST-004 | `.github/workflows/ci.yml` (static analysis steps) | CI job `build-test-coverage`, steps "Static analysis" | — | Partial | Runs on every push and blocks on release tags (`v*`) with `--error-exitcode=1`. Zero findings on CI run 34445017604; no release-tagged build has been made yet, so the gate has not been exercised. |
 
 ---
@@ -104,17 +104,17 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 14 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-003, LOG-004, TIME-001, TIME-002 |
-| Partial | 15 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-006, PROC-004, PROC-005, FAULT-003, TIME-003, TRANS-001, TRANS-003, TEST-001, TEST-002, TEST-003, TEST-004 |
+| Verified | 19 | PROC-001, PROC-002, PROC-003, PROC-006, FAULT-001, FAULT-002, FAULT-004, FAULT-005, LOG-001, LOG-002, LOG-003, LOG-004, TIME-001, TIME-002, TRANS-001, TRANS-003, TEST-001, TEST-002, TEST-003 |
+| Partial | 11 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-006, PROC-004, PROC-005, FAULT-003, TIME-003, TRANS-002, TEST-004 |
 | Implemented | 0 | |
-| Not started | 4 | SENS-005, TRANS-002, CFG-001, CFG-002 |
+| Not started | 3 | SENS-005, CFG-001, CFG-002 |
 | **Total** | **33** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 
 | File | Traced by |
 |---|---|
-| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004, REQ-TIME-001, REQ-TIME-002, REQ-TRANS-001, REQ-TRANS-003 |
+| `src/main.cpp` | REQ-LOG-001, REQ-LOG-004, REQ-PROC-005, REQ-FAULT-004, REQ-TIME-001, REQ-TIME-002, REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-003 |
 | `src/telemetry_frame.h` / `.cpp` | REQ-PROC-005 |
 | `src/data_source.h` | REQ-LOG-004 |
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006 |
@@ -124,14 +124,16 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/drivers/mpu6050.h` / `.cpp` | REQ-SENS-003, REQ-SENS-004 |
 | `src/drivers/bmp280.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002 |
 | `src/drivers/live_sensor_source.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002, REQ-SENS-003, REQ-SENS-004, REQ-LOG-004 |
-| `src/logging/log_format.h` / `.cpp` | REQ-LOG-001 |
+| `src/logging/log_format.h` / `.cpp` | REQ-LOG-001, REQ-TRANS-001, REQ-TRANS-002 (the frame message both transports send) |
 | `src/logging/binary_logger.h` / `.cpp` | REQ-LOG-001, REQ-LOG-002 |
 | `src/logging/log_reader.h` / `.cpp` | REQ-LOG-001, REQ-LOG-003 |
 | `src/replay/log_replay_source.h` / `.cpp` | REQ-LOG-003, REQ-LOG-004 |
 | `src/timing/clock.h` / `.cpp` | REQ-TIME-001 |
 | `src/timing/fixed_rate_scheduler.h` / `.cpp` | REQ-TIME-001, REQ-TIME-002 |
 | `src/timing/jitter_log.h` / `.cpp` | REQ-TIME-002, REQ-TIME-003 |
+| `src/transport/publisher.h` | REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-003 (the seam the loop sees) |
 | `src/transport/zmq_publisher.h` / `.cpp` | REQ-TRANS-001, REQ-TRANS-003 |
+| `src/transport/udp_publisher.h` / `.cpp` | REQ-TRANS-002, REQ-TRANS-003 |
 | `src/processing/altitude.h` / `.cpp` | REQ-PROC-001 |
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002 |
@@ -144,8 +146,8 @@ The Python modules trace the same way. Test files are named in the Test column o
 
 | File | Traced by |
 |---|---|
-| `pipeline/frame_format.py` | REQ-LOG-001, REQ-TRANS-001 (the byte layout shared by the log and the wire) |
-| `pipeline/receiver.py` | REQ-TRANS-001, REQ-TRANS-003 |
+| `pipeline/frame_format.py` | REQ-LOG-001, REQ-TRANS-001, REQ-TRANS-002 (the byte layout shared by the log and the wire) |
+| `pipeline/receiver.py` | REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-003 |
 | `pipeline/log_reader.py` | REQ-LOG-001, REQ-LOG-003, REQ-TEST-002 |
 | `analysis/noise_profile.py` | REQ-PROC-004 |
 

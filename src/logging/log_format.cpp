@@ -20,3 +20,12 @@ bool header_is_valid(const LogFileHeader& header) {
         && header.event_size == sizeof(FaultEvent)
         && header.endian_marker == kEndianMarker;
 }
+
+std::array<uint8_t, kFrameMessageBytes> frame_message(const TelemetryFrame& frame) {
+    std::array<uint8_t, kFrameMessageBytes> out{};
+    const LogFileHeader header = make_log_header();
+    std::memcpy(out.data(), &header, sizeof(header));
+    out[sizeof(header)] = static_cast<uint8_t>(RecordType::FRAME);
+    std::memcpy(out.data() + sizeof(header) + 1, &frame, sizeof(frame));
+    return out;
+}
