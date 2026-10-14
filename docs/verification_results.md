@@ -49,7 +49,7 @@ Per FTS-TP-001 §6.2, each exclusion is listed with its justification.
 | Google Test sources (`build/_deps/`) | `lcov --remove` | Third-party. |
 | `tests/unit/*.cpp` | `lcov --remove` | Tests are not the unit under test. |
 | Compiler-generated exception branches | `lcov --filter branch` | Every call that may throw (`std::vector::push_back`, `std::make_unique`) compiles to a taken/unwind branch pair. The unwind path cannot be reached without exhausting memory. Counting them measures the standard library's unwind paths, not this system's decisions. |
-| Exception-unwind edges on lines with a conditional, 6 sites (added in Entry 5) | `// LCOV_EXCL_EXCEPTION_BR_LINE` | GCC attaches unwind edges to `if`/`for`/`while` lines that build `std::string` temporaries or call the standard library; `--filter branch` cannot remove them there, and lcov 2.0's `no_exception_branch` setting is broken (Entry 5 §5.6). The marker removes only the exception edges; the line's real decision branches remain counted and are exercised by named tests (§5.4). |
+| Exception-unwind edges on lines with a conditional, 7 sites (six added in Entry 5, the `for` over a YAML node in `telemetry_config.cpp` in Entry 11) | `// LCOV_EXCL_EXCEPTION_BR_LINE` | GCC attaches unwind edges to `if`/`for`/`while` lines that build `std::string` temporaries or call the standard library; `--filter branch` cannot remove them there, and lcov 2.0's `no_exception_branch` setting is broken (Entry 5 §5.6). The marker removes only the exception edges; the line's real decision branches remain counted and are exercised by named tests (§5.4). |
 | `switch` no-match branch, 5 sites | `// LCOV_EXCL_BR_LINE` | Each `switch` is over an `enum class` and lists every enumerator. The implicit no-match branch exists because the compiler cannot prove exhaustiveness; no value of the type reaches it. §6.2: "defensive branches that guard against conditions the type system already excludes." Sites: `fault_detector.cpp` `channel_name`, `fault_type_name`; `fault_injecting_source.cpp` `copy_channel`, `fail_reads`, `hold_values`. |
 | `return "UNKNOWN";` after those switches, 2 sites | `// LCOV_EXCL_LINE` | Same reason; exists only to satisfy `-Wreturn-type`. |
 
@@ -701,3 +701,89 @@ The first CI run with the "Integration tests" step, on this entry's own commit, 
 - A sequence number on the wire: deferred with its three placements and its trigger (FTS-DD-001 §12).
 - The `connect` failure branch of `udp_publisher.cpp` is unreachable on macOS; the record is GCC's.
 - Entry 9 §9.6, the stationary capture, is unchanged by this entry.
+
+## Entry 11 — 2026-10-13, YAML configuration, the recorded configuration, the byte-identity check (macOS preview)
+
+REQ-CFG-001, REQ-CFG-002 and the new REQ-CFG-003 at unit and process level; REQ-TRANS-002 and REQ-SENS-006 closed through the file; the parameter structs and the injection tests behind them. The first CI run with the `src/config/` scope gated is the measurement of record and goes in §11.7; everything else here is a macOS preview. No hardware. Built from the Obsidian plan `Plan - YAML Configuration` (2026-10-13).
+
+### 11.1 What was built
+
+- `CMakeLists.txt`: yaml-cpp 0.9.0 fetched and pinned by tag (0.8.0 declares `cmake_minimum_required(VERSION 3.4)`, which the Mac's CMake 4.4.3 refuses; 0.9.0 declares `3.5...3.30` and configures on the Mac, the runner and the Pi), tools, contrib, tests, install rules and formatter off, linked `PRIVATE` to `telemetry_core`; `src/config/telemetry_config.cpp` in the library; the shipped file's path compiled into `unit_tests`. yaml-cpp's thirty sources compiled clean under `-Wall -Wextra -Wpedantic -Werror` on clang, about 2 s on ten cores; the runner's figure goes in §11.7.
+- The parameter structs, behaviour-preserving (commit 1): `ProcessorConfig` in `processor.h` (the four Kalman variances, alpha, the sea-level reference; the initial altitude variance is the barometric one, REQ-PROC-004), taken by `TelemetryProcessor(const ProcessorConfig&, uint64_t imu_timeout_ms)`; `SimulationNoise` in `simulated_data.h` (the seven sigmas), taken by the generator and `SimulatedSource`; `LiveSensorSource` takes the IMU sample rate and hands it to `Mpu6050`. The anonymous-namespace constants in `processor.cpp` are gone and every default member initializer equals the shipped file. Six injection tests: `KalmanTest.TuningIsHonored`, `SeaLevelReferenceIsHonored`, `ComplementaryTest.AlphaIsHonored`, `SimulatedDataTest.NoiseIsConfigurable`, `LiveSensorSourceTest.ImuSampleRateReachesTheDriver`, `UnreachableImuRateRefusesStartup`.
+- `src/config/telemetry_config.h/.cpp`: the typed structs (`TimingConfig`, `SensorConfig`, `LoggingConfig`, `TransportConfig`, `SimulationConfig`, aggregated with `FaultDetectorConfig`, `ProcessorConfig` and `SimulationNoise` into `TelemetryConfig`); `ConfigLoad` (ok, config, problems, text); `load_config_text`, `load_config_file`, `log_prefix`, `recorded_config_path`. yaml-cpp is the document parser only; the four scalar rules are the project's (decimal or `0x` hex with no leading zero, finite numbers through `strtod`, `true`/`false`, non-empty text). A `Section` wrapper reads each mapping's keys in document order, reports a duplicate once and the unknown keys at the end, and every `read_*` appends at most one problem under the dotted key; 36 keys with their ranges, and three rules between sections (the UART timeout against the GPS period, the IMU rate against the processing rate, the UDP host through `inet_pton`). One `try` around `YAML::Load`; no exception leaves the module.
+- `config/telemetry_config.yaml`: the configuration of record, a header stating the rules and one comment per section citing its requirement and fault IDs.
+- `src/main.cpp`: `--config <file>`, default `config/telemetry_config.yaml` relative to the working directory; the five file-scope constants gone (`kDefaultCycles` and the `static_assert` on the two timeout defaults stay); the file loaded before any object is built, every problem printed under `error: configuration <path> has N problems:`, exit 1; the `Configuration:` line; the record `<logging.directory>/<prefix>_config.yaml` written once the logger has opened; a replay reads its record by default and, with `--config`, says whether the named file equals the record by content, differs, or has no record to compare with; the refusal to replay a `replay_NNN.bin` from the output directory; `--zmq` and `--udp` enable a transport and override the file's address; the period, the log directory and size, the sensors' bus, addresses and IMU rate, the simulator's seed, GPS period and noise, and the fault thresholds all from the file.
+- Tests: `tests/unit/test_config.cpp` (38 tests, TC-016 steps 1 to 9, every message compared whole); `tests/integration/test_config.py` (10 tests, 12 collected, TC-016 steps 11 to 20); `conftest.py` passes `--config` with the shipped file on every run and the session fixture records the two configuration copies; `scripts/coverage_check.sh` gains the `config` scope at 90%; the workflow's pytest step gains `-rA` (§10.6).
+- Documents: FTS-SRD-001 0.6.0 (REQ-CFG-003; rationales for CFG-001, CFG-002, SENS-001, SENS-006, TRANS-002, LOG-003); TC-016; FTS-TM-001 24 Verified, 9 Partial, 1 Not started of 34; FTS-DD-001 §3 (Configuration), §5, §6, §9 (the recorded configuration, the corrected open-order sentence), §10, §12 (bullets 221, 228 and 229 resolved, 231 and 233 updated); FTS-FM-001 (every threshold named by its key, the 2000 ms UART timeout stated); FTS-NP-001 §1; README; CLAUDE.md.
+
+### 11.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 212 of 212 (174 after the structs, then 38 configuration tests), 2.0 s; configured with `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 78 of 78 in 61 s (66 before; `test_config.py` 12 in 20 s) |
+| cppcheck | 0 findings on `src/`, the config module included |
+| `./build/telemetry` from the repository root | reads `config/telemetry_config.yaml`, writes `logs/telemetry_config.yaml` beside the log |
+| `--config nope.yaml`; no file in a bare directory | exit 1, the path named, nothing written; the default path's message adds `pass --config <file>` |
+| `--replay logs/telemetry_000.bin` | `Configuration: logs/telemetry_config.yaml (recorded with logs/telemetry_000.bin)`; the replay log and the replay's record byte-identical to the session's |
+| `--replay logs/replay_000.bin` from the log directory | refused: "this run would write logs/replay_NNN.bin over it"; the input untouched |
+
+Found by the tests while building: the first integer rule read `010` as decimal 10 where the test expected a refusal (the rule now refuses a leading zero, as the file's header says); a test edit that inserted a section in the middle of the `udp` block moved `host` and `port` out of it, three problems instead of one (the test, not the loader); and the session fixture's replay, handed the shipped file by `--config`, was reported as "not the configuration recorded" because the comparison was by path, so it is now by content (§11.5).
+
+### 11.3 Coverage preview (clang, the Mac recipe of Entry 8, unit tests only)
+
+| Scope | Branches | Threshold |
+|---|---|---|
+| processing | 100.0% | 90% |
+| config | 97.8% (227 of 232) | 90% |
+| timing | 100.0% | 80% |
+| logging | 83.3% | 80% |
+| transport | 89.3% | 80% |
+| replay | 100.0% | 80% |
+| drivers | 100.0% | 70% |
+| overall | 96.4% | 80% |
+
+`telemetry_config.cpp`: 430 of 430 lines, every function, 227 of 232 branches. The five untaken are the unwind edges of the one range-`for` over a `YAML::Node` (the marked line, the `log_reader.cpp` line 76 class). clang's gcov data does not flag exception edges, so the marker, which tells lcov to drop flagged edges, has no effect in a Mac preview; it acts on the GCC run.
+
+**Found by the first preview, which read 87.1% (237 of 272) with every line hit.** The 35 untaken edges were read one by one against clang's branch listing (`llvm-cov gcov -b -c`), and they were of two kinds, not one. Twenty-five were unwind edges: five on the marked loop and twenty on lines that hold no decision but that lcov 2.5 keeps: a `std::find` compared with `end()` on its own line (`!=`), the `inet_pton` and `isdigit` calls compared on their lines (`==`, `!=`, and a `static_cast<unsigned char>` whose brackets the filter does not strip), the `read_int` call for `max_file_bytes` carrying `static_cast<long long>`, and the closing lines of six `problem(...)` calls that spanned lines. Both lcov versions strip strings, comments, `->`, `<<`, `::` and single-word template arguments and then keep any line holding `? ! < > == != && ||` or a loop or branch keyword; the one difference is that lcov 2.5 keeps a continuation line whose parentheses do not balance where lcov 2.0, the runner's, drops it. Ten were real decisions no test took: gcov counts a template's branches once per instantiation, `read_int` is four functions (`uint64_t`, `uint8_t`, `int`, `uint32_t`) and `read_positive` two (`float`, `double`), and each fault had been proven on one key, so the missing-key outcome was untaken in three integer instantiations, the non-scalar outcome in three, the unparsable-text outcome in two, `seed < 0` in one (no test had a negative seed), and a non-finite value in the `double` instantiation (the two coordinate sigmas). GCC counts instantiations the same way, so those ten would have reached the record.
+
+**Applied.** The ten decisions: `ConfigTest.EveryKeyReportsEachKindOfFault` walks all 36 keys and takes every outcome of every key's rule (missing, a sequence, text the rule refuses, one past each edge), so every instantiation meets every fault on every platform and one key per field type is no longer a floor anyone has to remember. The twenty edges: the loader's coverage note now states the style rule precisely (a call sits on one statement line of its own, carrying none of the characters the filter reads as a conditional) and the eight lines that broke it were refined: the two `std::find` calls into a local, the `inet_pton` and `isdigit` calls into an `int` compared on the next line, a `kOneRecordBytes` constant in place of the cast on the `read_int` line, and a local for the message of each of the six wrapped `problem(...)` calls. No message or behaviour changed: every unit test compares messages whole, and pytest ran 78 of 78 after the change. No marker was added: none of those lines holds a conditional, so the §5.6 rule does not name them, and on GCC with lcov 2.0 none of them keeps a branch. Prediction for §11.7: the scope's exception edges on GCC fall on the marked loop (dropped by the marker) and on the `node->` lines (dropped by the filter, which strips `->`); `inet_pton`, `isdigit`, `strtoll` and `strtod` are `__THROW` on glibc, so the kept ternary and comparison lines carry no unwind edge there; the record should read 100%, and if it does not, §11.7 names the line.
+
+### 11.4 The byte-identity check
+
+A build of `9e68222` (`build-ref/`, the tree before this entry) ran the seed-42 simulated source for 500 frames and for the 5-frame default in scratch directories:
+
+| Log | SHA-256 |
+|---|---|
+| 500 frames, reference build | `3124895fdf8997907aa43343ae41ce735cedc4ad8219a38b6829e50af1e795e8` |
+| 5 frames, reference build | `b94bf0331ab0afe6c487349baaac91b36e928ac8ba06359f7a1caadea84d6475` |
+
+After the parameter structs (commit 1) the same 500-frame run `cmp`ed silent against the reference. After the file and `main` (commit 2) the run with `--config config/telemetry_config.yaml` `cmp`ed silent again, the same hash. The record beside that log equals the shipped file; its replay from the record is byte-identical to it, and the replay's record equals the shipped file too. Identity across a code change is evidence, not a requirement (REQ-LOG-003 claims identity for one build); it held. Permanently: `ConfigTest.ShippedFileEqualsDefaults`, the determinism tests, and the pytest replay identity, which now runs on the file.
+
+### 11.5 Decisions taken, and deviations from the plan
+
+- The scalar rules are the project's, not yaml-cpp's (plan decision 7): yaml-cpp's stream conversion reads `010` as octal 8 and accepts `yes`/`no`/`on`/`off`; the loader reads `node.Scalar()` and applies four printable rules, so a value two readers read differently is refused. Found while building: the first rule accepted a leading zero as decimal; `010` and `0020` are now refused and the file's header says so.
+- Sigmas must be positive, not non-negative as the plan's table said: `std::normal_distribution` requires `stddev > 0`, so the loader's rule, the shipped file's comment and TC-016 steps 6 and 10 say "positive", and `NoiseIsConfigurable` uses sigmas of 1e-6 and a tenfold sigma rather than zero.
+- Replay identity is judged on the configuration's text, not its path (plan decision 6 compared paths): `--replay` with `--config` naming a file whose text equals the record reports "equal to the configuration recorded with"; a differing text reports "not the configuration recorded with ...; replay identity is not claimed"; a log with no record says so. The session fixture, which hands every run the shipped file, exercises the first form; `test_config.py` the others, and the plain `--replay` form.
+- The barometer sample rate is the processing period (decision 9): `timing.period_ms` is bounded to 20 to 1000 ms, REQ-SENS-001's 50 to 1 Hz, and that requirement's new rationale says why; no decimation code.
+- The simulator's frame interval is `timing.period_ms` (decision 10); the ZeroMQ high-water mark and linger stay constants (decision 11); `--cycles` stays a flag; one `ProcessorConfig`; alpha moves because the SRD names it.
+- The matrix had applied "configurable" unevenly: PROC-001, FAULT-001, FAULT-002, FAULT-003, FAULT-005, TIME-001 and LOG-002 were Verified with constants while SENS-001, SENS-003, SENS-004, SENS-006 and TRANS-002 were held Partial for the same clause. Every row now names its key.
+- The Week 2 Map's Day 14 sketch differed in six points (TC-015 for the card; `cycles` and `prefix` keys; three filter structs; five Kalman keys; `std::optional<Config>`; `config.h`); the Done note there records them.
+- Commits: the structs and yaml-cpp as one behaviour-preserving commit, then the loader, the file, `main` and the tests; the matrix changes all land in the second (the plan put a CFG-001 "Partial" note in the first).
+- The plan's coverage rule for the loader (decision 13, "no library call on a conditional line") was not precise enough: lcov's branch filter keeps a line for a comparison or a surviving template bracket as well as for a keyword, and lcov 2.5 keeps a continuation line that 2.0 drops. The rule is now written in the file's coverage note, eight lines were refined to it, and the ten real gaps the preview exposed, one decision per template instantiation, are closed by one table-driven test (§11.3). The file has 36 keys, not the 35 the plan counted (the `sensors` section has four leaf keys); the documents now say 36 and `EveryKeyReportsEachKindOfFault` asserts the count.
+
+### 11.6 Library facts this entry rests on
+
+yaml-cpp 0.9.0: `Load` throws `ParserException` with a zero-based mark; a repeated key is kept as two map entries and iteration sees both (`DuplicateKeyIsNamed` passes on that); `operator[]` on a const map node returns an undefined node for an absent key and never inserts. `std::strtod` reads `inf` and `nan`, which the number rule then refuses through `std::isfinite`; `.inf` and `.nan` do not parse at all. A file written then `chmod 0` makes `ifstream` fail with `Permission denied` for an ordinary user (`UnreadableFileIsReported`; the test skips, saying so, as root).
+
+### 11.7 Measurement of record
+
+Reserved for the first CI run with this entry's commits: the config scope on GCC (232 branches in clang's count, one marker, 100% predicted in §11.3), yaml-cpp's build time on the runner, the pytest line (78 tests) with `-rA`'s captured prints, which now carry the transport tests' join index, stall counts and ECONNREFUSED count that §10.6 could not record, and every other scope. The README verification table and the FTS-TM-001 TEST-003 row move to that run.
+
+### 11.8 Open
+
+- §11.7.
+- The measured constants from the stationary capture (Entry 9 §9.6) land in `config/telemetry_config.yaml` and the struct defaults together; `analysis/noise_profile.py` still carries `ALPHA`, `PERIOD_S`, `STUCK_COUNT` and the Kalman placeholders as Python constants and does not read the file.
+- `main` does not check `LogReplaySource::exhausted()`: a bad or missing replay log is skipped silently and the run logs the zero frame `--cycles` times (pre-existing, FTS-DD-001 §12).
+- Deliberately not built: a flag that disables a file-enabled transport, name resolution for `transport.udp.host`, a barometer read schedule below the processing rate, keys for the ZeroMQ tuning.
+- Unverifiable here (no GCC, no Docker): the config scope's GCC branch count and yaml-cpp under GCC 13's `-Werror`; §11.7 settles both.
