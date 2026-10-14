@@ -807,9 +807,97 @@ The thirty-six branches between the two counts were read line by line, the run's
 ### 11.8 Open
 
 - The measured constants from the stationary capture (Entry 9 §9.6) land in `config/telemetry_config.yaml` and the struct defaults together; `analysis/noise_profile.py` still carries `ALPHA`, `PERIOD_S`, `STUCK_COUNT` and the Kalman placeholders as Python constants and does not read the file.
-- `main` does not check `LogReplaySource::exhausted()`: a bad or missing replay log is skipped silently and the run logs the zero frame `--cycles` times (pre-existing, FTS-DD-001 §12).
+- `main` does not check `LogReplaySource::exhausted()`: a bad or missing replay log is skipped silently and the run logs the zero frame `--cycles` times (pre-existing, FTS-DD-001 §12). (Closed by Entry 12: `main` probes the input's header before anything is built and refuses an unreadable log by name, and prints how many cycles repeated the last frame when a replay outlasts its log; REQ-LOG-005.)
 - Deliberately not built: a flag that disables a file-enabled transport, name resolution for `transport.udp.host`, a barometer read schedule below the processing rate, keys for the ZeroMQ tuning.
 - Unverifiable here (no GCC, no Docker): the config scope's GCC branch count and yaml-cpp under GCC 13's `-Werror`; §11.7 settles both. (Settled: 196 of 196, zero warnings.)
 - TC-016 step 6 and the comment above `ConfigTest.EveryKeyReportsEachKindOfFault` give gcov's per-instantiation branch counting as the sweep's reason; §11.7 shows that counting belongs to the Mac preview, and that the record folds a template's instantiations into one decision per line. The sweep's ground is REQ-CFG-002's "each" (every key's rule against every fault); the two sentences await rewording.
 - The seven `LCOV_EXCL_EXCEPTION_BR_LINE` lines carry no branch data on the record (§11.7): their decisions are tested, not measured. For the author: apply the loader's style rule to the seven lines and drop the markers (the health topic rewrites `log_reader.cpp` 17 and 64 in any case); or pin lcov 2.5 in the workflow with `--filter branch,exception`, the systemic alternative §5.6 named; or keep the markers with this note. The seven source comments, §5.6 and the CLAUDE.md rule say the decision is still counted, and await that decision.
 - The runner image: `ubuntu-latest` becomes Ubuntu 26 from 2026-10-19, and with it the toolchain of record (§11.7); pinning `ubuntu-24.04` in the workflow, or recording the new versions in the next entry, is a decision for the next push.
+
+## Entry 12 — 2026-10-13, validity of computed fields, NO_DATA, format version 2, the byte checks (macOS preview)
+
+REQ-PROC-007, REQ-LOG-005 and REQ-FAULT-006 (new in FTS-SRD-001 0.7.0) at unit and process level; REQ-PROC-005 closed; the `SystemHealth` sidecar decision of FTS-DD-001 §12 closed in favour of the frame. Built from the Obsidian plan `Plan - Health and Validity` (2026-10-13), after the configuration topic's four commits and §11.7. No hardware. The first CI run with these commits is the measurement of record and goes in §12.7; everything else here is a macOS preview.
+
+### 12.1 What was built
+
+- `src/telemetry_frame.h/.cpp`: `enum class Validity : uint8_t { NOT_JUDGED = 0, NO_COMPUTED_DATA, FAILURE_WARNING, NORMAL }`, ARINC 429's sign/status vocabulary with zero deliberately none of the three judgments and the order worst first; `ChannelStatus::NO_DATA = 2`; five `Validity` fields at offsets 98 to 102, `uint32_t reserved_a` at 52 and `uint8_t reserved_b` at 103 where the compiler used to pad, `sizeof` 104 unchanged; the proof `static_assert(sizeof(TelemetryFrame) == 8 + 11*4 + 4 + 2*8 + 5*4 + 3 + 3 + 5 + 1)` with `offsetof` pins; `status_name` as a switch with `NO_DATA`, and `validity_name`, both answering `UNKNOWN` to a byte outside the enumeration.
+- `src/processing/fault_detector.h/.cpp`: `FaultEvent::reserved` (`uint16_t`, offset 10) with the same proof; `ChannelState::status` starts NO_DATA; `transition` promotes to DEGRADED from NO_DATA or NOMINAL alike (`!= DEGRADED`), and a NO_DATA channel's first successful reading makes it NOMINAL with no event.
+- `src/logging/log_format.h/.cpp`: `kLogFormatVersion` 2, `kOldestReadableLogFormatVersion` 1, `header_problem` naming the first mismatch (the twin of the Python `check_header`), `header_is_valid` kept as its one-line form. `src/logging/log_reader.cpp`: the refusal names the problem, with the call on its own line and the branch on a local (the marker that line carried is gone); `next()` sets a version-1 frame's validity to NOT_JUDGED and its reserved fields, and a version-1 event's, to zero. `src/replay/log_replay_source.cpp`: `strip_to_raw` zeroes the validity and reserved bytes too.
+- `src/processing/processor.h/.cpp`: the barometric altitude converted only from an accepted reading and held otherwise (0 before the first, the last accepted conversion while DEGRADED); `baro_ever_fresh_`, `gps_ever_fresh_`, `attitude_ever_seeded_`; `judge()`, the only writer of `Validity`, called last in `process()`; `ComplementaryFilter::seeded()`.
+- `src/main.cpp`: the replay input's header probed after the configuration is loaded and before anything is built, a refusal by name, the `Replay input:` line with the input's version and a notice when it differs; `print_frame` with the validity beside each computed value; `ValidityTally` and the `Validity:` line at exit; the `Replay: exhausted after N frames; M cycles repeated the last frame` line, read from the replay source through a `static_cast` in the composition root.
+- Python: `pipeline/frame_format.py` (`@Q11fI2d5f3B3?5BB`, `@QBBHf`, the new field names, `VALIDITY_NAMES`, `COMPUTED_VALIDITY`, `STATUS_NAMES` with NO_DATA, `check_header` on the range 1 to 2), `pipeline/log_reader.py` (`I` and `H` in the numpy map, `invalid_as_nan`, the summary's no-data and validity lines), `pipeline/receiver.py` (`format_frame` with the names beside the values), `analysis/noise_profile.py` (`output_report` over NORMAL frames only, with `n` and `excluded_not_normal`), `tests/integration/synthetic_log.py` (integer zeros, NORMAL by default, a `version` argument).
+- Tests: `tests/unit/test_telemetry_frame.cpp` (6, new) and `test_validity.cpp` (7, new); `LoggingTest.Version1HeaderIsReadAndSanitized`, the named refusals in `ReaderRejectsWrongVersion` and `ReaderRejectsWrongFrameSize`; `ReplayTest.Version1LogReplaysAsRawFrames`, `Version1LogReplaysJudged`, the validity assertions in `ReplayReproducesLiveSession` and `ReplayStripsComputedFieldsAndStatus`; `FaultDetectionTest.NoDataUntilFirstReading`, `FirstReadingMakesNominalWithoutEvent`, `FaultOnFirstReadingDegradesFromNoData`, `DeadFromPowerOnStillTimesOut` extended, `EventPaddingBytesAreZero` renamed `EventReservedIsZero`; validity assertions in four `ComplementaryTest` and two `KalmanTest` cases and in the two raw-only source tests; `tests/integration/test_validity.py` (7, new, TC-017 steps 11 to 15); `test_log_reader.py` (`LOG_FORMAT_VERSION + 1`, the new offsets), `test_replay_identity.py` and `test_config.py` (the validity names among the computed fields).
+- Documents: FTS-SRD-001 0.7.0 (REQ-PROC-007, REQ-LOG-005, REQ-FAULT-006; the definitions line; rationales for FAULT-004 and LOG-003), 37 statements; TC-017 and corrections to TC-002, TC-004, TC-008, TC-011 and TC-014; FTS-TM-001 28 Verified, 8 Partial, 1 Not started of 37 (PROC-005 Verified); FTS-DD-001 §3, §5, §6, §7 rewritten, §9, §11.1, new §11.2 (the display drafts and what the PFD will ask for), §12; FTS-FM-001 0.2.0 (every response in validity terms, the start-up and validity section, the degradation table); README; CLAUDE.md.
+
+### 12.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 231 of 231 (220 after the layout and the readers, 231 after the judgments), 2.3 s; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 85 of 85 in 65.6 s (78 before; `test_validity.py` 7 in 14 s) |
+| cppcheck 2.21.0 | 0 findings, the reserved members and the two name switches included |
+| `--replay` of the version-1 reference log | exit 0; `Replay input:  v1/telemetry_000.bin (format version 1; this build writes version 2, so the replay log is version 2 with the computed fields and their validity recomputed from the raw fields)`; the replay log version 2, 500 frames, every raw field equal to the input's, every validity NORMAL |
+| `--replay` of a file whose header says version 3 | exit 1, `error: cannot replay ../bad/telemetry_000.bin: header mismatch: format version 3; this build reads 1 to 2`; no `logs/` created |
+| `--replay` of a 5-frame log for 12 cycles | `Replay:    exhausted after 5 frames; 7 cycles repeated the last frame` |
+| The `Validity:` line, 500-frame session and its replay | `every computed field NORMAL on 500 of 500 frames (first on frame 0); NO_COMPUTED_DATA on 0 frames, FAILURE_WARNING on 0` |
+
+Found by the tests while building: the identity test's first validity assertion expected NORMAL from the frame an injected window ended, where the detector keeps the channel DEGRADED for M more valid readings (the recovery latency of REQ-FAULT-005), so the bound is now derived from `recovery_count`; the version-1 replay pytest compared the Python floats it packed with the float32 values the file holds (9.81 against 9.8100004), so it compares the file's own read-back; and the preview showed one untaken outcome in `judge`, the `baro_ever_fresh_` operand of `baro_contributes`, which the filter's existence implies (it is born from a barometer reading), so the operand went, with the reason in a comment, rather than a marker.
+
+### 12.3 Coverage preview (clang, the Mac recipe of Entry 8, unit tests only)
+
+| Scope | After the layout (commit 1) | After the judgments (commit 2) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% (99.1% before the `baro_contributes` change: 45 of 46 in `processor.cpp`) | 90% |
+| config | 97.8% | 97.8% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 89.3% | 89.3% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 100.0% | 100.0% | 70% |
+| overall | 96.7% | 96.6% | 80% |
+
+Per file after commit 2: `telemetry_frame.cpp` 9 of 9 (the no-match outcome of both name switches taken by the `UNKNOWN` tests, so neither needs the `LCOV_EXCL_BR_LINE` the detector's name switches carry), `fault_detector.cpp` 52 of 52 (the NO_DATA branch and the reordered promotion), `processor.cpp` 44 of 44, `log_format.cpp` 12 of 12 (every refusal taken), `log_replay_source.cpp` 12 of 12, `log_reader.cpp` 38 of 48. The logging scope rose from Entry 11's 83.3%: the reader's header check moved its call onto its own line (the loader's style rule), so the four clang unwind edges that line carried are gone with its marker. The ten untaken edges left in `log_reader.cpp` are clang's unwind edges on the `is_open` and `gcount` conditionals of the constructor and on the two marked lines of `list_log_files`, which the record does not count at all (§11.7). No marker was added by this topic: every new conditional sits on a call-free line or tests a local. Prediction for §12.7: processing, logging and replay at 100% on GCC, the rewritten reader line showing its two decision edges and no unwind edge; if any new line reads otherwise, §12.7 names it.
+
+### 12.4 The byte checks
+
+The reference is the 500-frame seed-42 log of the build before this topic (`15e8c35`, the same bytes as `9e68222`'s, §11.4), run from a scratch directory with `--config config/telemetry_config.yaml --cycles 500`; each candidate is the same run on the same Mac. The comparison script reads both files record by record and reports the header versions, the set of frame offsets that differ, the validity patterns seen and whether the reserved bytes are zero and every event identical.
+
+| Log | SHA-256 | Against the reference |
+|---|---|---|
+| Reference, format version 1 | `3124895fdf8997907aa43343ae41ce735cedc4ad8219a38b6829e50af1e795e8` | — |
+| After the layout and the readers (commit 1) | `91136212b21692e3012ed8f7f901c47e2b34ca360ce93e274b2e8fa0fdefe74b` | `cmp -l` prints one line, `5 1 2`: the header's version byte. The script: differing frame offsets none, validity pattern `00 00 00 00 00` on all 500 frames, reserved bytes zero, 0 events. The layout changed no value. |
+| After the judgments and NO_DATA (commit 2) | `6d43f343311b77c107a1af4ff40bbdaa827b7efd4eea5b5c12055f29f80da345` | `cmp -l`: offset 5 and, in every one of the 500 frames, exactly offsets 98 to 102, each 0 becoming 3 (2,500 bytes). The script: differing frame offsets `[98, 99, 100, 101, 102]`, validity pattern `03 03 03 03 03` only, reserved bytes zero. No status byte changed: the simulator is fresh on every channel at t = 0, so every channel is NOMINAL from frame 0 and every judgment NORMAL. |
+
+The replay of the commit-2 log through the same build `cmp`s silent against it (identity within a version, REQ-LOG-003). The version-1 reference log replayed through the commit-2 build: 500 frames, every raw field equal to the input's, every validity NORMAL, and every computed field byte-equal to the version-1 log's own recorded value, because the one arithmetic change (the barometric altitude held instead of converted) is a no-op on a session where every barometer reading is accepted. That is the claim of REQ-LOG-005's rationale in bytes: a change that keeps the raw bytes is compatible, and the pipeline recomputes the rest.
+
+### 12.5 Decisions taken, and deviations from the plan
+
+- Decision 7, `ChannelStatus::NO_DATA`, is included as recommended; `transition` reads `!= DEGRADED` for the promotion and has a NO_DATA branch for the first reading. The nine first-frame-fault cases the plan named as the regression net all passed unchanged, as did every source test asserting NOMINAL from a source.
+- The marker question of Entry 11 §11.8 was not decided by this topic. The one marked line it had to rewrite, `log_reader.cpp` 17, now follows the loader's style rule and carries no marker; line 64 and the other five marked lines are untouched. No new marker anywhere.
+- `header_is_valid` stays as a one-line wrapper over `header_problem` (one caller, `LoggingTest.FrameMessageIsHeaderTagAndFrame`) rather than being removed.
+- The replay source's `exhausted()` and `frames_read()` reach `main` through a `static_cast` from the `DataSource` pointer, guarded by the `--replay` flag that built it: the composition root is the one place that knows the concrete type, and `create_source`'s signature is unchanged. The exit line prints only when the log was outlasted.
+- The `Validity:` line counts frames (every field NORMAL; any field NO_COMPUTED_DATA; any field FAILURE_WARNING) and the first all-NORMAL frame; the Python summary counts frames and field-frames.
+- `synthetic_log.make_frame` defaults every validity to NORMAL, so a synthetic log reads as a processed one and the noise oracles' numbers do not move; the compatibility tests set NOT_JUDGED explicitly. `output_report` reports `n` and `excluded_not_normal` per field and survives a field with no NORMAL sample (`mean` None), which no log today produces.
+- `baro_contributes` dropped its `baro_ever_fresh_` operand (§12.2). The flag itself stays: the barometric altitude's own judgment needs it.
+- Plan flag 5 (`kMinAccelMagnitude`, a constant no requirement names) is unchanged and noted here; flags 10 and 11 (the Roadmap's REQ-RED-004 wording, the Map's TC numbering) are annotated in the Obsidian notes, not in a controlled document.
+
+### 12.6 Library and toolchain facts this entry rests on
+
+- `std::has_unique_object_representations_v<TelemetryFrame>` is false for any type with a floating-point member, on Apple clang and on GCC 13 (checked during planning), so the proof of "no unspecified byte" is the arithmetic `static_assert` on the sum of the members plus `offsetof` pins. `offsetof` on the standard-layout frame raises nothing under `-Wall -Wextra -Wpedantic -Werror`.
+- `struct.Struct("@Q11fI2d5f3B3?5BB").size` is 104 with no trailing `0Q`, and numpy's `align=True` dtype agrees at every offset (the reader's import-time assertion). `struct.pack` refuses `0.0` for the `B`, `H` and `I` codes, so the synthetic zero frame needs integer zeros.
+- A brace-built `FaultEvent{ts, channel, type, 0.5f}` fails to compile once `reserved` sits before `value` (a narrowing conversion into `uint16_t`), so every brace site had to name the reserved field: the compiler enforcing the layout change at three test sites.
+- cppcheck 2.21.0 reports nothing on the reserved members, the trailing `return "UNKNOWN"` of the name switches, or the `static_cast` in `main`.
+- lcov 2.5 on clang data counts the two marked `list_log_files` lines at 8 and 16 edges; §11.7 recorded that the runner's lcov 2.0 drops both lines entirely.
+
+### 12.7 Measurement of record
+
+Reserved for the first CI run with this entry's commits: processing, logging and replay on GCC with the new branches (100% predicted, §12.3), the rewritten `log_reader.cpp` line, the pytest line (85) with its captured prints, every other scope, and the build time with no new dependency. The README verification table and the FTS-TM-001 TEST rows move to that run.
+
+### 12.8 Open
+
+- §12.7.
+- The six remaining `LCOV_EXCL_EXCEPTION_BR_LINE` lines and the rule they rest on (Entry 11 §11.8), unchanged by this topic.
+- Parked in FTS-DD-001 §11.2 and §12 for the PFD and the voter: a sequence number and a frame age, the Kalman covariance in the frame, GPS fix quality in a reserved byte, the run mode on the wire, pacing a replay.
+- The Kalman filter is born from the barometer only (FTS-DD-001 §12): a session whose barometer never reads has NO_COMPUTED_DATA fused altitude although the GPS reads.
+- `LogReplaySource` still skips an unreadable continuation file in a list silently (`ReplayTest.UnreadableFileIsSkipped`); `main`'s single-file `--replay` never reaches it.
+- Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the rewritten reader line keeps its two decision edges there.
