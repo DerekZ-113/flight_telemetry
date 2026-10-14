@@ -29,18 +29,18 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
 
 ## Verification
 
-Measurement of record: GitHub Actions run [38329662749](https://github.com/DerekZ-113/flight_telemetry/actions/runs/38329662749) on commit `9e68222`, Ubuntu, GCC 13, the first run with the pytest suite ([verification_results.md](docs/verification_results.md), Entry 10 §10.6).
+Measurement of record: GitHub Actions run [38490312035](https://github.com/DerekZ-113/flight_telemetry/actions/runs/38490312035) on commit `797f06b`, Ubuntu 24.04, GCC 13.3, the first run with the configuration scope gated ([verification_results.md](docs/verification_results.md), Entry 11 §11.7).
 
 | Item | Value |
 |---|---|
-| Unit tests (Google Test) | 168 of 168 passed |
-| Integration tests (pytest) | 66 of 66 passed in 52.5 s |
-| Branch coverage (gcov/lcov) | 90.7% (292 of 322), every per-scope threshold met: transport 96.2%, drivers 81.3% (hardware-bound error paths), the other scopes 100% |
-| Line coverage | 98.0% (909 of 928) |
+| Unit tests (Google Test) | 212 of 212 passed |
+| Integration tests (pytest) | 78 of 78 passed in 64.8 s |
+| Branch coverage (gcov/lcov) | 94.2% (488 of 518), every per-scope threshold met: config 100%, transport 96.2%, drivers 81.3% (hardware-bound error paths), the other scopes 100% |
+| Line coverage | 98.6% (1313 of 1332) |
 | Compiler warnings under `-Werror` | 0 |
 | cppcheck findings | 0 |
 
-Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and seven GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
+Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/` and `src/config/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and seven GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
 
 ## DO-178C-aligned practices
 
