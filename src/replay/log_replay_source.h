@@ -11,13 +11,14 @@
 // DataSource that replays a recorded session (REQ-LOG-003, REQ-LOG-004).
 //
 // The logger wrote *processed* frames. This source hands back *raw* ones:
-// before a frame leaves read_frame(), every computed field is zeroed and
-// every ChannelStatus is reset to NOMINAL. Timestamp, sensor fields, and
-// the read_ok flags are kept exactly as logged. That is the raw-only
-// contract from data_source.h applied to replay: the detector recomputes
-// status from read_ok and the processor recomputes the rest. A replay
-// that passed the logged results through would let the pipeline be
-// skipped entirely and still "match".
+// before a frame leaves read_frame(), every computed field is zeroed, every
+// ChannelStatus is reset to NOMINAL and every Validity to NOT_JUDGED.
+// Timestamp, sensor fields, and the read_ok flags are kept exactly as
+// logged; a version-1 log's frames arrive the same way (REQ-LOG-005). That
+// is the raw-only contract from data_source.h applied to replay: the
+// detector recomputes status from read_ok and the processor recomputes the
+// rest. A replay that passed the logged results through would let the
+// pipeline be skipped entirely and still "match".
 //
 // Files are read in the order given, so rotated files replay as one
 // session. Event records are skipped; replay reproduces them by re-running

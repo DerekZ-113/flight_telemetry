@@ -231,6 +231,11 @@ TEST(KalmanTest, StaleBaroInsideTimeoutIsPredictOnly) {
         const TelemetryFrame b = degraded.process(d);
         EXPECT_EQ(a.fused_altitude_m, b.fused_altitude_m) << "frame " << i;
         EXPECT_EQ(a.vertical_speed_mps, b.vertical_speed_mps) << "frame " << i;
+        // Same numbers, different verdicts: the stale NOMINAL frame is a
+        // current estimate inside the timeout (REQ-PROC-007).
+        EXPECT_EQ(a.fused_altitude_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(a.baro_altitude_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(b.baro_altitude_validity, Validity::FAILURE_WARNING) << "frame " << i;
     }
 }
 
@@ -302,12 +307,16 @@ TEST(KalmanTest, FilterWaitsForFirstFreshBaro) {
     const TelemetryFrame out0 = processor.process(f0);
     EXPECT_EQ(out0.fused_altitude_m, 0.0f);
     EXPECT_EQ(out0.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(out0.fused_altitude_validity, Validity::NO_COMPUTED_DATA);   // TC-011 step 4 (REQ-PROC-007)
+    EXPECT_EQ(out0.vertical_speed_validity, Validity::NO_COMPUTED_DATA);
 
     TelemetryFrame f1 = fresh_frame(20);
     f1.gps_read_ok = false;               // no GPS, so the first estimate is the baro altitude exactly
     const TelemetryFrame out1 = processor.process(f1);
     EXPECT_EQ(out1.fused_altitude_m, out1.baro_altitude_m);
     EXPECT_EQ(out1.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(out1.fused_altitude_validity, Validity::NORMAL);
+    EXPECT_EQ(out1.vertical_speed_validity, Validity::NORMAL);
 }
 
 // TC-016 step 10. The Kalman tuning reaches the filter: a processor told

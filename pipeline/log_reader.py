@@ -23,8 +23,8 @@ from typing import NamedTuple, Sequence
 
 from pipeline import frame_format
 from pipeline.frame_format import (
-    CHANNEL_NAMES, EVENT, EVENT_FIELDS, FAULT_TYPE_NAMES, FRAME, FRAME_FIELDS, HEADER,
-    TAG_EVENT, TAG_FRAME, FaultEvent, FormatError, Frame, Header,
+    CHANNEL_NAMES, COMPUTED_VALIDITY, EVENT, EVENT_FIELDS, FAULT_TYPE_NAMES, FRAME, FRAME_FIELDS, HEADER,
+    TAG_EVENT, TAG_FRAME, VALIDITY_FIELDS, VALIDITY_NAMES, VALIDITY_NORMAL, FaultEvent, FormatError, Frame, Header,
 )
 
 DEFAULT_PREFIX = "telemetry"    # BinaryLogger's prefix for live and simulated runs; replays use "replay"
@@ -155,12 +155,13 @@ def read_logs(paths: Sequence[str | Path], max_step_ms: int = DEFAULT_MAX_STEP_M
 # numpy views. The compiler's padding is reproduced twice, by struct's '@' and by
 # numpy's align=True; the import-time assertions below check that both agree on the
 # size and on every field offset, or the array would misread every frame after the first.
-_STRUCT_TO_NUMPY = {"Q": "u8", "f": "f4", "d": "f8", "B": "u1", "?": "?"}
+_STRUCT_TO_NUMPY = {"Q": "u8", "I": "u4", "H": "u2", "f": "f4", "d": "f8", "B": "u1", "?": "?"}
 
 
 def _field_codes(layout: struct.Struct) -> list[str]:
-    """One struct code per field: '@Q11f2d5f3B3?0Q' -> ['Q', 'f', 'f', ...]. A zero count
-    ('0Q') is an alignment directive, not a field, and contributes nothing."""
+    """One struct code per field: '@Q11fI2d5f3B3?5BB' -> ['Q', 'f', 'f', ...]. A zero count
+    ('0Q', no longer needed since format version 2 has no padding) is an alignment directive,
+    not a field, and contributes nothing."""
     codes: list[str] = []
     for count, code in re.findall(r"(\d*)([A-Za-z?])", layout.format.lstrip("@=<>!")):
         codes.extend([code] * (int(count) if count else 1))
@@ -203,6 +204,21 @@ def events_array(log: LogFile):
     return np.frombuffer(b"".join(EVENT.pack(*event) for event in log.events), dtype=event_dtype())
 
 
+def invalid_as_nan(frames):
+    """A copy of a frames array with every computed field that is not NORMAL set to NaN.
+
+    The frame itself carries a defined number under every validity and never NaN (REQ-PROC-007:
+    NaN is silent in arithmetic and false in every comparison). A plot or a nan-aware reduction
+    wants the absence visible, which is what this view is for; nothing that computes on frames
+    should read it."""
+    import numpy as np
+
+    out = frames.copy()
+    for field, validity in COMPUTED_VALIDITY.items():
+        out[field][out[validity] != VALIDITY_NORMAL] = np.nan
+    return out
+
+
 def summary(log: LogFile, period_ms: int = 20) -> str:
     """What a run looks like before any analysis: counts, span, steps, freshness, events."""
     lines = [f"{len(log.paths)} file(s): {len(log.frames)} frames, {len(log.events)} events, "
@@ -217,9 +233,22 @@ def summary(log: LogFile, period_ms: int = 20) -> str:
         lines.append(f"step: mean {sum(steps) / len(steps):.3f} ms, min {min(steps)}, max {max(steps)}, "
                      f"over {limit:g} ms: {over}")
     fresh = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_read_ok")) for ch in CHANNELS}
-    degraded = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_status") != 0) for ch in CHANNELS}
+    degraded = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_status") == 1) for ch in CHANNELS}
+    no_data = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_status") == 2) for ch in CHANNELS}
     lines.append("fresh: " + ", ".join(f"{ch} {n}" for ch, n in fresh.items()))
     lines.append("degraded frames: " + ", ".join(f"{ch} {n}" for ch, n in degraded.items()))
+    lines.append("no-data frames: " + ", ".join(f"{ch} {n}" for ch, n in no_data.items()))
+    # Validity (REQ-PROC-007): frames every field of which is NORMAL, then the other
+    # verdicts counted per field-frame (five per frame).
+    all_normal = sum(1 for f in log.frames if all(getattr(f, v) == VALIDITY_NORMAL for v in VALIDITY_FIELDS))
+    counts = {name: 0 for name in VALIDITY_NAMES.values()}
+    for f in log.frames:
+        for v in VALIDITY_FIELDS:
+            name = VALIDITY_NAMES.get(getattr(f, v), "UNKNOWN")
+            counts[name] = counts.get(name, 0) + 1
+    lines.append(f"validity: every computed field NORMAL on {all_normal} of {len(log.frames)} frames; "
+                 f"NOT_JUDGED {counts['NOT_JUDGED']}, NO_COMPUTED_DATA {counts['NO_COMPUTED_DATA']}, "
+                 f"FAILURE_WARNING {counts['FAILURE_WARNING']} field-frames")
     for event in log.events:
         channel = CHANNEL_NAMES.get(event.channel, event.channel)
         kind = FAULT_TYPE_NAMES.get(event.type, event.type)

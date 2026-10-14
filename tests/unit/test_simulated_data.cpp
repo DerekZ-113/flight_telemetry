@@ -36,10 +36,10 @@ double sample_sigma(const std::vector<float>& v) {
 
 }  // namespace
 
-// REQ-SENS-006: raw sensor readings only. Every computed field is zero,
-// every channel NOMINAL, every I2C read successful; the GPS read succeeds
-// on its 1 Hz schedule, which in these 20 frames (0 to 380 ms) is the
-// first frame only. The pipeline owns the rest (REQ-LOG-004).
+// REQ-SENS-006: raw sensor readings only. Every computed field is zero and
+// unjudged, every channel NOMINAL, every I2C read successful; the GPS read
+// succeeds on its 1 Hz schedule, which in these 20 frames (0 to 380 ms) is
+// the first frame only. The pipeline owns the rest (REQ-LOG-004).
 TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
     SimulatedDataGenerator generator(42);
     for (int i = 0; i < 20; i++) {
@@ -57,6 +57,15 @@ TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
         EXPECT_TRUE(f.baro_read_ok);
         EXPECT_TRUE(f.imu_read_ok);
         EXPECT_EQ(f.gps_read_ok, i == 0) << "frame " << i;
+        // Unjudged and the reserved bytes zero: the processor judges,
+        // and a reserved byte is zero by definition (REQ-PROC-007).
+        EXPECT_EQ(f.baro_altitude_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(f.pitch_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(f.reserved_a, 0u);
+        EXPECT_EQ(f.reserved_b, 0u);
     }
 }
 

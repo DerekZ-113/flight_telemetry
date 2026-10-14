@@ -9,7 +9,7 @@ import pytest
 
 import synthetic_log as syn
 from pipeline import log_reader
-from pipeline.frame_format import EVENT, FRAME, FRAME_FIELDS, FormatError
+from pipeline.frame_format import EVENT, FRAME, FRAME_FIELDS, LOG_FORMAT_VERSION, FormatError
 from pipeline.log_reader import (
     SequenceError, event_dtype, file_index, find_log_files, frame_dtype, frames_array, read_log, read_logs,
 )
@@ -39,7 +39,7 @@ def test_reads_frames_and_events_in_order(tmp_path):
 
 @pytest.mark.parametrize("field, value, word", [
     ("magic", b"XXXX", "magic"),
-    ("version", 2, "version"),
+    ("version", LOG_FORMAT_VERSION + 1, "version"),
     ("frame_size", 100, "frame size"),
     ("event_size", 12, "event size"),
     ("endian_marker", 0x04030201, "endian"),
@@ -118,8 +118,12 @@ def test_frame_dtype_matches_struct():
     dtype = frame_dtype()
     assert dtype.itemsize == FRAME.size == 104
     assert event_dtype().itemsize == EVENT.size == 16
-    assert dtype.fields["latitude"][1] == 56           # the 4-byte pad before the doubles
-    assert dtype.fields["gps_read_ok"][1] == 97        # 6 bytes of tail pad follow
+    assert dtype.fields["reserved_a"][1] == 52         # where version 1 had the pad before the doubles
+    assert dtype.fields["latitude"][1] == 56
+    assert dtype.fields["gps_read_ok"][1] == 97
+    assert dtype.fields["baro_altitude_validity"][1] == 98   # the five validity bytes, then reserved_b
+    assert dtype.fields["reserved_b"][1] == 103
+    assert event_dtype().fields["reserved"][1] == 10
     codes = log_reader._field_codes(FRAME)
     for i, name in enumerate(FRAME_FIELDS):
         assert dtype.fields[name][1] == struct.calcsize("@" + "".join(codes[:i]) + "0" + codes[i]), name
@@ -145,6 +149,7 @@ def test_cli_summary(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "3 frames, 1 events, torn bytes 0" in out
     assert "fresh: baro 3, imu 3, gps 0" in out
+    assert "validity: every computed field NORMAL on 3 of 3 frames" in out
     assert "event t=40 ms channel=GPS type=COMM_TIMEOUT value=2020" in out
     bad = tmp_path / "bad.bin"
     bad.write_bytes(b"not a log")

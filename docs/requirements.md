@@ -1,7 +1,7 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.6.0
+> **Version:** 0.7.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-13
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
@@ -10,7 +10,7 @@
 
 "Shall" marks a binding requirement. Every shall statement has a row in FTS-TM-001 that traces it to the code that implements it and the test that verifies it. Text after **Rationale:** explains a requirement and is not itself binding.
 
-A *channel* is one sensor's data path: barometer (BMP280), IMU (MPU6050), or GPS (NEO-6M). Each channel is either NOMINAL or DEGRADED (REQ-FAULT-004). A *cycle* is one pass of the processing loop (REQ-TIME-001). A *TelemetryFrame* is the record the system produces once per cycle; its field names and units are defined in `src/telemetry_frame.h`. *Configurable* means set through the configuration file of REQ-CFG-001.
+A *channel* is one sensor's data path: barometer (BMP280), IMU (MPU6050), or GPS (NEO-6M). Each channel is NO_DATA before its first reading and NOMINAL or DEGRADED thereafter (REQ-FAULT-004, REQ-FAULT-006). Each computed field of a frame carries a *validity*: NO_COMPUTED_DATA, FAILURE_WARNING or NORMAL (REQ-PROC-007). A *cycle* is one pass of the processing loop (REQ-TIME-001). A *TelemetryFrame* is the record the system produces once per cycle; its field names and units are defined in `src/telemetry_frame.h`. *Configurable* means set through the configuration file of REQ-CFG-001.
 
 ---
 
@@ -58,6 +58,10 @@ REQ-PROC-006: The processing pipeline shall run each filter's prediction step ev
 
 > **Rationale:** sensors run at their own rates; the loop runs at its own. A channel's health (REQ-FAULT-004) says whether its readings can be trusted over time; `read_ok` says whether this cycle produced one. Re-applying a reading treats a copy as new evidence: the filter's covariance shrinks as if independent sensors had agreed, and the state is pinned to a value that is no longer current. With a 1 Hz GPS in a 50 Hz loop, one fix applied 50 times carries the information weight of a 0.7 m sensor instead of the 5 m sensor it is.
 
+REQ-PROC-007: Every computed field of a TelemetryFrame (barometric altitude, pitch, roll, fused altitude, vertical speed) shall carry a validity in the same frame, written by the processing pipeline on every cycle, in this order of precedence: NO_COMPUTED_DATA while no estimate of the field has ever existed; FAILURE_WARNING while the channel the field depends on is DEGRADED or, for the fused fields, while no contributing altitude source is NOMINAL; NORMAL otherwise. A consumer shall treat any validity other than NORMAL as the absence of a value.
+
+> **Rationale:** a value and its validity must travel together: ARINC 429 carries the sign/status matrix in the same word as the data so that no receiver can take one without the other, and this frame carries one validity byte per computed field in the same 104 bytes. The dependences are the fault model's: barometric altitude on the barometer; the fused fields on an altitude source the filter has taken a measurement from, barometer or GPS (FAULT-001); pitch and roll on the IMU and a seeded filter (FAULT-002, FAULT-006, FAULT-010). Precedence puts "never existed" first, so a barometer dead or out of range from power-on reports NO_COMPUTED_DATA rather than a flag over a number nobody measured. A field that is not NORMAL still holds a defined number, 0 before its first estimate and the last accepted or coasting estimate under FAILURE_WARNING, never NaN: NaN is silent in arithmetic and false in every comparison, so a consumer that forgot the flag would fail quietly. Zero in the encoding means "not judged" and is never written by the pipeline, so a frame nobody judged (a source's raw frame, a version-1 log) cannot pass as valid.
+
 ## Fault Detection
 
 REQ-FAULT-001: The system shall declare a communication fault on an I2C channel when no successful read has occurred within a configurable timeout (500 ms by default), and on the GPS channel when no NMEA sentence has been received within a configurable timeout longer than the module's output period.
@@ -68,7 +72,13 @@ REQ-FAULT-003: The system shall detect out-of-range or invalid sensor readings a
 
 REQ-FAULT-004: Upon detecting a sensor fault, the system shall mark the affected channel DEGRADED, log a fault event carrying the timestamp, channel, and fault type, and continue processing with the remaining NOMINAL channels.
 
+> **Rationale:** DEGRADED is the detector's judgment over time, distinct from `read_ok`, which is one cycle's fact. A channel that has never produced a reading is NO_DATA (REQ-FAULT-006), not NOMINAL: the raw fields it carries are not readings.
+
 REQ-FAULT-005: Upon fault clearance (M consecutive valid readings on the affected channel, where M is configurable), the system shall mark the channel NOMINAL and log a recovery event.
+
+REQ-FAULT-006: Each channel shall be reported NO_DATA from start-up until its first successful reading, and NOMINAL or DEGRADED thereafter as REQ-FAULT-004 and REQ-FAULT-005 decide; a fault detected on a NO_DATA channel, including the communication timeout of REQ-FAULT-001, shall mark it DEGRADED as from NOMINAL.
+
+> **Rationale:** before its first reading a channel's raw fields are the zeros of a value-initialized frame (a position of 0, 0 is a real place, a heading of 0 is north, a pressure of 0 is 44 km up) with `read_ok` false and, from a source, status NOMINAL, which a display would show as a plausible value. NO_DATA is the raw-field twin of NO_COMPUTED_DATA (REQ-PROC-007). The first reading makes the channel NOMINAL without an event: it is a start, not a recovery.
 
 ## Timing
 
@@ -102,9 +112,13 @@ REQ-LOG-002: The system shall rotate to a new log file when the current file wou
 
 REQ-LOG-003: When replaying a recorded binary log, the system shall produce processing outputs identical, bit for bit, to those of the original session recorded by the same build on the same platform.
 
-> **Rationale:** cross-platform identity is not claimed, because standard-library math and random-number implementations differ between toolchains (FTS-DD-001 Section 8). Identity also presumes the configuration recorded with the session (REQ-CFG-003): a replay through another configuration is reported as such and claims nothing.
+> **Rationale:** cross-platform identity is not claimed, because standard-library math and random-number implementations differ between toolchains (FTS-DD-001 Section 8). Identity also presumes the configuration recorded with the session (REQ-CFG-003): a replay through another configuration is reported as such and claims nothing. Identity is claimed within one format version (REQ-LOG-005): a version-1 log replayed by this build yields a version-2 log whose raw fields equal the input's and whose computed fields are recomputed, which is replay, not identity.
 
 REQ-LOG-004: Replay mode shall use the same processing pipeline as live mode, differing only in data source.
+
+REQ-LOG-005: The log header shall carry the format version. A reader shall accept every version whose layout this build defines and shall refuse any other before any frame is processed, naming the version found and the versions it reads.
+
+> **Rationale:** logs must replay forever. The raw fields are the record and the pipeline recomputes everything else (REQ-LOG-004), so a version-1 log replays through the version-2 build and the replay is a version-2 log; a log the build cannot read must stop the run at startup by name, not feed zero frames through the pipeline (FTS-VR-001 Entry 11 §11.8). Bit identity (REQ-LOG-003) is claimed within one format version.
 
 ## Configuration
 

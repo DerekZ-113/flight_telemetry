@@ -36,7 +36,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.2 Integration Tests
 
-- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015).
+- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015); the validity bytes, NO_DATA and the format version as the binary, the receiver and the reader present them (TC-017 steps 11 through 15, `test_validity.py`).
 - **Framework:** pytest, with numpy and matplotlib for the analysis.
 - **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it. Every run of the binary passes `--config` with the shipped `config/telemetry_config.yaml` (the binary reads it relative to the working directory by default, and these runs happen in temporary directories); a test that needs another configuration hands the binary a copy with one line edited, and a later `--config` on the command line wins.
 - **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
@@ -121,7 +121,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 ### TC-002: Sensor Communication Failure Detected Within Bound
 
-- **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004, REQ-FAULT-005, and REQ-PROC-002 in step 8)
+- **Requirement:** REQ-FAULT-001 (also exercises REQ-FAULT-004, REQ-FAULT-005, and REQ-PROC-002 and REQ-PROC-007 in step 8)
 - **Level:** Fault injection (steps 1 through 7), Hardware (step 8)
 - **Objective:** Verify that a sensor that stops responding is marked DEGRADED within the required detection bound, and not before.
 - **Preconditions:** The fault detector reads time from `frame.timestamp_ms`; there is no wall clock anywhere in the pipeline, so tests advance time by feeding frames with later timestamps. I2C bound configured at 500 ms. UART bound configured at 2000 ms. Frames are hand-built at 50 Hz with `read_ok` flags cleared per channel; one case uses a `FaultInjectingSource` wrapping the simulator to prove the seam.
@@ -134,7 +134,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   6. Repeat steps 2 through 4 for the GPS channel, using the 2000 ms UART bound.
   7. For each channel, assert that exactly one fault event was logged, carrying the channel, the fault type, and a timestamp.
   8. *(Hardware)* On the Raspberry Pi, during a paced live run of 60 s (`telemetry --live --cycles 3000`, output to a file), pull the barometer board's SDA jumper at about 10 s and reconnect it at about 25 s; pull the MPU6050's SDA jumper at about 35 s, hold the board about 20° nose-up, reconnect at about 50 s, then set it flat. Keep the printed output and the log, and replay the log.
-- **Expected result:** Barometer and IMU transition to DEGRADED at a clock time greater than 480 ms and no greater than 500 ms after the first failed read. GPS transitions at a time greater than 1980 ms and no greater than 2000 ms. Healthy channels remain NOMINAL throughout. Processing continues for every frame; no frame is dropped. Step 8: a `COMM_TIMEOUT` event for BARO 500 to 520 ms after the pull, its value the elapsed time since the last good read, and a `RECOVERY` event on the fifth good read after reconnection, its value the time spent DEGRADED; the same pair for IMU; `baro_read_ok` false from the pull onward while the status stays NOMINAL for the first half second; pitch and roll frozen during the IMU outage and at the tilted value on the first NOMINAL frame after it (REQ-PROC-002); the other I2C channel NOMINAL throughout; the timing summary reports 0 missed cycles; the saved log replays byte-identical.
+- **Expected result:** Barometer and IMU transition to DEGRADED at a clock time greater than 480 ms and no greater than 500 ms after the first failed read. GPS transitions at a time greater than 1980 ms and no greater than 2000 ms. Healthy channels remain NOMINAL throughout. Processing continues for every frame; no frame is dropped. Step 8: a `COMM_TIMEOUT` event for BARO 500 to 520 ms after the pull, its value the elapsed time since the last good read, and a `RECOVERY` event on the fifth good read after reconnection, its value the time spent DEGRADED; the same pair for IMU; `baro_read_ok` false from the pull onward while the status stays NOMINAL for the first half second; pitch and roll held and flagged FAILURE_WARNING during the IMU outage (REQ-PROC-007), and NORMAL at the tilted value on the first NOMINAL frame after it (REQ-PROC-002); the other I2C channel NOMINAL throughout; the timing summary reports 0 missed cycles; the saved log replays byte-identical.
 - **Pass/fail:** All three channels detected within their bound and not more than one frame period early. Any detection before 480 ms (or 1980 ms for GPS) fails, because it would false-alarm on a single transient error. Any missing or duplicated fault event fails. Step 8: a channel that never degrades, degrades early, recovers before five good reads, or takes the other I2C channel down with it fails; a missed cycle during the pull is a finding, because a failed transaction took longer than one period.
 
 ### TC-003: Stuck Sensor Detection
@@ -160,13 +160,13 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
 - **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary and the same configuration for both runs: the replay reads the configuration recorded beside the log (REQ-CFG-003). Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at the integration level by `tests/integration/test_replay_identity.py`, which runs the binary twice in a temporary directory and parses both logs with `pipeline/log_reader.py`; the output directory is `logging.directory`, `logs` in the shipped file, so the files are `logs/telemetry_000.bin` and `logs/replay_000.bin`.
 - **Steps:**
-  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`.
+  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`. Both runs write and read format version 2: identity is claimed within one format version (REQ-LOG-005).
   2. Run the pipeline in replay mode with that log as the data source. Log every processed frame to `logs/replay_000.bin`.
   3. Parse both logs in Python. For each frame index, compare every field.
   4. Assert the frame counts are equal.
   5. Assert every raw field is identical (replay must not alter its input).
-  6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status) is identical, compared as raw bytes rather than with a floating-point tolerance.
-- **Expected result:** 500 frames in each log. Zero field differences; the two files byte-identical; every frame's bytes equal to its repacking (padding zero); timestamps 0 to 9980 ms in both.
+  6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status, and the five validity bytes) is identical, compared as raw bytes rather than with a floating-point tolerance; the reserved bytes are zero in both.
+- **Expected result:** 500 frames in each log. Zero field differences; the two files byte-identical; every frame's bytes equal to its repacking (the reserved bytes zero); timestamps 0 to 9980 ms in both.
 - **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
 
 ### TC-005: Pipeline Data Integrity over ZeroMQ and UDP
@@ -253,15 +253,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
   2. Log 10 simulated frames. Read them back. Compare each with `memcmp` against the frame that was written.
   3. Log frame, event, frame. Assert three records with tags FRAME, FAULT_EVENT, FRAME and that the event compares equal.
   4. Set the file limit to header plus three frame records. Log 10 frames. Assert four files, each with a valid header, none larger than the limit, and 10 frames total in order.
-  5. Corrupt a header field (magic, version, frame size, event size, endianness) one at a time. Assert the reader refuses each with a non-empty error.
+  5. Corrupt a header field (magic, version, frame size, event size, endianness) one at a time. Assert the reader refuses each with a non-empty error; the version case uses a version outside the readable range (`kLogFormatVersion + 1`), and a version-1 header with this build's sizes is accepted, its frames coming back with every validity NOT_JUDGED and the reserved bytes zero (REQ-LOG-005, TC-017 step 2).
   6. Truncate a file in the middle of its second frame. Assert the reader returns the first frame, then false, with a "torn record" error and no crash.
   7. Point the logger at a path that cannot be a directory. Assert `ok()` is false and that logging calls return without throwing.
   8. *(Integration)* Read the session fixture's log (500 simulated frames) with the Python reader: assert 500 frames, no events, timestamps 0 to 9980 ms, nothing torn, the header's sizes equal to the module's.
   9. *(Integration)* Write frame, event, frame from Python with the same Structs and read it back: assert the frames and the event in order and each frame's bytes equal to its repacking.
-  10. *(Integration)* Corrupt each header field (magic, version, frame size, event size, endianness) in a Python-written file: assert the reader refuses each, naming the field.
+  10. *(Integration)* Corrupt each header field (magic, version, frame size, event size, endianness) in a Python-written file: assert the reader refuses each, naming the field; the version case is `LOG_FORMAT_VERSION + 1`, and a version-1 header is read (TC-017 step 15).
   11. *(Integration)* Cut a file 41 bytes into its second frame: assert the first frame is returned and 41 torn bytes counted; append an unknown tag: assert refusal naming the offset.
   12. *(Integration)* Write 10 frames across four rotated files: assert they read as one run in order; then a file that restarts at 0, a file with a gap in its index, a file starting 1920 ms after the previous ends, and a file whose timestamps repeat: assert each is refused with the file and timestamps named.
-  13. *(Integration)* Assert the numpy layout derived from the struct format has 104 and 16 bytes and every field offset equal to the struct's (latitude at 56, the last flag at 97), and that a frames array's bytes equal the file's.
+  13. *(Integration)* Assert the numpy layout derived from the struct format has 104 and 16 bytes and every field offset equal to the struct's (`reserved_a` at 52, latitude at 56, the last flag at 97, the validity bytes at 98 to 102, `reserved_b` at 103; the event's `reserved` at 10), and that a frames array's bytes equal the file's.
   14. *(Integration)* The reader's command line on a directory holding a live-shaped file (three frames, GPS never fresh, one GPS timeout event): assert exit 0 with the counts, the fresh totals, and the event line; a file that is not a log exits 2.
 - **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file. Steps 8 through 14: every refusal names what was wrong, a torn tail loses nothing before it, and rotation reads as one run only when the indices are consecutive and the timestamps continue.
 - **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 or 10 fails. Any crash or invented frame in step 6 or 7 fails. Any accepted restart, gap, or repeated timestamp in step 12 fails; any offset disagreement in step 13 fails.
@@ -354,8 +354,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 1 | identical on all 10 frames |
   | 2 | identical on all 20 frames |
   | 3 | identical to the first twin on all 100 frames; identical to the second until 980 ms and different at 1000 ms |
-  | 4 | frame 0: fused altitude and vertical speed 0; frame 1: fused altitude equal to its barometric altitude, vertical speed 0 |
-  | 5 | pitch and roll unchanged |
+  | 4 | frame 0: fused altitude and vertical speed 0 and NO_COMPUTED_DATA; frame 1: fused altitude equal to its barometric altitude, vertical speed 0, both NORMAL (REQ-PROC-007) |
+  | 5 | pitch and roll unchanged and NORMAL: a stale cycle inside the timeout is the detector's call, not a flag (REQ-PROC-007) |
   | 6 | pitch 0.0784° (0.98 × 1 deg/s × 0.080 s) within 0.001°; roll 0 |
   | 7 | `gps_read_ok` true at 0 and 1000 ms only; GPS fields repeat the previous frame's between fixes and change at 1000 ms; barometer and IMU `read_ok` true throughout |
   | 8 | every frame fresh; fixes at 0, 1020, and 2010 ms; every frame fresh |
@@ -455,7 +455,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 9 | 0, 20, 40, 80, 80 ms |
   | 10 | `ok()` false; the message names the barometer and 0x55, then the IMU and 0x70, then both chips; frames are still produced, the failed channel stale |
   | 11 | 68 and 76 (or 77) in the grid; 0x58 or 0x60; 0x68 |
-  | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; GPS DEGRADED from 2020 ms with one COMM_TIMEOUT event; 0 missed cycles |
+  | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; GPS NO_DATA until the UART timeout and DEGRADED from 2020 ms with one COMM_TIMEOUT event (REQ-FAULT-006); 0 missed cycles |
   | 13 | nose up: pitch positive; roll right: roll positive |
   | 14 | `cmp` silent |
   | 15 | `received 500 frames`; gaps at or near 0 |
@@ -529,6 +529,52 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Any field of the shipped file differing from the defaults fails (step 1). Any invalid value accepted, any valid edge value refused, any problem reported under the wrong key, or fewer problems than planted fails. A record that differs from the file by one byte fails. A replay that runs without a record and without `--config`, or that runs another configuration silently, fails.
 
+### TC-017: Validity of Computed Fields, NO_DATA, and Format Version 2
+
+- **Requirement:** REQ-PROC-007, REQ-LOG-005, REQ-FAULT-006 (also exercises REQ-PROC-005, REQ-LOG-003, REQ-LOG-004, REQ-FAULT-004)
+- **Level:** Unit (steps 1 through 10: `tests/unit/test_telemetry_frame.cpp`, `test_validity.cpp`, and the additions to `test_logging.cpp`, `test_replay.cpp`, `test_fault_detection.cpp`, `test_complementary.cpp`, `test_kalman.cpp`), Integration (steps 11 through 15, `tests/integration/test_validity.py`), recorded (step 16, FTS-VR-001 Entry 12 §12.4)
+- **Objective:** Verify that every computed field carries, in the same frame, whether it is a current estimate, has never existed, or is not trustworthy, in the order of precedence REQ-PROC-007 states; that a channel is NO_DATA until its first reading; that format version 2 has no unspecified byte, that readers accept versions 1 and 2 and refuse others by name before anything is built, and that identity holds within a version.
+- **Preconditions:** `TelemetryProcessor` with its default tuning and `FaultDetector` with its defaults; frames built by hand or from `SimulatedSource(20, 42)`; a temporary directory per test for the logs. The reference for step 16 is the 500-frame seed-42 log of the build before this topic (FTS-VR-001 Entry 11 §11.4, SHA-256 `3124895f…`), compared with the candidate's by `cmp -l` and by a script that reads both record by record.
+- **Steps:**
+  1. `sizeof(TelemetryFrame)` and `alignof`; `offsetof` of `reserved_a`, `latitude`, `gps_read_ok`, the five validity bytes and `reserved_b`; `sizeof(FaultEvent)` and `offsetof(FaultEvent, reserved)`; `validity_name` for the four values and an out-of-range byte; `status_name` for NO_DATA and an out-of-range byte.
+  2. Log one frame and read the header; write a version-1 header with this build's sizes over a frame whose validity and reserved bytes are not zero, and read it; write a version-3 header and a wrong frame size and read each; build a frame message.
+  3. Through a processor: a frame with pressure 0 and `baro_read_ok` false, then one whose barometer is DEGRADED before it ever read, then the first fresh frame. Record barometric altitude, fused altitude, vertical speed and their validities.
+  4. A frame with `imu_read_ok` false, then one with an unusable accelerometer, then one with the IMU DEGRADED, then the first usable sample. Record pitch, roll and their validities.
+  5. After a seeded frame, a frame with the IMU DEGRADED and 45° of accelerometer tilt, then a NOMINAL frame with `imu_read_ok` false. Record the angles and their validities.
+  6. Two accepted frames, stale frames through 520 ms, then a fresh frame at 540 ms with a flat accelerometer; the same with an unusable accelerometer on the recovery frame. Record pitch and its validity.
+  7. Twenty fresh frames, then frames with the barometer DEGRADED and the GPS fresh; then with both DEGRADED; then a fresh run whose GPS never fixed, with the barometer DEGRADED. Record the five fields and their validities; the raw pressure on the DEGRADED frames is out of range.
+  8. 200 simulated frames through detector and processor, plus every frame of steps 3 to 7: read every validity byte.
+  9. Replay: log a frame with every validity NORMAL and the reserved bytes set, read it through `LogReplaySource`; run `ReplayTest.ReplayReproducesLiveSession`; write a version-1 file by hand and replay it through detector and processor.
+  10. Detector: frames whose channel never reads; a channel's first reading; a fault on a channel's first-ever reading; a channel dead from power-on.
+  11. *(pytest)* The session fixture's log and replay: the header version, every validity byte and status of every frame, the `Validity:` summary line of both runs, the replay's exit lines.
+  12. *(pytest)* A synthetic version-1 log of 50 raw frames replayed with `--replay`: exit code, the notice on stdout, the replay log's header, its raw fields against the input's, every validity byte.
+  13. *(pytest)* A synthetic version-3 log replayed: exit code, stderr, the log directory; a 5-frame log replayed with `--cycles 12`: the exhaustion line.
+  14. *(pytest, each transport)* A published run: each receiver line's validity names, and the frames against the log.
+  15. *(pytest)* The Python reader: the dtype's offsets at 52, 98 to 103 and the event's 10; `VALIDITY_NAMES` and `STATUS_NAMES`; `invalid_as_nan` on frames with one FAILURE_WARNING field; a version-1 log read with the bytes the file holds; `summary()` on a mixed log.
+  16. *(Recorded)* The reference log against the candidate's after commit 1 and after commit 2, by `cmp -l` and by the comparison script, both SHA-256s recorded.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | 104 and 8; 52, 56, 97, 98 to 102, 103; 16 and 10; the four names and `UNKNOWN`; `NO_DATA` and `UNKNOWN` |
+  | 2 | version 2 in the header; the version-1 file accepted, its frame back with every validity NOT_JUDGED and both reserved fields zero; "format version 3; this build reads 1 to 2"; "frame size 112 in the header, 104 in this build"; the message's header carries version 2 |
+  | 3 | before the first reading: 0, 0, 0 and NO_COMPUTED_DATA on all three (no 44330 m); DEGRADED before any reading: unchanged, NO_COMPUTED_DATA; the first fresh frame: NORMAL on all three and fused altitude equal to barometric altitude |
+  | 4 | 0 and NO_COMPUTED_DATA through the stale, unusable and DEGRADED frames; NORMAL with the accelerometer's tilt on the first usable sample |
+  | 5 | DEGRADED: both angles held bit for bit, FAILURE_WARNING; stale NOMINAL: held, NORMAL |
+  | 6 | 540 ms with a flat accelerometer: 0°, NORMAL (re-seeded); with an unusable accelerometer: the previous angles held, FAILURE_WARNING |
+  | 7 | barometer DEGRADED with a contributing GPS: fused altitude and vertical speed NORMAL, barometric altitude FAILURE_WARNING holding the last accepted conversion while the raw pressure carries the out-of-range value; both DEGRADED, and the barometer DEGRADED with a GPS that never fixed: fused altitude and vertical speed FAILURE_WARNING with the coasting prediction as their value |
+  | 8 | no NOT_JUDGED byte on any frame; every computed field written |
+  | 9 | validity NOT_JUDGED and reserved zero after the strip; every frame and event bit-identical between live and replay, FAILURE_WARNING on the DEGRADED frames inside the injected windows and NORMAL outside; the version-1 file's frames come back judged with no NOT_JUDGED byte |
+  | 10 | NO_DATA on every frame before the first reading; NOMINAL on the first reading with no event; DEGRADED with its event on a first-reading fault; NO_DATA on every frame before the timeout and DEGRADED after it |
+  | 11 | version 2; every validity NORMAL and every status NOMINAL on all 500 frames of both logs; `Validity:  every computed field NORMAL on 500 of 500 frames (first on frame 0)` in both; no exhaustion line |
+  | 12 | exit 0; "format version 1" on stdout; the replay log version 2; raw fields equal; no NOT_JUDGED byte |
+  | 13 | exit 1, stderr names "format version 3" and "reads 1 to 2", no `logs/` written; "replay exhausted after 5 frames; 7 cycles repeated the last frame" |
+  | 14 | the names beside the values on every line; the frames byte-identical to the log |
+  | 15 | the offsets; the two dictionaries; NaN in the flagged field only; the file's bytes; the counts |
+  | 16 | after commit 1 one differing byte, offset 5; after commit 2 offset 5 and, in every frame, exactly offsets 98 to 102 with the pattern `03 03 03 03 03`; reserved bytes zero; every event identical |
+
+- **Pass/fail:** Any NOT_JUDGED byte on an emitted frame, any flag raised over a value nobody measured, any held angle under a DEGRADED IMU reported NORMAL, any coasting altitude reported NORMAL, any accepted version outside 1 to 2, any refused version inside it, any replay that runs on an unreadable log, or any byte of the reference log differing beyond those listed fails.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -573,7 +619,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Nine requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence pending). The Notes column there states what each is missing.
+- Eight requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence pending). The Notes column there states what each is missing.
 - TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (REQ-SENS-005).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.

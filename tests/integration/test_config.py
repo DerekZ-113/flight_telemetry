@@ -22,7 +22,9 @@ from test_transport import assert_byte_identical_to_log, make_receiver, transpor
 
 # strip_to_raw in src/replay/log_replay_source.cpp clears these; the rest are the sensors' words.
 COMPUTED_FIELDS = ("baro_altitude_m", "pitch_deg", "roll_deg", "fused_altitude_m", "vertical_speed_mps",
-                   "baro_status", "imu_status", "gps_status")
+                   "baro_status", "imu_status", "gps_status",
+                   "baro_altitude_validity", "pitch_validity", "roll_validity",
+                   "fused_altitude_validity", "vertical_speed_validity")
 RAW_FIELDS = tuple(name for name in FRAME_FIELDS if name not in COMPUTED_FIELDS)
 
 

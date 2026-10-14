@@ -14,6 +14,7 @@
 #include "config/telemetry_config.h"
 #include "data_source.h"
 #include "logging/binary_logger.h"
+#include "logging/log_reader.h"
 #include "processing/altitude.h"
 #include "processing/processor.h"
 #include "processing/fault_detector.h"
@@ -49,25 +50,31 @@ constexpr int kDefaultCycles = 5;
 // commands and the Pi is the repository root (REQ-CFG-001).
 constexpr const char* kDefaultConfigPath = "config/telemetry_config.yaml";
 
+// Each computed value with its validity beside it (REQ-PROC-007): what a
+// display must do with the number is in the same line as the number.
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
     std::cout << "Timestamp:    " << frame.timestamp_ms << " ms" << std::endl;
     std::cout << "Pressure:     " << frame.pressure_hpa << " hPa" << std::endl;
     std::cout << "Temperature:  " << frame.temperature_c << " C" << std::endl;
-    std::cout << "Baro Alt:     " << frame.baro_altitude_m << " m" << std::endl;
+    std::cout << "Baro Alt:     " << frame.baro_altitude_m << " m ["
+              << validity_name(frame.baro_altitude_validity) << "]" << std::endl;
     std::cout << "Accel:        [" << frame.accel_x << ", "
               << frame.accel_y << ", " << frame.accel_z << "] m/s2" << std::endl;
     std::cout << "Gyro:         [" << frame.gyro_x << ", "
               << frame.gyro_y << ", " << frame.gyro_z << "] deg/s" << std::endl;
     std::cout << "Pitch/Roll:   " << frame.pitch_deg << " / "
-              << frame.roll_deg << " deg" << std::endl;
+              << frame.roll_deg << " deg [" << validity_name(frame.pitch_validity)
+              << " / " << validity_name(frame.roll_validity) << "]" << std::endl;
     std::cout << "GPS:          " << frame.latitude << ", "
               << frame.longitude << std::endl;
     std::cout << "GPS Alt:      " << frame.gps_altitude_m << " m" << std::endl;
     std::cout << "Ground Speed: " << frame.ground_speed_mps << " m/s" << std::endl;
     std::cout << "Heading:      " << frame.heading_deg << " deg" << std::endl;
-    std::cout << "Fused Alt:    " << frame.fused_altitude_m << " m" << std::endl;
-    std::cout << "Vert Speed:   " << frame.vertical_speed_mps << " m/s" << std::endl;
+    std::cout << "Fused Alt:    " << frame.fused_altitude_m << " m ["
+              << validity_name(frame.fused_altitude_validity) << "]" << std::endl;
+    std::cout << "Vert Speed:   " << frame.vertical_speed_mps << " m/s ["
+              << validity_name(frame.vertical_speed_validity) << "]" << std::endl;
     std::cout << "Status:       baro=" << status_name(frame.baro_status)
               << " imu=" << status_name(frame.imu_status)
               << " gps=" << status_name(frame.gps_status) << std::endl;
@@ -85,6 +92,51 @@ void print_transport_summary(const PublishStats& stats, const std::string& where
         std::cout << " (last errno " << stats.last_errno << ")";
     }
     std::cout << std::endl;
+}
+
+// What the run saw of the validity bytes (REQ-PROC-007), for one line at
+// exit: on the Pi it shows the start-up window before every estimate
+// exists, and the pytest reads it.
+struct ValidityTally {
+    int frames = 0;
+    int all_normal = 0;            // frames on which every computed field is NORMAL
+    int first_all_normal = -1;     // index of the first such frame; -1 if none
+    int any_no_computed_data = 0;  // frames with at least one NO_COMPUTED_DATA field
+    int any_failure_warning = 0;   // frames with at least one FAILURE_WARNING field
+
+    void account(const TelemetryFrame& frame) {
+        const Validity v[5] = {frame.baro_altitude_validity, frame.pitch_validity, frame.roll_validity,
+                               frame.fused_altitude_validity, frame.vertical_speed_validity};
+        bool normal = true;
+        bool no_computed_data = false;
+        bool failure_warning = false;
+        for (const Validity x : v) {
+            normal = normal && x == Validity::NORMAL;
+            no_computed_data = no_computed_data || x == Validity::NO_COMPUTED_DATA;
+            failure_warning = failure_warning || x == Validity::FAILURE_WARNING;
+        }
+        if (normal) {
+            if (first_all_normal < 0) {
+                first_all_normal = frames;
+            }
+            all_normal++;
+        }
+        any_no_computed_data += no_computed_data ? 1 : 0;
+        any_failure_warning += failure_warning ? 1 : 0;
+        frames++;
+    }
+};
+
+void print_validity_summary(const ValidityTally& tally) {
+    std::cout << "Validity:  every computed field NORMAL on " << tally.all_normal << " of " << tally.frames
+              << " frames (first on frame ";
+    if (tally.first_all_normal >= 0) {
+        std::cout << tally.first_all_normal;
+    } else {
+        std::cout << "none";
+    }
+    std::cout << "); NO_COMPUTED_DATA on " << tally.any_no_computed_data
+              << " frames, FAILURE_WARNING on " << tally.any_failure_warning << std::endl;
 }
 
 void print_event(const FaultEvent& event) {
@@ -255,9 +307,10 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // --udp. The loop publishes to each one it is given and never learns which
 // transport it is: the DataSource rule applied to the output side
 // (REQ-TRANS-001, REQ-TRANS-002).
-void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
-         BinaryLogger& logger, const std::vector<Publisher*>& publishers,
-         FixedRateScheduler* scheduler, JitterLog* jitter, int frame_count) {
+ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
+                  BinaryLogger& logger, const std::vector<Publisher*>& publishers,
+                  FixedRateScheduler* scheduler, JitterLog* jitter, int frame_count) {
+    ValidityTally tally;
     for (int i = 0; i < frame_count; i++) {
         // The wait is the first thing in the cycle, so everything below it
         // starts on the deadline grid and the jitter measured is the
@@ -279,6 +332,7 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
         // configured rather than substituted.
         TelemetryFrame checked = detector.check(raw);
         TelemetryFrame processed = processor.process(checked);
+        tally.account(processed);
 
         // Processed frames are what the log holds (REQ-LOG-001); replay
         // strips them back to raw before the pipeline sees them again.
@@ -298,6 +352,7 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
         }
         std::cout << std::endl;
     }
+    return tally;
 }
 
 // Usage: telemetry                        simulated source, 5 frames, config/telemetry_config.yaml
@@ -405,6 +460,27 @@ int main(int argc, char* argv[]) {
                       << " over it; copy the file elsewhere or change logging.directory" << std::endl;
             return 1;
         }
+
+        // The input's header, checked before anything is built (REQ-LOG-005):
+        // a log this build cannot read stops the run here, by name, instead
+        // of feeding zero frames through the pipeline for --cycles cycles
+        // (FTS-VR-001 Entry 11 §11.8). The replay source opens the file
+        // again on its first read; this probe reads the header only. A
+        // version-1 input is a legitimate replay, said so on one line: the
+        // raw fields are the record and the pipeline recomputes the rest
+        // (REQ-LOG-004), so its replay log is a version-2 log.
+        const LogReader probe(input);
+        if (!probe.ok()) {
+            std::cerr << "error: cannot replay " << input.string() << ": " << probe.error() << std::endl;
+            return 1;
+        }
+        std::cout << "Replay input:  " << input.string() << " (format version " << probe.header().version;
+        if (probe.header().version != kLogFormatVersion) {
+            std::cout << "; this build writes version " << kLogFormatVersion
+                      << ", so the replay log is version " << kLogFormatVersion
+                      << " with the computed fields and their validity recomputed from the raw fields";
+        }
+        std::cout << ")" << std::endl;
     }
 
     // One monotonic clock paces the loop (below) and stamps live frames, so
@@ -421,6 +497,11 @@ int main(int argc, char* argv[]) {
         std::cerr << "error: " << source_error << std::endl;
         return 1;
     }
+    // The composition root built the source and knows which one it built;
+    // nothing below create_source() does. The replay source's counters are
+    // read at exit so a run that outlasted its log says so (REQ-LOG-005):
+    // a replay that ran past its log is a plausible-looking log too.
+    const LogReplaySource* replay = replaying ? static_cast<const LogReplaySource*>(source.get()) : nullptr;
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
@@ -514,15 +595,23 @@ int main(int argc, char* argv[]) {
     }
 
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
-    // Vert Speed (REQ-PROC-003) are all computed by the processor. Status
-    // comes from the detector (REQ-FAULT-004); the simulator never faults.
-    run(*source, detector, processor, logger, publishers,
-        replaying ? nullptr : &scheduler,
-        jitter.has_value() ? &jitter.value() : nullptr,
-        options.cycles);
+    // Vert Speed (REQ-PROC-003) and their validity (REQ-PROC-007) are all
+    // computed by the processor. Status comes from the detector
+    // (REQ-FAULT-004, REQ-FAULT-006); the simulator never faults.
+    const ValidityTally tally = run(*source, detector, processor, logger, publishers,
+                                    replaying ? nullptr : &scheduler,
+                                    jitter.has_value() ? &jitter.value() : nullptr,
+                                    options.cycles);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
+    print_validity_summary(tally);
+
+    if (replay != nullptr && replay->exhausted()) {
+        std::cout << "Replay:    exhausted after " << replay->frames_read() << " frames; "
+                  << static_cast<size_t>(options.cycles) - replay->frames_read()
+                  << " cycles repeated the last frame" << std::endl;
+    }
 
     if (jitter.has_value()) {
         const JitterStats& st = jitter->stats();

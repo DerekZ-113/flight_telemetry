@@ -2,6 +2,31 @@
 
 #include <algorithm>
 
+namespace {
+
+// A version-1 record has the same bytes as a version-2 one, with the
+// compiler's padding where version 2 names fields (log_format.h). A log
+// written before 2026-09-09 may carry stack contents there (FTS-VR-001
+// Entries 4 and 5), so the bytes are set to what version 2 means by them:
+// validity NOT_JUDGED, reserved zero. Replay and the tests then see one
+// defined thing. The Python reader keeps a file's bytes as they are, because
+// its byte-identity tests compare files (REQ-LOG-005).
+void sanitize_version_1(LogRecord& out) {
+    if (out.type == RecordType::FRAME) {
+        out.frame.reserved_a = 0;
+        out.frame.baro_altitude_validity = Validity::NOT_JUDGED;
+        out.frame.pitch_validity = Validity::NOT_JUDGED;
+        out.frame.roll_validity = Validity::NOT_JUDGED;
+        out.frame.fused_altitude_validity = Validity::NOT_JUDGED;
+        out.frame.vertical_speed_validity = Validity::NOT_JUDGED;
+        out.frame.reserved_b = 0;
+    } else {
+        out.event.reserved = 0;
+    }
+}
+
+}  // namespace
+
 LogReader::LogReader(const std::filesystem::path& file)
     : in_(file, std::ios::binary)
 {
@@ -14,8 +39,13 @@ LogReader::LogReader(const std::filesystem::path& file)
         error_ = "file shorter than a header";
         return;
     }
-    if (!header_is_valid(header_)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-        error_ = "header mismatch: not a log from this build (magic, version, sizes, or byte order)";
+    // The call sits on its own line and the branch tests a local: a call
+    // that may throw inside a conditional leaves an exception-unwind edge
+    // on the line, and the marker that removes it takes the decision with
+    // it on the runner's lcov (FTS-VR-001 Entry 11 §11.7).
+    const std::string problem = header_problem(header_);
+    if (!problem.empty()) {
+        error_ = "header mismatch: " + problem;
         return;
     }
     ok_ = true;
@@ -55,6 +85,9 @@ bool LogReader::next(LogRecord& out) {
     if (in_.gcount() != size) {
         error_ = "torn record at end of file";
         return false;
+    }
+    if (header_.version == 1) {
+        sanitize_version_1(out);
     }
     return true;
 }

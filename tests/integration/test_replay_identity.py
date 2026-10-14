@@ -14,7 +14,9 @@ from pipeline.log_reader import frame_dtype, read_log
 
 # strip_to_raw in src/replay/log_replay_source.cpp clears these before the pipeline recomputes them.
 COMPUTED_FIELDS = ("baro_altitude_m", "pitch_deg", "roll_deg", "fused_altitude_m", "vertical_speed_mps",
-                   "baro_status", "imu_status", "gps_status")
+                   "baro_status", "imu_status", "gps_status",
+                   "baro_altitude_validity", "pitch_validity", "roll_validity",
+                   "fused_altitude_validity", "vertical_speed_validity")
 RAW_FIELDS = tuple(name for name in FRAME_FIELDS if name not in COMPUTED_FIELDS)
 
 
@@ -51,8 +53,8 @@ def test_logs_byte_identical(sim_session):
 
 
 def test_frames_pack_round_trip(logs):
-    # Repacking the fields reproduces the file's bytes only if every padding byte is zero:
-    # the value-initialization rule (FTS-VR-001 Entries 4 and 5) checked at this level.
+    # Repacking the fields reproduces the file's bytes: format version 2 has no padding, and the
+    # reserved fields are zero by the value-initialization rule (FTS-VR-001 Entries 4 and 5).
     for log in logs:
         for frame, raw in zip(log.frames, log.frame_bytes):
             assert FRAME.pack(*frame) == raw

@@ -34,7 +34,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from pipeline.frame_format import CHANNEL_NAMES, FAULT_TYPE_NAMES
+from pipeline.frame_format import CHANNEL_NAMES, COMPUTED_VALIDITY, FAULT_TYPE_NAMES, VALIDITY_NORMAL
 from pipeline.log_reader import LogFile, find_log_files, frames_array, read_logs
 
 SCHEMA = "FTS-NP-001/1"
@@ -299,15 +299,25 @@ def r_baro_rule(altitude: dict[str, Any], pressure: dict[str, Any]) -> dict[str,
 
 def output_report(frames: np.ndarray, t_s: np.ndarray, settle_s: float,
                   accel_tilt: dict[str, float] | None) -> dict[str, Any]:
-    """The pipeline's computed fields after the settle window, and the startup transient inside it."""
+    """The pipeline's computed fields after the settle window, and the startup transient inside it.
+
+    Only frames on which a field is NORMAL enter its statistics (REQ-PROC-007): a start-up
+    frame on the Pi, before the first estimate exists, holds a 0 that would pull a mean toward
+    zero, and a held or coasting value under FAILURE_WARNING is not the pipeline's estimate."""
     settled = t_s >= t_s[0] + settle_s
     if not np.any(settled):
         settled = np.ones_like(t_s, dtype=bool)
     report: dict[str, Any] = {"settle_s": settle_s, "fields": {}}
     for field, unit in OUTPUT_FIELDS:
-        values = frames[field][settled].astype(np.float64)
-        report["fields"][field] = {"unit": unit, "mean": float(values.mean()), "sigma": population_sigma(values),
-                                   "min": float(values.min()), "max": float(values.max())}
+        normal = frames[COMPUTED_VALIDITY[field]] == VALIDITY_NORMAL
+        values = frames[field][settled & normal].astype(np.float64)
+        if values.size == 0:
+            report["fields"][field] = {"unit": unit, "n": 0, "mean": None, "sigma": None, "min": None, "max": None,
+                                       "note": "no NORMAL sample after the settle window"}
+            continue
+        report["fields"][field] = {"unit": unit, "n": int(values.size), "mean": float(values.mean()),
+                                   "sigma": population_sigma(values), "min": float(values.min()),
+                                   "max": float(values.max()), "excluded_not_normal": int(np.sum(settled & ~normal))}
     speed = frames["vertical_speed_mps"].astype(np.float64)
     window = t_s < t_s[0] + settle_s
     if np.any(window):
@@ -317,7 +327,7 @@ def output_report(frames: np.ndarray, t_s: np.ndarray, settle_s: float,
         report["startup"] = {"peak_abs_vertical_speed_mps": float(abs(speed[peak])), "peak_frame": int(peak),
                              "peak_t_s": float(t_s[peak]),
                              "last_t_over_0p05_mps_s": float(t_s[loud[-1]]) if loud.size else None}
-    if accel_tilt is not None:
+    if accel_tilt is not None and report["fields"]["pitch_deg"]["mean"] is not None:
         report["pitch_minus_accel_tilt_deg"] = report["fields"]["pitch_deg"]["mean"] - accel_tilt["pitch"]
         report["roll_minus_accel_tilt_deg"] = report["fields"]["roll_deg"]["mean"] - accel_tilt["roll"]
     return report

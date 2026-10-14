@@ -9,10 +9,14 @@ This module is the Python side of three C++ definitions and must change with the
 A log file is HEADER followed by {tag byte, record} pairs; a ZeroMQ message is
 HEADER followed by exactly one such pair (FTS-DD-001 section 9). The C++ side
 writes the structs' in-memory bytes verbatim, so the formats here use '@':
-native byte order and native alignment, including the padding the compiler
-inserts (4 bytes before latitude, 6 after gps_read_ok). The trailing '0Q'
-aligns the end of the frame to 8 bytes the way the compiler does; without it
-struct reports 98 bytes, not 104, and every frame after the first is misread.
+native byte order and native alignment. Format version 2 names every byte, so
+there is no padding to reproduce: reserved_a sits where version 1 had four
+padding bytes before latitude, and the five validity bytes and reserved_b
+where it had six after gps_read_ok; the event's reserved sits where it had
+two after type. A version-1 file therefore unpacks with the same Structs.
+This module reads versions 1 to 2 (REQ-LOG-005) and keeps a file's bytes as
+they are: the C++ reader zeroes a version-1 frame's validity and reserved
+bytes, but here the byte-identity tests compare files, so nothing is rewritten.
 
 The header carries the sizes the sender actually used, and check_header()
 compares them with these formats on every file and every message, so a layout
@@ -25,13 +29,14 @@ import struct
 from collections import namedtuple
 from typing import Iterator, NamedTuple
 
-LOG_FORMAT_VERSION = 1          # kLogFormatVersion
+LOG_FORMAT_VERSION = 2                  # kLogFormatVersion: what the binary writes
+OLDEST_READABLE_LOG_FORMAT_VERSION = 1  # kOldestReadableLogFormatVersion
 MAGIC = b"FTLG"
 ENDIAN_MARKER = 0x01020304      # kEndianMarker as this host stores it
 
 HEADER = struct.Struct("@4sHHHHI")        # 16 bytes: magic, version, frame_size, event_size, reserved, endian_marker
-FRAME = struct.Struct("@Q11f2d5f3B3?0Q")  # 104 bytes
-EVENT = struct.Struct("@QBBf0Q")          # 16 bytes
+FRAME = struct.Struct("@Q11fI2d5f3B3?5BB")  # 104 bytes, no implicit padding
+EVENT = struct.Struct("@QBBHf")             # 16 bytes
 
 TAG_FRAME = 1                   # RecordType::FRAME
 TAG_EVENT = 2                   # RecordType::FAULT_EVENT
@@ -43,15 +48,30 @@ FRAME_FIELDS = (
     "accel_x", "accel_y", "accel_z",
     "gyro_x", "gyro_y", "gyro_z",
     "pitch_deg", "roll_deg",
+    "reserved_a",
     "latitude", "longitude",
     "gps_altitude_m", "ground_speed_mps", "heading_deg",
     "fused_altitude_m", "vertical_speed_mps",
     "baro_status", "imu_status", "gps_status",
     "baro_read_ok", "imu_read_ok", "gps_read_ok",
+    "baro_altitude_validity", "pitch_validity", "roll_validity",
+    "fused_altitude_validity", "vertical_speed_validity",
+    "reserved_b",
 )
-EVENT_FIELDS = ("timestamp_ms", "channel", "type", "value")
+EVENT_FIELDS = ("timestamp_ms", "channel", "type", "reserved", "value")
 
-STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED"}                                    # ChannelStatus
+STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA"}                      # ChannelStatus
+VALIDITY_NAMES = {0: "NOT_JUDGED", 1: "NO_COMPUTED_DATA", 2: "FAILURE_WARNING", 3: "NORMAL"}   # Validity
+VALIDITY_NORMAL = 3
+# Each computed field and the validity byte that judges it (REQ-PROC-007).
+COMPUTED_VALIDITY = {
+    "baro_altitude_m": "baro_altitude_validity",
+    "pitch_deg": "pitch_validity",
+    "roll_deg": "roll_validity",
+    "fused_altitude_m": "fused_altitude_validity",
+    "vertical_speed_mps": "vertical_speed_validity",
+}
+VALIDITY_FIELDS = tuple(COMPUTED_VALIDITY.values())
 CHANNEL_NAMES = {0: "BARO", 1: "IMU", 2: "GPS"}                                 # Channel
 FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY"}   # FaultType
 
@@ -85,8 +105,9 @@ def check_header(header: Header) -> None:
     """Refuse anything this module cannot read correctly, naming the mismatch."""
     if header.magic != MAGIC:
         raise FormatError(f"bad magic {header.magic!r}, expected {MAGIC!r}")
-    if header.version != LOG_FORMAT_VERSION:
-        raise FormatError(f"format version {header.version}; this module reads version {LOG_FORMAT_VERSION}")
+    if not OLDEST_READABLE_LOG_FORMAT_VERSION <= header.version <= LOG_FORMAT_VERSION:
+        raise FormatError(f"format version {header.version}; this module reads "
+                          f"{OLDEST_READABLE_LOG_FORMAT_VERSION} to {LOG_FORMAT_VERSION}")
     if header.frame_size != FRAME.size:
         raise FormatError(f"frame size {header.frame_size} in the header, {FRAME.size} in this module")
     if header.event_size != EVENT.size:

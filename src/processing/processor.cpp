@@ -20,12 +20,6 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // copy with no allocation.
     TelemetryFrame out = raw;
 
-    // REQ-PROC-001: barometric altitude from pressure, against the
-    // configured sea-level reference. A stale frame carries the previous
-    // pressure, so this reproduces the previous altitude; the gate below
-    // keeps it out of the filter.
-    out.baro_altitude_m = pressure_to_altitude(raw.pressure_hpa, tuning_.sea_level_pressure_hpa);
-
     // REQ-PROC-006: a reading enters a filter only when its channel is
     // NOMINAL and the reading was taken this cycle. Health is the
     // detector's judgment over time; read_ok is this cycle's fact. Both
@@ -38,14 +32,29 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     const bool imu_fresh = raw.imu_status == ChannelStatus::NOMINAL && raw.imu_read_ok;
     const bool gps_fresh = raw.gps_status == ChannelStatus::NOMINAL && raw.gps_read_ok;
 
+    // REQ-PROC-001: barometric altitude from pressure, against the
+    // configured sea-level reference, converted only from a reading the
+    // detector trusts and the driver took this cycle, and held otherwise:
+    // 0 before the first reading (the ISA formula on a pressure nobody
+    // measured would read 44 km), the last accepted conversion while the
+    // barometer is DEGRADED, so the altitude of a reading FAULT-008
+    // discards never reaches the frame (REQ-PROC-007). A stale NOMINAL
+    // frame carries the previous pressure, whose conversion is the held
+    // value anyway.
+    if (baro_fresh) {
+        last_baro_altitude_m_ = pressure_to_altitude(raw.pressure_hpa, tuning_.sea_level_pressure_hpa);
+        baro_ever_fresh_ = true;
+    }
+    out.baro_altitude_m = last_baro_altitude_m_;
+
     // REQ-PROC-002: pitch and roll from the complementary filter. The
     // gyroscope integrates over the time since the last sample this filter
     // accepted, not over the loop period, so a gap of stale frames is
     // rotation accounted for, not lost. On the first accepted sample the
     // interval is zero and the filter seeds itself from the accelerometer.
-    // A DEGRADED or stale frame holds the angles. FAULT-006 says attitude
-    // must be marked invalid rather than held; that needs a validity
-    // marker the frame does not carry yet (sidecar decision, Sprint 2).
+    // A DEGRADED or stale frame holds the angles; under DEGRADED they
+    // leave flagged FAILURE_WARNING (judge, below), which is what FAULT-006
+    // asks of the display.
     //
     // A gap longer than the IMU timeout is an outage, not rotation: one
     // rate sample times ten seconds, with a few degrees per second of
@@ -65,6 +74,9 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
         attitude_filter_.update(raw.accel_x, raw.accel_y, raw.accel_z,
                                 raw.gyro_x, raw.gyro_y, raw.gyro_z, imu_dt);
         imu_last_fresh_ms_ = raw.timestamp_ms;
+        if (attitude_filter_.seeded()) {
+            attitude_ever_seeded_ = true;
+        }
     }
     out.pitch_deg = attitude_filter_.pitch_deg();
     out.roll_deg = attitude_filter_.roll_deg();
@@ -106,6 +118,7 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
         }
         if (gps_fresh) {
             altitude_filter_->update(raw.gps_altitude_m, tuning_.gps_measurement_variance_m2);
+            gps_ever_fresh_ = true;
         }
         out.fused_altitude_m = altitude_filter_->altitude();
         out.vertical_speed_mps = altitude_filter_->vertical_velocity();
@@ -116,5 +129,64 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // Channel status (baro_status, imu_status, gps_status) is left as the
     // fault detector set it (REQ-FAULT-004); this class only reads it.
 
+    // REQ-PROC-007: every computed field is written above; judge each one
+    // last, so the verdict and the value leave in the same frame.
+    judge(out);
+
     return out;
+}
+
+// The validity of each computed field (REQ-PROC-007), by one ordered rule
+// per field, the first that applies winning: "never existed" outranks "not
+// trusted now", so a flag is never raised over a number nobody measured,
+// and NORMAL is what remains. The detector's status is the trust; this
+// class adds only what it alone knows, whether an estimate exists. A stale
+// NOMINAL cycle inside the timeout stays NORMAL: staleness is the
+// detector's call (REQ-PROC-006), not a flag.
+void TelemetryProcessor::judge(TelemetryFrame& out) const {
+    // Barometric altitude depends on the barometer alone. != NOMINAL, not
+    // == DEGRADED: the field is NORMAL only while its source is trusted.
+    if (!baro_ever_fresh_) {
+        out.baro_altitude_validity = Validity::NO_COMPUTED_DATA;
+    } else if (out.baro_status != ChannelStatus::NOMINAL) {
+        out.baro_altitude_validity = Validity::FAILURE_WARNING;
+    } else {
+        out.baro_altitude_validity = Validity::NORMAL;
+    }
+
+    // Pitch and roll depend on the IMU and on a seeded filter: one verdict
+    // for both, since one filter holds both angles from one seed. After a
+    // reset the filter is unseeded until a usable accelerometer sample,
+    // which on the recovery frame is the same frame; only an unusable one
+    // leaves the held angles flagged.
+    Validity attitude = Validity::NORMAL;
+    if (!attitude_ever_seeded_) {
+        attitude = Validity::NO_COMPUTED_DATA;
+    } else if (out.imu_status != ChannelStatus::NOMINAL || !attitude_filter_.seeded()) {
+        attitude = Validity::FAILURE_WARNING;
+    }
+    out.pitch_validity = attitude;
+    out.roll_validity = attitude;
+
+    // Fused altitude and vertical speed depend on an altitude source the
+    // filter has taken a measurement from, NOMINAL now (FAULT-001: fused
+    // altitude relies solely on GPS while the barometer is out). With
+    // neither the filter coasts on prediction and the estimate random-
+    // walks: flagged at once and for as long as it lasts, never cleared by
+    // time. A GPS that is NOMINAL but has never fixed does not contribute.
+    Validity fused = Validity::NORMAL;
+    if (!altitude_filter_.has_value()) {
+        fused = Validity::NO_COMPUTED_DATA;
+    } else {
+        // The filter exists only once a barometer reading was accepted (it
+        // is born from one), so the barometer has always been measured
+        // here and only its trust now is in question; the GPS needs both.
+        const bool baro_contributes = out.baro_status == ChannelStatus::NOMINAL;
+        const bool gps_contributes = gps_ever_fresh_ && out.gps_status == ChannelStatus::NOMINAL;
+        if (!baro_contributes && !gps_contributes) {
+            fused = Validity::FAILURE_WARNING;
+        }
+    }
+    out.fused_altitude_validity = fused;
+    out.vertical_speed_validity = fused;
 }

@@ -52,6 +52,8 @@ TEST_F(LoggingTest, HeaderRoundTrip) {
     LogReader reader(dir_ / "t_000.bin");
     ASSERT_TRUE(reader.ok()) << reader.error();
     EXPECT_EQ(reader.header().version, kLogFormatVersion);
+    EXPECT_EQ(kLogFormatVersion, 2);
+    EXPECT_EQ(kOldestReadableLogFormatVersion, 1);
     EXPECT_EQ(reader.header().frame_size, sizeof(TelemetryFrame));
     EXPECT_EQ(reader.header().event_size, sizeof(FaultEvent));
     EXPECT_EQ(reader.header().endian_marker, kEndianMarker);
@@ -82,7 +84,7 @@ TEST_F(LoggingTest, FrameRoundTripIsBitExact) {
 
 // Frames and events share one stream, in order, told apart by the tag.
 TEST_F(LoggingTest, EventRecordRoundTrip) {
-    const FaultEvent event{1234, Channel::IMU, FaultType::STUCK, 0.5f};
+    const FaultEvent event{1234, Channel::IMU, FaultType::STUCK, 0, 0.5f};
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
         logger.log_frame(TelemetryFrame{});
@@ -104,8 +106,8 @@ TEST_F(LoggingTest, NextFrameSkipsEvents) {
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
         logger.log_frame(TelemetryFrame{});
-        logger.log_event(FaultEvent{1, Channel::BARO, FaultType::COMM_TIMEOUT, 0.0f});
-        logger.log_event(FaultEvent{2, Channel::BARO, FaultType::RECOVERY, 0.0f});
+        logger.log_event(FaultEvent{1, Channel::BARO, FaultType::COMM_TIMEOUT, 0, 0.0f});
+        logger.log_event(FaultEvent{2, Channel::BARO, FaultType::RECOVERY, 0, 0.0f});
         logger.log_frame(TelemetryFrame{});
     }
     LogReader reader(dir_ / "t_000.bin");
@@ -180,6 +182,8 @@ TEST_F(LoggingTest, ReaderRejectsWrongFrameSize) {
     }
     LogReader reader(dir_ / "bad.bin");
     EXPECT_FALSE(reader.ok());
+    EXPECT_NE(reader.error().find("frame size 112 in the header, 104 in this build"), std::string::npos)
+        << reader.error();
 }
 
 TEST_F(LoggingTest, ReaderRejectsMissingFile) {
@@ -288,12 +292,78 @@ TEST_F(LoggingTest, CurrentPathTracksRotation) {
 }
 
 // Each header guard is checked independently, so a mismatch in any one
-// field is enough to refuse the file.
+// field is enough to refuse the file. A version this build does not read
+// is refused by name, with the range it does read (REQ-LOG-005, TC-017
+// step 2).
 TEST_F(LoggingTest, ReaderRejectsWrongVersion) {
     LogFileHeader h = make_log_header();
     h.version = kLogFormatVersion + 1;
     std::ofstream(dir_ / "bad.bin", std::ios::binary).write(reinterpret_cast<const char*>(&h), sizeof(h));
-    EXPECT_FALSE(LogReader(dir_ / "bad.bin").ok());
+    LogReader reader(dir_ / "bad.bin");
+    EXPECT_FALSE(reader.ok());
+    EXPECT_NE(reader.error().find("format version 3; this build reads 1 to 2"), std::string::npos)
+        << reader.error();
+    h.version = 0;
+    std::ofstream(dir_ / "bad0.bin", std::ios::binary).write(reinterpret_cast<const char*>(&h), sizeof(h));
+    EXPECT_FALSE(LogReader(dir_ / "bad0.bin").ok());
+}
+
+// REQ-LOG-005, TC-017 step 2. A version-1 file has this build's layout with
+// the compiler's padding where version 2 names fields, and an old file may
+// carry anything in those bytes. The reader accepts the file and hands
+// back what version 2 means by them: validity NOT_JUDGED, reserved zero,
+// every other field as logged.
+TEST_F(LoggingTest, Version1HeaderIsReadAndSanitized) {
+    LogFileHeader h = make_log_header();
+    h.version = 1;
+    TelemetryFrame frame{};
+    frame.timestamp_ms = 40;
+    frame.pressure_hpa = 1000.0f;
+    frame.reserved_a = 0xDEADBEEFu;                      // stack contents in a pre-9/9 log
+    frame.baro_altitude_validity = Validity::NORMAL;
+    frame.pitch_validity = Validity::FAILURE_WARNING;
+    frame.roll_validity = static_cast<Validity>(0x7F);
+    frame.fused_altitude_validity = Validity::NORMAL;
+    frame.vertical_speed_validity = Validity::NO_COMPUTED_DATA;
+    frame.reserved_b = 0x55;
+    FaultEvent event{};
+    event.timestamp_ms = 60;
+    event.channel = Channel::GPS;
+    event.type = FaultType::COMM_TIMEOUT;
+    event.reserved = 0x1234;
+    event.value = 2020.0f;
+    {
+        std::ofstream out(dir_ / "v1.bin", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+        const uint8_t frame_tag = static_cast<uint8_t>(RecordType::FRAME);
+        const uint8_t event_tag = static_cast<uint8_t>(RecordType::FAULT_EVENT);
+        out.write(reinterpret_cast<const char*>(&frame_tag), 1);
+        out.write(reinterpret_cast<const char*>(&frame), sizeof(frame));
+        out.write(reinterpret_cast<const char*>(&event_tag), 1);
+        out.write(reinterpret_cast<const char*>(&event), sizeof(event));
+    }
+
+    LogReader reader(dir_ / "v1.bin");
+    ASSERT_TRUE(reader.ok()) << reader.error();
+    EXPECT_EQ(reader.header().version, 1);
+    LogRecord r;
+    ASSERT_TRUE(reader.next(r));
+    ASSERT_EQ(r.type, RecordType::FRAME);
+    EXPECT_EQ(r.frame.timestamp_ms, 40u);
+    EXPECT_EQ(r.frame.pressure_hpa, 1000.0f);
+    EXPECT_EQ(r.frame.reserved_a, 0u);
+    EXPECT_EQ(r.frame.baro_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(r.frame.pitch_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(r.frame.roll_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(r.frame.fused_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(r.frame.vertical_speed_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(r.frame.reserved_b, 0u);
+    ASSERT_TRUE(reader.next(r));
+    ASSERT_EQ(r.type, RecordType::FAULT_EVENT);
+    EXPECT_EQ(r.event.timestamp_ms, 60u);
+    EXPECT_EQ(r.event.reserved, 0u);
+    EXPECT_EQ(r.event.value, 2020.0f);
+    EXPECT_FALSE(reader.next(r));
 }
 
 TEST_F(LoggingTest, ReaderRejectsWrongEventSize) {
@@ -335,6 +405,7 @@ TEST_F(LoggingTest, FrameMessageIsHeaderTagAndFrame) {
     LogFileHeader header{};
     std::memcpy(&header, message.data(), sizeof(header));
     EXPECT_TRUE(header_is_valid(header));
+    EXPECT_EQ(header.version, 2);
     const LogFileHeader expected = make_log_header();
     EXPECT_EQ(std::memcmp(&header, &expected, sizeof(header)), 0);
     EXPECT_EQ(message[kHeader], static_cast<uint8_t>(RecordType::FRAME));

@@ -19,8 +19,11 @@ struct LogRecord {
 // Reads one binary log file written by BinaryLogger.
 //
 // The constructor reads and validates the header. A file from another
-// build, another platform, or a different frame layout is refused with
-// ok() false and a reason in error(); it is never partially read.
+// build, another platform, a format version this build does not read, or
+// a different frame layout is refused with ok() false and the mismatch
+// named in error() (REQ-LOG-005); it is never partially read. A version-1
+// file is read, its frames' validity and reserved bytes set to what
+// version 2 means by them (log_reader.cpp).
 //
 // next() returns false at a clean end of file and also at a torn record
 // (a tag with fewer payload bytes behind it than its type requires), so

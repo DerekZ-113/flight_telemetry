@@ -92,14 +92,16 @@ TEST(ComplementaryTest, AccelCorrectsGyroDrift) {
 }
 
 // Processor-level gate. A DEGRADED IMU frame must not move the attitude,
-// even when its accelerometer data says 45 degrees. Interim behavior
-// until a validity marker exists (FAULT-006 wants "invalid", not "held").
-// EXPECT_EQ: a hold is exact, not approximate. (REQ-PROC-002)
+// even when its accelerometer data says 45 degrees; the held angles leave
+// flagged FAILURE_WARNING, which is what FAULT-006 asks of the display
+// (REQ-PROC-007). EXPECT_EQ: a hold is exact, not approximate.
+// (REQ-PROC-002)
 TEST(ComplementaryTest, DegradedImuHoldsAttitude) {
     SimulatedSource source(20, 42);
     TelemetryProcessor processor;
 
     const TelemetryFrame first = processor.process(source.read_frame());
+    EXPECT_EQ(first.pitch_validity, Validity::NORMAL);
 
     TelemetryFrame tilted = source.read_frame();
     tilted.imu_status = ChannelStatus::DEGRADED;
@@ -110,6 +112,8 @@ TEST(ComplementaryTest, DegradedImuHoldsAttitude) {
 
     EXPECT_EQ(second.pitch_deg, first.pitch_deg);
     EXPECT_EQ(second.roll_deg, first.roll_deg);
+    EXPECT_EQ(second.pitch_validity, Validity::FAILURE_WARNING);
+    EXPECT_EQ(second.roll_validity, Validity::FAILURE_WARNING);
 }
 
 // No usable gravity reference (free fall, or a dead sensor reporting
@@ -157,6 +161,8 @@ TEST(ComplementaryTest, StaleImuFrameHoldsAttitude) {
 
     EXPECT_EQ(second.pitch_deg, first.pitch_deg);
     EXPECT_EQ(second.roll_deg, first.roll_deg);
+    EXPECT_EQ(second.pitch_validity, Validity::NORMAL);   // a stale cycle inside the timeout is not a flag (REQ-PROC-007)
+    EXPECT_EQ(second.roll_validity, Validity::NORMAL);
 }
 
 // TC-011 step 6. Three stale IMU frames between two fresh ones. The fresh
@@ -245,6 +251,7 @@ TEST(ComplementaryTest, LongImuGapReseedsFromAccel) {
     const TelemetryFrame out = processor.process(imu_frame(540, true, 5.0f, 0.0f, kG));
     EXPECT_NEAR(out.pitch_deg, 0.0f, 0.001f);
     EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
+    EXPECT_EQ(out.pitch_validity, Validity::NORMAL);   // re-seeded on this frame (REQ-PROC-007)
 }
 
 // TC-006 step 6. A gap of exactly the timeout is still rotation to
@@ -269,6 +276,8 @@ TEST(ComplementaryTest, ReseedAdoptsTiltedAccel) {
     const TelemetryFrame out = processor.process(imu_frame(540, true, 5.0f, kG, kG));
     EXPECT_NEAR(out.pitch_deg, 45.0f, 0.1f);
     EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
+    EXPECT_EQ(out.pitch_validity, Validity::NORMAL);
+    EXPECT_EQ(out.roll_validity, Validity::NORMAL);
 }
 
 // TC-016 step 10. Alpha reaches the filter through the processor: with

@@ -510,11 +510,78 @@ TEST(FaultDetectionTest, DeadFromPowerOnStillTimesOut) {
         f.baro_read_ok = false;
         last = d.check(f);
         if (last.baro_status == ChannelStatus::DEGRADED) break;
+        EXPECT_EQ(last.baro_status, ChannelStatus::NO_DATA) << "t=" << ts;   // never read: NO_DATA until the timeout (REQ-FAULT-006)
         ts += kDtMs;
     }
     EXPECT_EQ(last.baro_status, ChannelStatus::DEGRADED);
     EXPECT_GT(ts, 480u);
     EXPECT_LE(ts, 520u);
+    const auto events = d.take_events();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].type, FaultType::COMM_TIMEOUT);
+}
+
+// ---------------------------------------------------------------------------
+// REQ-FAULT-006: NO_DATA until a channel's first reading. TC-017 step 10.
+// ---------------------------------------------------------------------------
+
+// Every channel is NO_DATA from start-up while nothing has been read, with
+// no event: the raw fields are value-initialized zeros, not readings.
+TEST(FaultDetectionTest, NoDataUntilFirstReading) {
+    FaultDetector d;
+    uint64_t ts = 0;
+    for (int i = 0; i < 5; i++, ts += kDtMs) {
+        TelemetryFrame f = healthy_frame(ts);
+        f.baro_read_ok = false;
+        f.imu_read_ok = false;
+        f.gps_read_ok = false;
+        const TelemetryFrame out = d.check(f);
+        EXPECT_EQ(out.baro_status, ChannelStatus::NO_DATA) << "frame " << i;
+        EXPECT_EQ(out.imu_status, ChannelStatus::NO_DATA) << "frame " << i;
+        EXPECT_EQ(out.gps_status, ChannelStatus::NO_DATA) << "frame " << i;
+    }
+    EXPECT_TRUE(d.take_events().empty());
+}
+
+// The first successful reading makes a channel NOMINAL on that frame, with
+// no event: a start is not a recovery. The other channels stay NO_DATA.
+TEST(FaultDetectionTest, FirstReadingMakesNominalWithoutEvent) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.imu_read_ok = false;
+    f.gps_read_ok = false;
+    const TelemetryFrame out = d.check(f);
+    EXPECT_EQ(out.baro_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(out.imu_status, ChannelStatus::NO_DATA);
+    EXPECT_EQ(out.gps_status, ChannelStatus::NO_DATA);
+    EXPECT_TRUE(d.take_events().empty());
+    EXPECT_EQ(d.check(healthy_frame(kDtMs)).gps_status, ChannelStatus::NOMINAL);
+    EXPECT_TRUE(d.take_events().empty());
+}
+
+// A fault on a channel's first-ever reading is DEGRADED with its event, as
+// from NOMINAL: the promotion rule reads "not yet DEGRADED", so NO_DATA
+// cannot swallow a fault. Both out-of-range kinds, on both I2C channels.
+TEST(FaultDetectionTest, FaultOnFirstReadingDegradesFromNoData) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.pressure_hpa = 200.0f;
+    f.accel_x = 2.0f * 9.81f;
+    const TelemetryFrame out = d.check(f);
+    EXPECT_EQ(out.baro_status, ChannelStatus::DEGRADED);
+    EXPECT_EQ(out.imu_status, ChannelStatus::DEGRADED);
+    EXPECT_EQ(out.gps_status, ChannelStatus::NOMINAL);
+    const auto events = d.take_events();
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0].channel, Channel::BARO);
+    EXPECT_EQ(events[0].type, FaultType::OUT_OF_RANGE);
+    EXPECT_EQ(events[1].channel, Channel::IMU);
+    EXPECT_EQ(events[1].type, FaultType::OUT_OF_RANGE);
+    // Recovery from there is the ordinary M-reading rule.
+    uint64_t ts = feed_healthy(d, kDtMs, 4);
+    const TelemetryFrame recovered = d.check(healthy_frame(ts));
+    EXPECT_EQ(recovered.baro_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(recovered.imu_status, ChannelStatus::NOMINAL);
 }
 
 // FAULT-009, lower limit. (REQ-FAULT-003)
@@ -604,13 +671,15 @@ TEST(FaultDetectionTest, EventNamesAreReadable) {
     EXPECT_STREQ(fault_type_name(FaultType::RECOVERY), "RECOVERY");
 }
 
-// Events are written to the binary log as raw bytes, so the two padding
-// bytes between `type` and `value` must be deterministic, and zero is the
-// only deterministic choice. A braced temporary leaves them unspecified;
-// GCC filled them with stack garbage and CI run 34442203740 saw live and
-// replayed events differ only there. This checks the bytes directly.
-// (REQ-FAULT-004, REQ-LOG-003)
-TEST(FaultDetectionTest, EventPaddingBytesAreZero) {
+// Events are written to the binary log as raw bytes. The two bytes between
+// `type` and `value` were implicit padding in format version 1, which a
+// braced temporary leaves unspecified: GCC filled them with stack garbage
+// and CI run 34442203740 saw live and replayed events differ only there.
+// Version 2 names them `reserved` and value-initialization zeroes them;
+// this reads the field by name and the bytes directly, so a construction
+// site that stopped value-initializing would still be caught.
+// (REQ-FAULT-004, REQ-LOG-003, TC-017 step 1)
+TEST(FaultDetectionTest, EventReservedIsZero) {
     FaultDetector d;
     TelemetryFrame f = healthy_frame(0);
     f.pressure_hpa = 200.0f;                       // OUT_OF_RANGE
@@ -625,12 +694,10 @@ TEST(FaultDetectionTest, EventPaddingBytesAreZero) {
     const auto events = d.take_events();
     ASSERT_EQ(events.size(), 3u);
 
-    const size_t pad_begin = offsetof(FaultEvent, type) + sizeof(FaultType);
-    const size_t pad_end = offsetof(FaultEvent, value);
-    ASSERT_LT(pad_begin, pad_end) << "layout changed: no padding to check; update this test";
     for (size_t e = 0; e < events.size(); e++) {
+        EXPECT_EQ(events[e].reserved, 0u) << "event " << e;
         const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&events[e]);
-        for (size_t i = pad_begin; i < pad_end; i++) {
+        for (size_t i = offsetof(FaultEvent, reserved); i < offsetof(FaultEvent, value); i++) {
             EXPECT_EQ(bytes[i], 0) << "event " << e << " byte " << i;
         }
     }

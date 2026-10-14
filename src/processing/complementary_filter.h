@@ -68,6 +68,12 @@ public:
     float pitch_deg() const;
     float roll_deg() const;
 
+    // Whether the angles rest on an accelerometer tilt: false until the
+    // first usable sample, and again after reset() until the next one.
+    // The processor reads it to judge the attitude's validity
+    // (REQ-PROC-007); the filter itself never acts on it from outside.
+    bool seeded() const { return initialized_; }
+
 private:
     float alpha_;
     float pitch_rad_ = 0.0f;

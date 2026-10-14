@@ -188,12 +188,19 @@ class FrameReceiver:
 
 
 def format_frame(frame: Frame) -> str:
+    """One line per frame: each computed value with its validity beside it (REQ-PROC-007), then
+    the channel statuses. A consumer reads the name next to the number, never the number alone."""
     status = " ".join(
         f"{name}={frame_format.STATUS_NAMES.get(value, value)}"
         for name, value in (("baro", frame.baro_status), ("imu", frame.imu_status), ("gps", frame.gps_status))
     )
-    return (f"t={frame.timestamp_ms:7d} ms  alt {frame.fused_altitude_m:8.2f} m  "
-            f"vs {frame.vertical_speed_mps:6.2f} m/s  pitch {frame.pitch_deg:6.2f}  roll {frame.roll_deg:6.2f} deg  {status}")
+    validity = frame_format.VALIDITY_NAMES
+    return (f"t={frame.timestamp_ms:7d} ms  "
+            f"alt {frame.fused_altitude_m:8.2f} m [{validity.get(frame.fused_altitude_validity, frame.fused_altitude_validity)}]  "
+            f"vs {frame.vertical_speed_mps:6.2f} m/s [{validity.get(frame.vertical_speed_validity, frame.vertical_speed_validity)}]  "
+            f"pitch {frame.pitch_deg:6.2f}  roll {frame.roll_deg:6.2f} deg "
+            f"[{validity.get(frame.pitch_validity, frame.pitch_validity)}/{validity.get(frame.roll_validity, frame.roll_validity)}]  "
+            f"{status}")
 
 
 def format_event(event: FaultEvent) -> str:

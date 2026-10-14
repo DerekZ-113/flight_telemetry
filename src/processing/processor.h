@@ -57,7 +57,9 @@ struct ProcessorConfig {
 
 // The processing pipeline. Sits between a DataSource (raw frames) and the
 // outputs (logger, transports, display). Fills every computed field of a
-// TelemetryFrame from the raw fields (REQ-PROC-005).
+// TelemetryFrame from the raw fields (REQ-PROC-005) and judges each one's
+// validity (REQ-PROC-007): it is the only writer of Validity, as the fault
+// detector is the only writer of ChannelStatus.
 //
 // Why a class and not a free function: the pipeline holds state that
 // persists across frames. The Kalman filter's estimate and covariance
@@ -103,6 +105,13 @@ public:
     // The gyroscope integrates over the time since the last accepted IMU
     // sample, up to the IMU timeout. Past it the gap is an outage, and the
     // attitude is re-seeded from the accelerometer instead (REQ-PROC-002).
+    //
+    // Every computed field leaves with a validity (REQ-PROC-007), judged
+    // last, in order of precedence: NO_COMPUTED_DATA while no estimate of
+    // the field has ever existed, FAILURE_WARNING while the channel it
+    // depends on is not trusted, NORMAL otherwise. A field that is not
+    // NORMAL holds a defined number, never NaN: 0 before its first
+    // estimate, the held or coasting estimate under FAILURE_WARNING.
     TelemetryFrame process(const TelemetryFrame& raw);
 
 private:
@@ -140,4 +149,24 @@ private:
     // Longest gap the gyroscope is integrated across; a longer one
     // re-seeds the attitude filter (REQ-PROC-002).
     uint64_t imu_timeout_ms_;
+
+    // What judge() needs that the filters do not expose (REQ-PROC-007).
+    // The "ever" flags separate "never existed" from "not trusted now",
+    // the first rule of the validity's precedence; the altitude flags also
+    // say which source the Kalman filter has taken a measurement from, so
+    // that a NOMINAL GPS that never fixed cannot keep a coasting estimate
+    // NORMAL (design.md section 5).
+    bool baro_ever_fresh_ = false;        // the barometer has been accepted at least once (the filter's birth or an update)
+    bool gps_ever_fresh_ = false;         // the Kalman filter has taken a GPS measurement at least once
+    bool attitude_ever_seeded_ = false;   // the attitude filter has adopted an accelerometer tilt at least once
+
+    // The conversion of the last accepted barometer reading (REQ-PROC-001):
+    // 0 before the first, held while the barometer is DEGRADED, so the
+    // altitude of a reading FAULT-008 discards never reaches the frame.
+    float last_baro_altitude_m_ = 0.0f;
+
+    // The one writer of Validity: five ordered judgments at the end of
+    // process(), from the flags above, the filters' state and the frame's
+    // statuses, after every computed field is written.
+    void judge(TelemetryFrame& out) const;
 };

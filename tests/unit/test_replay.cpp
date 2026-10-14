@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -37,7 +38,8 @@ protected:
 }  // namespace
 
 // REQ-LOG-004: what comes out of replay is raw. Computed fields zeroed,
-// status NOMINAL, everything the sensors said and the read_ok flags kept.
+// status NOMINAL, validity NOT_JUDGED, the reserved bytes zero, everything
+// the sensors said and the read_ok flags kept (TC-017 step 9).
 TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     TelemetryFrame processed{};
     processed.timestamp_ms = 40;
@@ -54,6 +56,13 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     processed.baro_read_ok = false;
     processed.imu_read_ok = true;
     processed.gps_read_ok = true;
+    processed.baro_altitude_validity = Validity::NORMAL;
+    processed.pitch_validity = Validity::NORMAL;
+    processed.roll_validity = Validity::NORMAL;
+    processed.fused_altitude_validity = Validity::NORMAL;
+    processed.vertical_speed_validity = Validity::NORMAL;
+    processed.reserved_a = 1;
+    processed.reserved_b = 1;
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
         logger.log_frame(processed);
@@ -76,6 +85,47 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     EXPECT_EQ(raw.baro_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(raw.imu_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(raw.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(raw.baro_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.pitch_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.roll_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.fused_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.vertical_speed_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.reserved_a, 0u);
+    EXPECT_EQ(raw.reserved_b, 0u);
+}
+
+// REQ-LOG-005, TC-017 step 9. A version-1 log replays: its raw fields come
+// through as logged and its frames arrive unjudged, the reader having set
+// the version-1 padding to what version 2 means by it.
+TEST_F(ReplayTest, Version1LogReplaysAsRawFrames) {
+    LogFileHeader h = make_log_header();
+    h.version = 1;
+    TelemetryFrame logged{};
+    logged.timestamp_ms = 20;
+    logged.pressure_hpa = 1012.5f;
+    logged.accel_z = 9.81f;
+    logged.baro_read_ok = true;
+    logged.imu_read_ok = true;
+    logged.reserved_a = 0xDEADBEEFu;                   // stack contents in a pre-9/9 log
+    logged.pitch_validity = Validity::NORMAL;
+    logged.reserved_b = 0x55;
+    {
+        std::ofstream out(dir_ / "v1_000.bin", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+        const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
+        out.write(reinterpret_cast<const char*>(&tag), 1);
+        out.write(reinterpret_cast<const char*>(&logged), sizeof(logged));
+    }
+    LogReplaySource source({dir_ / "v1_000.bin"});
+    const TelemetryFrame raw = source.read_frame();
+    EXPECT_EQ(raw.timestamp_ms, 20u);
+    EXPECT_EQ(raw.pressure_hpa, 1012.5f);
+    EXPECT_EQ(raw.accel_z, 9.81f);
+    EXPECT_TRUE(raw.baro_read_ok);
+    EXPECT_EQ(raw.pitch_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(raw.reserved_a, 0u);
+    EXPECT_EQ(raw.reserved_b, 0u);
+    EXPECT_EQ(source.frames_read(), 1u);
 }
 
 // Rotated files replay as one session, in order.
@@ -198,4 +248,66 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
         EXPECT_EQ(std::memcmp(&replay_events[i], &live_events[i], sizeof(FaultEvent)), 0)
             << "event " << i << " differs";
     }
+
+    // The validity bytes are part of the identity above; this says what
+    // they hold (REQ-PROC-007, TC-017 step 9): FAILURE_WARNING exactly on
+    // the frames the detector marked DEGRADED, which begin inside each
+    // injected window (after the timeout, or the tenth repeat) and end M
+    // valid readings after it (REQ-FAULT-005), NORMAL everywhere else, and
+    // the fused fields NORMAL throughout because the GPS contributes from
+    // frame 0.
+    const size_t m = static_cast<size_t>(FaultDetectorConfig{}.recovery_count);
+    bool baro_flagged = false;
+    bool imu_flagged = false;
+    for (size_t i = 0; i < live_frames.size(); i++) {
+        const TelemetryFrame& f = live_frames[i];
+        const Validity baro = f.baro_status == ChannelStatus::DEGRADED ? Validity::FAILURE_WARNING : Validity::NORMAL;
+        const Validity imu = f.imu_status == ChannelStatus::DEGRADED ? Validity::FAILURE_WARNING : Validity::NORMAL;
+        EXPECT_EQ(f.baro_altitude_validity, baro) << "frame " << i;
+        EXPECT_EQ(f.pitch_validity, imu) << "frame " << i;
+        EXPECT_EQ(f.roll_validity, imu) << "frame " << i;
+        EXPECT_EQ(f.fused_altitude_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(f.vertical_speed_validity, Validity::NORMAL) << "frame " << i;
+        baro_flagged = baro_flagged || (i >= 100 && i < 140 && baro == Validity::FAILURE_WARNING);
+        imu_flagged = imu_flagged || (i >= 300 && i < 320 && imu == Validity::FAILURE_WARNING);
+        const bool baro_outside = i < 100 || i >= 140 + m - 1;
+        const bool imu_outside = i < 300 || i >= 320 + m - 1;
+        if (baro_outside) {
+            EXPECT_EQ(baro, Validity::NORMAL) << "frame " << i;
+        }
+        if (imu_outside) {
+            EXPECT_EQ(imu, Validity::NORMAL) << "frame " << i;
+        }
+    }
+    EXPECT_TRUE(baro_flagged) << "the barometer dropout never reached FAILURE_WARNING";
+    EXPECT_TRUE(imu_flagged) << "the stuck IMU never reached FAILURE_WARNING";
+}
+
+// REQ-LOG-005, TC-017 step 9. A version-1 log's frames come through the
+// pipeline judged: the raw fields are the record, the rest is recomputed.
+TEST_F(ReplayTest, Version1LogReplaysJudged) {
+    LogFileHeader h = make_log_header();
+    h.version = 1;
+    {
+        std::ofstream out(dir_ / "v1_000.bin", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+        SimulatedSource source(20, 42);
+        for (int i = 0; i < 5; i++) {
+            const TelemetryFrame raw = source.read_frame();   // a version-1 log's raw bytes are these
+            const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
+            out.write(reinterpret_cast<const char*>(&tag), 1);
+            out.write(reinterpret_cast<const char*>(&raw), sizeof(raw));
+        }
+    }
+    LogReplaySource source({dir_ / "v1_000.bin"});
+    FaultDetector detector;
+    TelemetryProcessor processor;
+    for (int i = 0; i < 5; i++) {
+        const TelemetryFrame out = processor.process(detector.check(source.read_frame()));
+        EXPECT_EQ(out.baro_altitude_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(out.pitch_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(out.fused_altitude_validity, Validity::NORMAL) << "frame " << i;
+        EXPECT_EQ(out.baro_status, ChannelStatus::NOMINAL) << "frame " << i;
+    }
+    EXPECT_EQ(source.frames_read(), 5u);
 }

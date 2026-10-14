@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 #include "processing/fault_detector.h"   // FaultEvent
@@ -27,9 +28,22 @@
 // Rule: any change to TelemetryFrame or FaultEvent changes the format.
 // Bump kLogFormatVersion in the same commit, or an old log will be read
 // with the wrong sizes and rejected with a confusing message rather than
-// a clear "version 1, expected 2".
+// a clear "format version 3; this build reads 1 to 2".
+//
+// Versions (REQ-LOG-005). kLogFormatVersion is the one this build writes;
+// kOldestReadableLogFormatVersion the oldest it reads. Version 1 (through
+// 2026-10-13) had the same 104-byte frame with four compiler padding bytes
+// before latitude and six after gps_read_ok, and a 16-byte event with two
+// after `type`. Version 2 names every one of those bytes (reserved_a, the
+// five Validity fields, reserved_b, FaultEvent::reserved) and moves no
+// other byte, so one layout serves both: a version-1 frame reads as a
+// version-2 frame whose validity is NOT_JUDGED and whose reserved fields
+// are zero, which LogReader makes so even where an old file carried stack
+// contents there. A change that keeps the raw bytes in place may extend
+// the readable range this way; one that moves them may not.
 
-constexpr uint16_t kLogFormatVersion = 1;
+constexpr uint16_t kLogFormatVersion = 2;
+constexpr uint16_t kOldestReadableLogFormatVersion = 1;
 constexpr uint32_t kEndianMarker = 0x01020304u;
 
 struct LogFileHeader {
@@ -48,7 +62,16 @@ enum class RecordType : uint8_t {
 
 LogFileHeader make_log_header();
 
-// Magic, version, both sizes, and byte order all match this build.
+// Empty when the header is one this build reads: the magic, a version in
+// the readable range, both record sizes and the byte order all match.
+// Otherwise the first mismatch, named ("format version 3; this build reads
+// 1 to 2"; "frame size 112 in the header, 104 in this build"), the twin of
+// the Python reader's check_header. A refused file is named before any
+// record is read (REQ-LOG-005).
+std::string header_problem(const LogFileHeader& header);
+
+// header_problem(header).empty(): the one-line form for callers that need
+// only the verdict.
 bool header_is_valid(const LogFileHeader& header);
 
 static_assert(std::is_trivially_copyable<TelemetryFrame>::value,

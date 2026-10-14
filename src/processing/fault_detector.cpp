@@ -160,12 +160,25 @@ void FaultDetector::transition(Channel channel, ChannelState& state, const Obser
         // Any fault resets the recovery count: M valid readings must be
         // consecutive (REQ-FAULT-005).
         state.valid_run = 0;
-        if (state.status == ChannelStatus::NOMINAL) {
-            // One event per transition, not per faulty frame. A sensor
-            // that stays broken for a minute logs one fault, not 3000.
+        // Promotion from NO_DATA or NOMINAL alike (REQ-FAULT-006): a fault
+        // on a channel's first-ever reading, or the timeout of a channel
+        // dead from power-on, is DEGRADED with its event. One event per
+        // transition, not per faulty frame: a sensor that stays broken for
+        // a minute logs one fault, not 3000.
+        if (state.status != ChannelStatus::DEGRADED) {
             state.status = ChannelStatus::DEGRADED;
             state.degraded_since_ms = now_ms;
             record_event(now_ms, channel, obs.type, obs.value);
+        }
+        return;
+    }
+
+    if (state.status == ChannelStatus::NO_DATA) {
+        // The first successful reading: a start, not a recovery, so no
+        // event and no run count (REQ-FAULT-006). A frame with no reading
+        // inside the timeout leaves the channel NO_DATA.
+        if (obs.read_ok) {
+            state.status = ChannelStatus::NOMINAL;
         }
         return;
     }
@@ -184,14 +197,15 @@ void FaultDetector::transition(Channel channel, ChannelState& state, const Obser
 }
 
 void FaultDetector::record_event(uint64_t now_ms, Channel channel, FaultType type, float value) {
-    // Value-initialized, then assigned. FaultEvent is 16 bytes with two
-    // padding bytes between `type` and `value`. A braced temporary
-    // (`push_back({now, channel, type, value})`) is not required to zero
-    // that padding, and GCC does not: CI run 34442203740 found live and
-    // replayed events differing only in those bytes. Events are written to
-    // the binary log as raw bytes, so their padding must be deterministic.
+    // Value-initialized, then assigned. The two bytes between `type` and
+    // `value` were implicit padding in format version 1, and a braced
+    // temporary (`push_back({now, channel, type, value})`) was not required
+    // to zero them; GCC did not, and CI run 34442203740 found live and
+    // replayed events differing only there. Version 2 names them `reserved`,
+    // which value-initialization zeroes like every other field; events are
+    // written to the log as raw bytes, so that zero is part of the record.
     // Same rule as frames in the simulator (design.md section 9);
-    // FaultDetectionTest.EventPaddingBytesAreZero is the guard.
+    // FaultDetectionTest.EventReservedIsZero is the guard.
     FaultEvent event{};
     event.timestamp_ms = now_ms;
     event.channel = channel;

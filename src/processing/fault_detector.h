@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -19,28 +20,38 @@
 // a log reproduces the same faults at the same frames (REQ-LOG-003), and
 // tests advance time by handing in frames with later timestamps.
 //
-// Three detection strategies, one recovery rule:
+// Three detection strategies, one recovery rule, and a start state:
 //   Communication timeout  no successful read within a bound   (FAULT-001..004)
 //   Stuck sensor           N identical readings on any axis    (FAULT-005..007)
 //   Out of range           value outside configured limits     (FAULT-008..010)
 //   Recovery               M consecutive valid readings        (FAULT-011)
+//   NO_DATA                until a channel's first reading     (REQ-FAULT-006)
 
 enum class Channel : uint8_t { BARO, IMU, GPS };
 
 enum class FaultType : uint8_t { COMM_TIMEOUT, STUCK, OUT_OF_RANGE, RECOVERY };
 
-// One logged event (REQ-FAULT-004: timestamp and fault type). The logger
-// does not exist yet; the detector accumulates these and hands them out
-// through take_events(). Tests assert on them, main prints them.
+// One logged event (REQ-FAULT-004: timestamp and fault type), persisted by
+// BinaryLogger as a tagged record in the same stream as the frames
+// (REQ-LOG-001). The detector accumulates these and hands them out through
+// take_events(); tests assert on them, main prints them. The number after
+// each field is its byte offset: the struct is written verbatim.
 struct FaultEvent {
-    uint64_t timestamp_ms;
-    Channel channel;
-    FaultType type;
+    uint64_t timestamp_ms;   // 0
+    Channel channel;         // 8
+    FaultType type;          // 9
+    uint16_t reserved;       // 10: zero until a format version assigns it (version 1's two padding bytes)
     // STUCK: the repeated value. OUT_OF_RANGE: the offending value.
     // RECOVERY: how long the channel was DEGRADED, in ms.
     // COMM_TIMEOUT: elapsed ms since the last successful read.
-    float value;
+    float value;             // 12
 };
+
+// No unspecified byte (design.md section 9): the members sum to the size.
+static_assert(sizeof(FaultEvent) == 8 + 1 + 1 + 2 + 4,
+              "FaultEvent has an unspecified byte: name it, and bump kLogFormatVersion");
+static_assert(offsetof(FaultEvent, reserved) == 10 && offsetof(FaultEvent, value) == 12,
+              "FaultEvent layout changed: bump kLogFormatVersion");
 
 // Thresholds. Default member initializers make this an aggregate with
 // sensible values, so `FaultDetectorConfig{}` is a complete config and a
@@ -83,8 +94,13 @@ private:
     };
 
     // Everything the detector remembers about one channel between frames.
+    // A channel starts NO_DATA (REQ-FAULT-006): nothing has been read, so
+    // the raw fields a frame carries for it are a value-initialized zero,
+    // not a reading. The first successful reading makes it NOMINAL with no
+    // event; a fault, the timeout included, makes it DEGRADED as from
+    // NOMINAL, with its event.
     struct ChannelState {
-        ChannelStatus status = ChannelStatus::NOMINAL;
+        ChannelStatus status = ChannelStatus::NO_DATA;
         bool has_last_ok = false;
         uint64_t last_ok_ms = 0;        // timestamp of the last frame with read_ok
         uint64_t degraded_since_ms = 0; // for the RECOVERY event's duration
@@ -111,7 +127,8 @@ private:
     static bool comm_timed_out(ChannelState& state, bool read_ok, uint64_t now_ms,
                                uint64_t timeout_ms, float& elapsed_out);
 
-    // The NOMINAL <-> DEGRADED state machine, identical for every channel.
+    // The NO_DATA -> NOMINAL <-> DEGRADED state machine, identical for
+    // every channel.
     void transition(Channel channel, ChannelState& state, const Observation& obs,
                     uint64_t now_ms);
 

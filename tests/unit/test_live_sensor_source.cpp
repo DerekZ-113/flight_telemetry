@@ -48,8 +48,8 @@ struct Rig {
 
 // TC-014 step 5. One frame from both chips: raw fields in the frame's
 // units, both I2C channels fresh, GPS absent and never fresh, every
-// status NOMINAL, every computed field untouched (the raw-only contract
-// of design.md section 3), and the first timestamp zero.
+// status NOMINAL, every computed field untouched and unjudged (the raw-only
+// contract of design.md section 3), and the first timestamp zero.
 TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     Rig rig;
     LiveSensorSource source = rig.make();
@@ -81,6 +81,13 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.roll_deg, 0.0f);
     EXPECT_EQ(f.fused_altitude_m, 0.0f);
     EXPECT_EQ(f.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(f.baro_altitude_validity, Validity::NOT_JUDGED);   // the processor judges (REQ-PROC-007)
+    EXPECT_EQ(f.pitch_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(f.reserved_a, 0u);
+    EXPECT_EQ(f.reserved_b, 0u);
 }
 
 // TC-014 step 6. A failed barometer burst holds the barometer's fields at
