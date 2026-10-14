@@ -333,7 +333,7 @@ int main(int argc, char* argv[]) {
     // (REQ-CFG-001).
     const FaultDetectorConfig config{};
     FaultDetector detector(config);
-    TelemetryProcessor processor(config.i2c_timeout_ms);
+    TelemetryProcessor processor(ProcessorConfig{}, config.i2c_timeout_ms);
 
     // A replay run logs under a different prefix. The replay source opens
     // its input before the logger opens its output, and both live in

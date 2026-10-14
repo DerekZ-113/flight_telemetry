@@ -2,11 +2,13 @@
 
 // Constructor — sets up the random engine and noise distributions.
 //
-// Each distribution is zero-mean with a standard deviation (sigma) chosen
-// as a placeholder until real noise characterization replaces these values
-// (REQ-PROC-004, docs/noise_profile.md). Where a value is deliberately
-// worse than the datasheet, the comment says so: a pessimistic simulator
-// gives the Kalman filter something to actually correct.
+// Each distribution is zero-mean with the standard deviation (sigma) the
+// SimulationNoise struct carries (simulated_data.h): the shipped values
+// until real noise characterization replaces them (REQ-PROC-004,
+// docs/noise_profile.md), and then the measured ones, through the
+// configuration file (REQ-CFG-001). Where a shipped value is deliberately
+// worse than the datasheet, the struct's comment says so: a pessimistic
+// simulator gives the Kalman filter something to actually correct.
 //
 // The seed makes the sequence deterministic on a given toolchain. Two
 // generators built with the same seed produce identical frame sequences.
@@ -14,15 +16,16 @@
 // inside generate() defines the sequence. Reordering two lines there
 // changes every frame that follows.
 
-SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed, uint64_t gps_interval_ms)
+SimulatedDataGenerator::SimulatedDataGenerator(uint32_t seed, uint64_t gps_interval_ms,
+                                               const SimulationNoise& noise)
     : rng_(seed),
-      pressure_noise_(0.0f, 0.2f),       // sigma 0.2 hPa. Intentionally pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS, 15 to 100x lower.
-      temperature_noise_(0.0f, 0.1f),    // sigma 0.1 °C
-      accel_noise_(0.0f, 0.05f),         // sigma 0.05 m/s². Matches MPU6050 400 ug/sqrt(Hz) density at 100 Hz bandwidth.
-      gyro_noise_(0.0f, 0.1f),           // sigma 0.1 deg/s. Roughly 2x the MPU6050 datasheet figure at 100 Hz.
-      gps_lat_noise_(0.0, 0.00002),      // sigma 0.00002 deg, about 2.2 m of latitude
-      gps_lon_noise_(0.0, 0.00002),      // sigma 0.00002 deg, about 1.8 m of longitude at 37.5 N
-      gps_alt_noise_(0.0f, 2.0f),        // sigma 2 m. Optimistic: NEO-6M vertical error is typically closer to 5 m.
+      pressure_noise_(0.0f, noise.pressure_sigma_hpa),
+      temperature_noise_(0.0f, noise.temperature_sigma_c),
+      accel_noise_(0.0f, noise.accel_sigma_mps2),
+      gyro_noise_(0.0f, noise.gyro_sigma_dps),
+      gps_lat_noise_(0.0, noise.latitude_sigma_deg),
+      gps_lon_noise_(0.0, noise.longitude_sigma_deg),
+      gps_alt_noise_(0.0f, noise.gps_altitude_sigma_m),
       gps_interval_ms_(gps_interval_ms == 0 ? 1 : gps_interval_ms)   // 0 would divide by zero; 1 ms is "every frame"
 {
 }

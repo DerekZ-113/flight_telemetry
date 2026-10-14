@@ -1,12 +1,12 @@
 #include "drivers/live_sensor_source.h"
 
 LiveSensorSource::LiveSensorSource(std::unique_ptr<I2cBus> bus, uint8_t baro_address,
-                                   uint8_t imu_address, Clock& clock)
+                                   uint8_t imu_address, Clock& clock, int imu_sample_rate_hz)
     // Declaration order: the bus first, so *bus_ is valid when the drivers
     // take their references to it.
     : bus_(std::move(bus)),
       baro_(*bus_, baro_address),
-      imu_(*bus_, imu_address),
+      imu_(*bus_, imu_address, imu_sample_rate_hz),
       clock_(clock)
 {
     // A chip that is absent or answers with the wrong identity when the

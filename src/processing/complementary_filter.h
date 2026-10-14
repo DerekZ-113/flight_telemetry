@@ -32,7 +32,9 @@
 // unit mix-up can happen inside the filter.
 class ComplementaryFilter {
 public:
-    // Weight on the gyro path. Placeholder until config (REQ-CFG-001).
+    // Weight on the gyro path: the default a bare filter and the unit
+    // tests get. The binary's value is `processing.complementary_alpha`
+    // (REQ-CFG-001), handed in by TelemetryProcessor.
     static constexpr float kDefaultAlpha = 0.98f;
 
     // explicit: a bare float must never silently become a filter.

@@ -189,3 +189,49 @@ TEST(SimulatedSourceTest, SourceMatchesGeneratorWithSameSeed) {
         EXPECT_EQ(std::memcmp(&fs, &fg, sizeof(TelemetryFrame)), 0) << "frame " << i;
     }
 }
+
+// TC-016 step 10. The sigmas reach the distributions. Same seed, the
+// pressure sigma ten times larger: every other channel is bit-identical
+// (the same engine draws, the same sigmas) and the pressure noise is ten
+// times larger frame by frame, because a normal distribution scales one
+// standard draw by its sigma. A near-silent generator (every sigma 1e-6;
+// zero is outside std::normal_distribution's precondition) sits on the
+// base values to within float rounding. (REQ-SENS-006, REQ-CFG-001)
+TEST(SimulatedDataTest, NoiseIsConfigurable) {
+    SimulationNoise loud;
+    loud.pressure_sigma_hpa = 10.0f * SimulationNoise{}.pressure_sigma_hpa;
+    SimulatedDataGenerator base(42, 1000);
+    SimulatedDataGenerator scaled(42, 1000, loud);
+    for (int i = 0; i < 100; i++) {
+        const uint64_t ts = static_cast<uint64_t>(i) * kIntervalMs;
+        const TelemetryFrame a = base.generate(ts);
+        const TelemetryFrame b = scaled.generate(ts);
+        EXPECT_NEAR(b.pressure_hpa - 1013.0f, 10.0f * (a.pressure_hpa - 1013.0f), 2e-3f) << "frame " << i;
+        EXPECT_EQ(a.temperature_c, b.temperature_c) << "frame " << i;
+        EXPECT_EQ(a.accel_z, b.accel_z) << "frame " << i;
+        EXPECT_EQ(a.gyro_x, b.gyro_x) << "frame " << i;
+        EXPECT_EQ(a.latitude, b.latitude) << "frame " << i;
+        EXPECT_EQ(a.gps_altitude_m, b.gps_altitude_m) << "frame " << i;
+    }
+
+    SimulationNoise quiet;
+    quiet.pressure_sigma_hpa = 1e-6f;
+    quiet.temperature_sigma_c = 1e-6f;
+    quiet.accel_sigma_mps2 = 1e-6f;
+    quiet.gyro_sigma_dps = 1e-6f;
+    quiet.latitude_sigma_deg = 1e-6;
+    quiet.longitude_sigma_deg = 1e-6;
+    quiet.gps_altitude_sigma_m = 1e-6f;
+    SimulatedDataGenerator silent(42, 1000, quiet);
+    for (int i = 0; i < 50; i++) {
+        const TelemetryFrame f = silent.generate(static_cast<uint64_t>(i) * kIntervalMs);
+        EXPECT_NEAR(f.pressure_hpa, 1013.0f, 1e-4f) << "frame " << i;
+        EXPECT_NEAR(f.temperature_c, 21.0f, 1e-4f) << "frame " << i;
+        EXPECT_NEAR(f.accel_x, 0.0f, 1e-4f) << "frame " << i;
+        EXPECT_NEAR(f.accel_z, 9.81f, 1e-4f) << "frame " << i;
+        EXPECT_NEAR(f.gyro_y, 0.0f, 1e-4f) << "frame " << i;
+        EXPECT_NEAR(f.latitude, 37.5585, 1e-5) << "frame " << i;
+        EXPECT_NEAR(f.longitude, -122.2711, 1e-5) << "frame " << i;
+        EXPECT_NEAR(f.gps_altitude_m, 3.0f, 1e-4f) << "frame " << i;
+    }
+}

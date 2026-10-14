@@ -10,10 +10,10 @@
 // Parameters:
 //   pressure_hpa  - measured pressure in hectopascals (typical range: 300-1100)
 //   sea_level_hpa - reference sea-level pressure. The default is the ISA
-//                   standard atmosphere constant, kept only as a safe fallback.
-//                   Once REQ-CFG-001 lands, callers pass the value from
-//                   telemetry_config.yaml so this never becomes a hidden
-//                   magic number.
+//                   standard atmosphere constant and serves the unit tests;
+//                   TelemetryProcessor passes `processing.sea_level_pressure_hpa`
+//                   from the configuration (REQ-CFG-001), so the default is
+//                   never a hidden magic number in the binary.
 //
 // Returns:
 //   altitude in meters above the reference pressure level. Inputs are assumed

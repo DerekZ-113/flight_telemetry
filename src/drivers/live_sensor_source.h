@@ -41,8 +41,12 @@ public:
     // Takes ownership of `bus`; `clock` must outlive this object. Both
     // drivers are initialized here; a failure leaves ok() false with
     // error() naming each chip that failed and why. Never throws.
+    // imu_sample_rate_hz is the chip's own rate (`sensors.imu.sample_rate_hz`,
+    // REQ-SENS-003, REQ-CFG-001), handed to the MPU6050 driver, which
+    // refuses a rate its divider cannot produce; the default serves the
+    // unit tests.
     LiveSensorSource(std::unique_ptr<I2cBus> bus, uint8_t baro_address, uint8_t imu_address,
-                     Clock& clock);
+                     Clock& clock, int imu_sample_rate_hz = Mpu6050::kDefaultSampleRateHz);
 
     bool ok() const;
     const std::string& error() const;

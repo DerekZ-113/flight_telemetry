@@ -1,44 +1,16 @@
 #include "processing/processor.h"
 #include "processing/altitude.h"
 
-// Kalman filter tuning. Placeholder values until noise characterization
-// (REQ-PROC-004, docs/noise_profile.md) measures the real sensors, at
-// which point these move to config/telemetry_config.yaml (REQ-CFG-001).
-// The complementary filter's alpha lives with the filter itself
-// (ComplementaryFilter::kDefaultAlpha): it is a time constant, not a
-// noise parameter, and REQ-PROC-004 does not govern it.
-//
-// All are variances (sigma squared), so units are m^2, (m/s)^2, (m/s^2)^2.
-namespace {
+// Every tuning value comes in through ProcessorConfig (processor.h): the
+// Kalman variances, the complementary filter's alpha, and the sea-level
+// reference. Nothing numeric is decided in this file (REQ-CFG-001); what
+// each value means, and where its number came from, is written beside
+// the field that holds it.
 
-// Barometric altitude noise. The simulator adds sigma 0.2 hPa of pressure
-// noise, and near sea level 1 hPa is about 8.4 m, so sigma is about 1.7 m
-// and variance about 3 m^2.
-constexpr float kBaroMeasurementVariance = 3.0f;
-
-// GPS altitude noise. The simulator uses sigma 2 m, but a real NEO-6M is
-// closer to sigma 5 m vertically, so the filter is told 25 m^2. Being
-// pessimistic about GPS means it nudges the estimate rather than jerking it.
-constexpr float kGpsMeasurementVariance = 25.0f;
-
-// Initial altitude uncertainty. The filter starts from one baro reading,
-// so its uncertainty is that reading's uncertainty.
-constexpr float kInitialAltitudeVariance = kBaroMeasurementVariance;
-
-// Initial vertical velocity uncertainty. The filter starts at 0 m/s with
-// no evidence, so this is deliberately generous (sigma 1 m/s).
-constexpr float kInitialVelocityVariance = 1.0f;
-
-// Unmodelled vertical acceleration (sigma 1 m/s^2). This is the process
-// noise strength: how much the constant-velocity assumption is expected
-// to be violated between frames. Too small and the filter lags real
-// climbs; too large and it stops smoothing.
-constexpr float kAccelNoiseVariance = 1.0f;
-
-}  // namespace
-
-TelemetryProcessor::TelemetryProcessor(uint64_t imu_timeout_ms)
-    : imu_timeout_ms_(imu_timeout_ms)
+TelemetryProcessor::TelemetryProcessor(const ProcessorConfig& tuning, uint64_t imu_timeout_ms)
+    : tuning_(tuning),
+      attitude_filter_(tuning.complementary_alpha),
+      imu_timeout_ms_(imu_timeout_ms)
 {
 }
 
@@ -48,11 +20,11 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // copy with no allocation.
     TelemetryFrame out = raw;
 
-    // REQ-PROC-001: barometric altitude from pressure. The sea-level
-    // reference is the ISA default until config supplies it (REQ-CFG-001).
-    // A stale frame carries the previous pressure, so this reproduces the
-    // previous altitude; the gate below keeps it out of the filter.
-    out.baro_altitude_m = pressure_to_altitude(raw.pressure_hpa);
+    // REQ-PROC-001: barometric altitude from pressure, against the
+    // configured sea-level reference. A stale frame carries the previous
+    // pressure, so this reproduces the previous altitude; the gate below
+    // keeps it out of the filter.
+    out.baro_altitude_m = pressure_to_altitude(raw.pressure_hpa, tuning_.sea_level_pressure_hpa);
 
     // REQ-PROC-006: a reading enters a filter only when its channel is
     // NOMINAL and the reading was taken this cycle. Health is the
@@ -113,12 +85,14 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
         // constructor. A frame whose barometer read failed cannot start
         // it: a filter born from an unmeasured pressure would start 44 km
         // up. Until a fresh reading arrives the fused fields keep the
-        // zero every source leaves in them.
+        // zero every source leaves in them. The initial altitude variance
+        // is the barometric measurement variance (REQ-PROC-004): the
+        // filter is born from one such reading.
         altitude_filter_.emplace(out.baro_altitude_m,
                                  0.0f,
-                                 kInitialAltitudeVariance,
-                                 kInitialVelocityVariance,
-                                 kAccelNoiseVariance);
+                                 tuning_.baro_measurement_variance_m2,
+                                 tuning_.initial_velocity_variance,
+                                 tuning_.accel_noise_variance);
     }
 
     if (altitude_filter_.has_value()) {
@@ -128,10 +102,10 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
         // innovation (the state was set from this same reading), so it
         // only tightens the covariance.
         if (baro_fresh) {
-            altitude_filter_->update(out.baro_altitude_m, kBaroMeasurementVariance);
+            altitude_filter_->update(out.baro_altitude_m, tuning_.baro_measurement_variance_m2);
         }
         if (gps_fresh) {
-            altitude_filter_->update(raw.gps_altitude_m, kGpsMeasurementVariance);
+            altitude_filter_->update(raw.gps_altitude_m, tuning_.gps_measurement_variance_m2);
         }
         out.fused_altitude_m = altitude_filter_->altitude();
         out.vertical_speed_mps = altitude_filter_->vertical_velocity();

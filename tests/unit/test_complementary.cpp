@@ -270,3 +270,25 @@ TEST(ComplementaryTest, ReseedAdoptsTiltedAccel) {
     EXPECT_NEAR(out.pitch_deg, 45.0f, 0.1f);
     EXPECT_NEAR(out.roll_deg, 0.0f, 0.001f);
 }
+
+// TC-016 step 10. Alpha reaches the filter through the processor: with
+// `processing.complementary_alpha` at 1.0 the processor is the pure
+// integrator of TC-006 step 3, 100 frames of 1 deg/s at 20 ms reading
+// exactly 2 degrees, where the default 0.98 would settle below 1.5.
+// (REQ-PROC-002, REQ-CFG-001)
+TEST(ComplementaryTest, AlphaIsHonored) {
+    ProcessorConfig gyro_only;
+    gyro_only.complementary_alpha = 1.0f;
+    TelemetryProcessor integrator(gyro_only);
+    TelemetryProcessor corrected;
+    integrator.process(imu_frame(0, true, 0.0f, 0.0f, kG));   // seeds flat
+    corrected.process(imu_frame(0, true, 0.0f, 0.0f, kG));
+    TelemetryFrame out_integrator{};
+    TelemetryFrame out_corrected{};
+    for (uint64_t ts = 20; ts <= 2000; ts += 20) {
+        out_integrator = integrator.process(imu_frame(ts, true, 1.0f, 0.0f, kG));
+        out_corrected = corrected.process(imu_frame(ts, true, 1.0f, 0.0f, kG));
+    }
+    EXPECT_NEAR(out_integrator.pitch_deg, 2.0f, 0.01f);
+    EXPECT_LT(out_corrected.pitch_deg, 1.5f);
+}

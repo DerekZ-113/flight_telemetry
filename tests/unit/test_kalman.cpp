@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "drivers/simulated_source.h"
+#include "processing/altitude.h"
 #include "processing/kalman_filter.h"
 #include "processing/processor.h"
 #include "telemetry_frame.h"
@@ -307,4 +308,41 @@ TEST(KalmanTest, FilterWaitsForFirstFreshBaro) {
     const TelemetryFrame out1 = processor.process(f1);
     EXPECT_EQ(out1.fused_altitude_m, out1.baro_altitude_m);
     EXPECT_EQ(out1.vertical_speed_mps, 0.0f);
+}
+
+// TC-016 step 10. The Kalman tuning reaches the filter: a processor told
+// the GPS is a hundred times noisier (variance 2500 against 25) moves
+// less toward the first fix. Both start from the same barometric
+// altitude, so the GPS innovation is the same and only the gain differs.
+// (REQ-PROC-003, REQ-CFG-001)
+TEST(KalmanTest, TuningIsHonored) {
+    SimulatedSource source(20, 42, 20);   // a fix on every frame
+    ProcessorConfig skeptical_tuning;
+    skeptical_tuning.gps_measurement_variance_m2 = 2500.0f;
+    TelemetryProcessor trusting;
+    TelemetryProcessor skeptical(skeptical_tuning);
+
+    const TelemetryFrame raw = source.read_frame();
+    const TelemetryFrame a = trusting.process(raw);
+    const TelemetryFrame b = skeptical.process(raw);
+    EXPECT_EQ(a.baro_altitude_m, b.baro_altitude_m);
+    EXPECT_NE(a.fused_altitude_m, b.fused_altitude_m);
+    EXPECT_LT(std::fabs(b.fused_altitude_m - b.baro_altitude_m),
+              std::fabs(a.fused_altitude_m - a.baro_altitude_m));
+}
+
+// TC-016 step 10. The sea-level reference reaches the hypsometric
+// formula: with the reference 10 hPa above the measured pressure the
+// barometric altitude is about 83 m (TC-001's 8.3 m per hPa near sea
+// level), exactly what the formula gives for that reference.
+// (REQ-PROC-001, REQ-CFG-001)
+TEST(KalmanTest, SeaLevelReferenceIsHonored) {
+    ProcessorConfig tuning;
+    tuning.sea_level_pressure_hpa = 1023.25f;
+    TelemetryProcessor processor(tuning);
+    TelemetryFrame f = fresh_frame(0);
+    f.pressure_hpa = 1013.25f;
+    const TelemetryFrame out = processor.process(f);
+    EXPECT_EQ(out.baro_altitude_m, pressure_to_altitude(1013.25f, 1023.25f));
+    EXPECT_NEAR(out.baro_altitude_m, 83.0f, 2.0f);
 }

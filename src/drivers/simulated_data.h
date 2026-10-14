@@ -24,16 +24,40 @@
 // produce different samples from the same seed. Reproducible tests on one
 // machine: yes. Cross-platform bit-identical output: no.
 
+// The simulator's noise: one standard deviation per channel (REQ-SENS-006,
+// REQ-CFG-001 "simulated-source noise"). Default member initializers hold
+// the shipped values, the same shape as FaultDetectorConfig: the defaults
+// are the unit tests' baseline, the binary's values come from
+// config/telemetry_config.yaml (section `simulation.noise`), and
+// ConfigTest.ShippedFileEqualsDefaults keeps the two equal. Each sigma
+// must be positive: std::normal_distribution requires it, and the
+// configuration's validation enforces it.
+struct SimulationNoise {
+    float pressure_sigma_hpa = 0.2f;      // Intentionally pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS, 15 to 100x lower.
+    float temperature_sigma_c = 0.1f;
+    float accel_sigma_mps2 = 0.05f;       // Matches MPU6050 400 ug/sqrt(Hz) density at 100 Hz bandwidth.
+    float gyro_sigma_dps = 0.1f;          // Roughly 2x the MPU6050 datasheet figure at 100 Hz.
+    double latitude_sigma_deg = 0.00002;  // About 2.2 m of latitude.
+    double longitude_sigma_deg = 0.00002; // About 1.8 m of longitude at 37.5 N.
+    float gps_altitude_sigma_m = 2.0f;    // Optimistic: NEO-6M vertical error is typically closer to 5 m.
+};
+
 class SimulatedDataGenerator {
 public:
-    // NEO-6M default output period. Placeholder until config (REQ-CFG-001).
+    // NEO-6M default output period: the default a bare generator and the
+    // unit tests get; the binary's value is `simulation.gps_interval_ms`
+    // (REQ-CFG-001).
     static constexpr uint64_t kDefaultGpsIntervalMs = 1000;
 
     // Seed controls the random sequence. Same seed = same data every time.
     // gps_interval_ms is the fix period; pass the frame interval (or 0) to
     // get a fix on every frame, which tests of the status gate rely on.
+    // noise holds the seven sigmas; a different sigma changes the spread
+    // of one channel and nothing else, because every distribution scales
+    // the same standard draw.
     explicit SimulatedDataGenerator(uint32_t seed = 42,
-                                    uint64_t gps_interval_ms = kDefaultGpsIntervalMs);
+                                    uint64_t gps_interval_ms = kDefaultGpsIntervalMs,
+                                    const SimulationNoise& noise = SimulationNoise{});
 
     // Produce one frame stamped with the caller's timestamp. The generator
     // does not track time itself; SimulatedSource owns the clock.

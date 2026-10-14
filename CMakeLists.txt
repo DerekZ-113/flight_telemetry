@@ -103,6 +103,33 @@ FetchContent_MakeAvailable(cppzmq)
 # publisher sends, so they need the headers and the library too.
 target_link_libraries(telemetry_core PUBLIC cppzmq)
 
+# ---------------------------------------------------------------------------
+# YAML configuration (REQ-CFG-001). yaml-cpp is the document parser behind
+# src/config/telemetry_config.cpp, the one translation unit that includes
+# it; no header of ours exposes it, so the link is PRIVATE (a static
+# library still carries the dependency to the executable and the tests).
+# Fetched and pinned to a tag like Google Test. 0.9.0 is the first release
+# whose cmake_minimum_required (3.5...3.30) a CMake 4 host accepts; 0.8.0
+# declares 3.4 and does not configure there. Its tools, contrib, tests,
+# install rules and formatter are off: this build needs the library only.
+# Third-party sources sit outside the project's warning policy (FTS-TP-001
+# section 3 governs src/); yaml-cpp applies its own warning set only as
+# the main project and compiles clean under ours.
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG        yaml-cpp-0.9.0   # pinned, same reason as googletest
+)
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_FORMAT_SOURCE OFF CACHE BOOL "" FORCE)
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(yaml-cpp)
+target_link_libraries(telemetry_core PRIVATE yaml-cpp::yaml-cpp)
+
 enable_testing()
 
 # CONFIGURE_DEPENDS re-runs the glob at build time, so a new test file is

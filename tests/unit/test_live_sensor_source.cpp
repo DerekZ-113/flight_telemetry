@@ -39,8 +39,8 @@ struct Rig {
         load_imu(*bus);
     }
 
-    LiveSensorSource make() {
-        return LiveSensorSource(std::move(owned), kBaro, kImu, clock);
+    LiveSensorSource make(int imu_sample_rate_hz = Mpu6050::kDefaultSampleRateHz) {
+        return LiveSensorSource(std::move(owned), kBaro, kImu, clock, imu_sample_rate_hz);
     }
 };
 
@@ -208,4 +208,30 @@ TEST(LiveSensorSourceTest, InitFailureNamesTheChip) {
         EXPECT_NE(source.error().find("barometer: "), std::string::npos) << source.error();
         EXPECT_NE(source.error().find("; IMU: "), std::string::npos) << source.error();
     }
+}
+
+// TC-016 step 10. The configured IMU rate reaches the driver: 50 Hz is
+// SMPLRT_DIV 19 (1 kHz / (1 + 19)), written during init; the default
+// stays 100 Hz, divider 9 (TC-013 step 1). (REQ-SENS-003, REQ-CFG-001)
+TEST(LiveSensorSourceTest, ImuSampleRateReachesTheDriver) {
+    Rig fifty;
+    LiveSensorSource at_fifty = fifty.make(50);
+    ASSERT_TRUE(at_fifty.ok()) << at_fifty.error();
+    EXPECT_EQ(fifty.bus->registers(kImu)[Mpu6050::kRegSampleRateDivider], 19);
+
+    Rig hundred;
+    LiveSensorSource at_default = hundred.make();
+    ASSERT_TRUE(at_default.ok()) << at_default.error();
+    EXPECT_EQ(hundred.bus->registers(kImu)[Mpu6050::kRegSampleRateDivider], 9);
+}
+
+// A rate the chip's divider cannot produce refuses startup with the rate
+// named, the driver's own check (TC-013 step 5) surfacing through the
+// source's error. The configuration's validation refuses it earlier
+// still; this is the second line. (REQ-SENS-003, REQ-CFG-002)
+TEST(LiveSensorSourceTest, UnreachableImuRateRefusesStartup) {
+    Rig rig;
+    LiveSensorSource source = rig.make(30);
+    EXPECT_FALSE(source.ok());
+    EXPECT_NE(source.error().find("IMU: sample rate 30 Hz"), std::string::npos) << source.error();
 }

@@ -49,8 +49,11 @@ public:
     static constexpr uint8_t kGyroConfig250Dps = 0x00;   // FS_SEL 0: ±250 deg/s (4.4)
     static constexpr uint8_t kAccelConfig2G = 0x00;      // AFS_SEL 0: ±2 g (4.5)
 
-    // Chip sample rate. Placeholder until config (REQ-CFG-001). 100 Hz is
-    // twice the loop rate, so every 20 ms poll sees a new sample.
+    // Chip sample rate: the default a bare driver and the unit tests get;
+    // the binary's value is `sensors.imu.sample_rate_hz` (REQ-CFG-001),
+    // handed down by LiveSensorSource. 100 Hz is twice the loop rate, so
+    // every 20 ms poll sees a new sample; the configuration's validation
+    // keeps the rate at or above the loop rate for that reason.
     static constexpr int kDefaultSampleRateHz = 100;
 
     // Sensitivity at the ranges above (4.17 and 4.19). g is the project's
