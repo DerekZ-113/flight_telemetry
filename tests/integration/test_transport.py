@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import TIMING_LINE, TRANSPORT_LINE, free_tcp_port, run_published
+from conftest import CONFIG_ARGS, TIMING_LINE, TRANSPORT_LINE, free_tcp_port, run_published
 from pipeline.frame_format import FRAME, Frame
 from pipeline.log_reader import read_log
 from pipeline.receiver import FrameAccounting, FrameReceiver, UdpSource, ZmqSource
@@ -179,7 +179,7 @@ def test_no_receiver_counts_and_continues(telemetry_bin, tmp_path, transport):
             flag = ["--udp", f"127.0.0.1:{gone.getsockname()[1]}"]   # bound once, now nobody's
     else:
         flag = ["--zmq", f"tcp://127.0.0.1:{free_tcp_port()}"]
-    completed = subprocess.run([str(telemetry_bin), *flag, "--cycles", "50"], cwd=tmp_path,
+    completed = subprocess.run([str(telemetry_bin), *CONFIG_ARGS, *flag, "--cycles", "50"], cwd=tmp_path,
                                capture_output=True, text=True, timeout=60)
     assert completed.returncode == 0, completed.stderr
     assert len(read_log(tmp_path / "logs" / "telemetry_000.bin").frames) == 50
@@ -201,7 +201,7 @@ def test_no_receiver_counts_and_continues(telemetry_bin, tmp_path, transport):
     ("--zmq", "not-an-endpoint", "cannot bind"),
 ])
 def test_bad_destination_is_refused_at_startup(telemetry_bin, tmp_path, flag, value, names):
-    completed = subprocess.run([str(telemetry_bin), flag, value, "--cycles", "5"], cwd=tmp_path,
+    completed = subprocess.run([str(telemetry_bin), *CONFIG_ARGS, flag, value, "--cycles", "5"], cwd=tmp_path,
                                capture_output=True, text=True, timeout=60)
     assert completed.returncode == 1
     assert names in completed.stderr, completed.stderr

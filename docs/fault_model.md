@@ -3,11 +3,13 @@
 > **Document ID:** FTS-FM-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-12
+> **Last Updated:** 2026-10-13
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
 Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9).
+
+Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
 
 ---
 
@@ -18,7 +20,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** BMP280 stops responding to I2C reads (no ACK on the bus)
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
-- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default), allowing transient errors to be retried.
+- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (`fault.i2c_timeout_ms`, 500 ms), allowing transient errors to be retried.
 - **Response:** Mark barometer channel DEGRADED. Log fault event with timestamp. Continue processing with IMU + GPS only. Fused altitude relies solely on GPS until barometer recovers. Before the timeout expires the channel is still NOMINAL, but a frame with no reading (`baro_read_ok` false) is not applied to the filter: it coasts on prediction from the first missed read, not from the fault declaration (REQ-PROC-006).
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BaroTimeoutDetectedWithinBound`, `FaultDetectionTest.TransientReadErrorDoesNotFault` (detection logic). Driver level: `tests/unit/test_bmp280.cpp` → `Bmp280Test.FailedBurstAndSkippedMeasurementAreEmpty` (a failed burst, or data registers still at their reset value, is an empty reading, which the live source reports as `baro_read_ok` false: `LiveSensorSourceTest.FailedBaroReadHoldsFieldsAndClearsReadOk`). On hardware: TC-002 step 8.
@@ -28,7 +30,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** MPU6050 stops responding to I2C reads
 - **Cause:** Loose wire, sensor hardware failure, I2C bus contention
 - **Likelihood:** Low
-- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (500 ms by default).
+- **Detection:** I2C read returns an error (NACK or bus timeout). Fault is declared when no successful read has occurred within the configured I2C timeout (`fault.i2c_timeout_ms`, 500 ms).
 - **Response:** Mark IMU channel DEGRADED. Log fault event. Continue processing with barometer + GPS only. Pitch and roll marked invalid until IMU recovers. Between the first missed read and the timeout the attitude is held, and the next fresh sample integrates the gyroscope over the whole gap (REQ-PROC-006). After a gap longer than the timeout the next accepted sample re-initializes pitch and roll from the accelerometer instead (REQ-PROC-002): one rate sample times a long outage would fabricate tilt.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver level: `tests/unit/test_mpu6050.cpp` → `Mpu6050Test.FailedBurstReturnsEmpty` (a failed burst is an empty reading, which the live source reports as `imu_read_ok` false), `FailedIdentityReadRefusesInit`. On hardware: TC-002 step 8.
@@ -38,7 +40,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Two distinct conditions with the same response. (a) The GPS module stops sending NMEA sentences on UART. (b) The module keeps sending sentences but reports no satellite fix (fix quality 0).
 - **Cause:** (a) Loose wire, wrong baud rate, module power issue. (b) Indoor operation, obstructed sky view.
 - **Likelihood:** (a) Low. (b) Medium, especially indoors or near windows with partial sky.
-- **Detection:** (a) No NMEA sentence received within the configured UART timeout. The timeout must exceed the module's 1 Hz default output period, so it is configurable rather than fixed at 500 ms. (b) Fix quality indicator in the GGA sentence reads 0.
+- **Detection:** (a) No NMEA sentence received within the configured UART timeout (`fault.uart_timeout_ms`, 2000 ms). The timeout must exceed the module's 1 Hz default output period, so it is configurable rather than fixed at 500 ms, and the configuration refuses a value at or below the simulated receiver's fix period. (b) Fix quality indicator in the GGA sentence reads 0.
 - **Response:** Mark GPS channel DEGRADED. Log fault event with the condition (timeout or no-fix). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer. Position, heading, and ground speed marked invalid. Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the UART timeout must exceed the fix period (REQ-PROC-006).
 - **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003. Both: REQ-FAULT-004
 - **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`. (b) Deferred: the frame carries no fix-quality field yet; lands with the NEO-6M driver.
@@ -48,7 +50,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Entire I2C bus becomes unresponsive — both BMP280 and MPU6050 fail simultaneously
 - **Cause:** SDA or SCL wire disconnected, bus lockup, electrical issue
 - **Likelihood:** Very low
-- **Detection:** Both I2C devices time out within the same I2C timeout window (500 ms by default)
+- **Detection:** Both I2C devices time out within the same I2C timeout window (`fault.i2c_timeout_ms`, 500 ms)
 - **Response:** Mark barometer and IMU channels DEGRADED. Log a single bus-level fault event rather than two separate sensor faults. Continue processing with GPS only. System is heavily degraded but still running — altitude from GPS only, no attitude data.
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.BusFailureDegradesBothI2cChannels`. Both channels degrade on the same frame. The single bus-level event is deferred: the detector sees two device timeouts and logs two events, because telling a bus fault from two device faults needs driver error codes that do not exist yet. The drivers now exist and still do not supply them: `LinuxI2cBus::last_errno()` stops at the live source, which reports only `read_ok` per channel. Parked for the faults topic.
@@ -62,7 +64,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Barometer returns identical pressure values on consecutive reads
 - **Cause:** Sensor firmware hang, register read returning stale cached data
 - **Likelihood:** Low
-- **Detection:** N consecutive identical pressure readings (N configurable, default 10)
+- **Detection:** N consecutive identical pressure readings (N is `fault.stuck_count`, 10)
 - **Response:** Mark barometer channel DEGRADED. Log fault event with the stuck value. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.TenthIdenticalPressureIsStuck`, `FaultDetectionTest.StaleValuesDuringDropoutAreNotStuck`
@@ -72,7 +74,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Accelerometer returns identical raw values on consecutive reads on one or more axes
 - **Cause:** Sensor firmware hang, I2C read returning stale data
 - **Likelihood:** Low
-- **Detection:** N consecutive identical raw readings on any axis (N configurable, default 10). Comparison uses the raw 16-bit register values, since a live sensor at rest still shows LSB-level noise.
+- **Detection:** N consecutive identical raw readings on any axis (N is `fault.stuck_count`, 10). Comparison uses the raw 16-bit register values, since a live sensor at rest still shows LSB-level noise.
 - **Response:** Mark IMU channel DEGRADED. Log fault event. Pitch and roll marked invalid until the accelerometer recovers. Attitude is not held at the last good value, so the display shows a clear failure rather than a frozen reading that looks live.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.StuckAccelXWithOtherAxesVarying`, `FaultDetectionTest.RepeatsOfTwoAreNotStuck`. The detector compares the frame's float values with exact equality; a stuck register converts to a bit-identical float every time, so this is the same test as raw register comparison.
@@ -82,7 +84,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Gyroscope returns identical raw angular rate values on consecutive reads on one or more axes
 - **Cause:** Sensor firmware hang, register stale
 - **Likelihood:** Low
-- **Detection:** N consecutive identical raw readings on any axis (N configurable, default 10)
+- **Detection:** N consecutive identical raw readings on any axis (N is `fault.stuck_count`, 10)
 - **Response:** Mark IMU channel DEGRADED with gyroscope data excluded. Complementary filter falls back to accelerometer-only attitude, which is noisier but still valid because gravity alone determines static pitch and roll. Log fault event.
 - **Requirement:** REQ-FAULT-002, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.StuckGyroZ`, `FaultDetectionTest.DifferingValueResetsRun`. The accelerometer-only fallback is not implemented; the whole IMU channel is DEGRADED (see FTS-DD-001 Section 6).
@@ -96,7 +98,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Pressure reading falls outside physically possible range
 - **Cause:** Sensor malfunction, calibration corruption, electrical noise
 - **Likelihood:** Very low
-- **Detection:** Pressure reading below 300 hPa or above 1100 hPa (configurable limits). These are the BMP280 datasheet operating limits. 300 hPa corresponds to roughly 9,000 m, far above anything this system will see. 1100 hPa is above the highest sea-level pressure ever recorded (about 1084 hPa).
+- **Detection:** Pressure reading below 300 hPa or above 1100 hPa (`fault.pressure_min_hpa` and `fault.pressure_max_hpa`). These are the BMP280 datasheet operating limits. 300 hPa corresponds to roughly 9,000 m, far above anything this system will see. 1100 hPa is above the highest sea-level pressure ever recorded (about 1084 hPa).
 - **Response:** Discard reading. Mark barometer channel DEGRADED. Log fault event with the out-of-range value. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.PressureBelowRange`, `FaultDetectionTest.PressureAboveRange`, `FaultDetectionTest.BoundaryValuesAreValid`
@@ -106,7 +108,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Temperature reading falls outside the sensor's operating range
 - **Cause:** Sensor malfunction, calibration corruption
 - **Likelihood:** Very low
-- **Detection:** Temperature below -40°C or above 85°C (BMP280 specified operating range)
+- **Detection:** Temperature below -40°C or above 85°C (`fault.temperature_min_c` and `fault.temperature_max_c`; the BMP280 specified operating range)
 - **Response:** Discard reading. Mark barometer channel DEGRADED. Log fault event with the out-of-range value. The BMP280 computes compensated pressure from its own temperature measurement, so an invalid temperature also invalidates pressure and barometric altitude. Continue with IMU + GPS.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.TemperatureOutOfRangeDegradesBaro`
@@ -116,7 +118,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** Acceleration reading hits the configured full-scale range of the sensor
 - **Cause:** Physical shock (dropping the board), sensor configured at too narrow a range for the motion
 - **Likelihood:** Low (more likely during handling)
-- **Detection:** Any axis reads at or near the configured full-scale range (±2g at the MPU6050 power-on default, configurable up to ±16g)
+- **Detection:** Any axis reads at or above `fault.accel_limit_mps2` (19.62 m/s², the ±2 g the driver configures; the full-scale range is a driver constant tied to its scaling, FTS-DD-001 Section 3)
 - **Response:** Discard reading. Mark IMU channel DEGRADED. Pitch and roll marked invalid until readings return within range. Log fault event with the clipped value.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.AccelSaturationDegradesImu`
@@ -132,7 +134,7 @@ Where a response says "log fault event", the event is a `FaultEvent` record (tim
 - **What:** A previously failed sensor resumes producing valid readings
 - **Cause:** Intermittent connection restored, sensor firmware recovers, GPS reacquires lock
 - **Likelihood:** Medium (especially GPS after temporary obstruction)
-- **Detection:** M consecutive valid readings after a DEGRADED state (M configurable, default 5). Requiring more than a single good reading prevents a flapping sensor from toggling between states every cycle.
+- **Detection:** M consecutive valid readings after a DEGRADED state (M is `fault.recovery_count`, 5). Requiring more than a single good reading prevents a flapping sensor from toggling between states every cycle.
 - **Response:** Mark channel as NOMINAL. Log recovery event with timestamp and duration of degraded state. Resume using sensor data in processing pipeline and Kalman filter.
 - **Requirement:** REQ-FAULT-005, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.RecoveryAfterMValidReadings`, `FaultDetectionTest.BadReadingResetsRecoveryCount`, `FaultDetectionTest.StuckSensorRecovers`

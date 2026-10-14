@@ -6,7 +6,7 @@
 # Usage: scripts/coverage_check.sh coverage/lcov.info
 #
 # Exit 1 if any scope with files falls below its threshold. A scope with
-# no files yet (timing, logging, transport, replay before they exist)
+# no files yet (timing, logging, transport, replay, config before they exist)
 # passes with a note; an empty directory is not a coverage failure.
 set -euo pipefail
 
@@ -19,6 +19,7 @@ rc="--rc branch_coverage=1 --ignore-errors inconsistent,unused,empty,mismatch,fo
 # scope pattern | threshold | label
 scopes=(
   "*/src/processing/*|90|processing"
+  "*/src/config/*|90|config"
   "*/src/timing/*|80|timing"
   "*/src/logging/*|80|logging"
   "*/src/transport/*|80|transport"

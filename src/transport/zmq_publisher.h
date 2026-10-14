@@ -40,9 +40,9 @@
 // Messages the library queues per subscriber before dropping
 // (REQ-TRANS-003). 100 is two seconds of frames at 50 Hz: a subscriber
 // that stalls for less loses nothing; one that falls further behind loses
-// frames rather than slowing the loop. Placeholder until config: REQ-CFG-001
-// lists transport addresses and ports, and whether tuning joins them is an
-// open decision (FTS-DD-001 section 12).
+// frames rather than slowing the loop. Not a configuration key: REQ-CFG-001
+// lists transport addresses and ports, and the tuning stays fixed until a
+// requirement asks for it (FTS-DD-001 section 12, decided 2026-10-13).
 constexpr int kDefaultSendHighWaterMark = 100;
 
 // Implements Publisher (publisher.h), the seam the loop sees; PublishStats

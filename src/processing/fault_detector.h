@@ -44,8 +44,9 @@ struct FaultEvent {
 
 // Thresholds. Default member initializers make this an aggregate with
 // sensible values, so `FaultDetectorConfig{}` is a complete config and a
-// test can override one field. This is the shape REQ-CFG-001 will fill
-// from YAML.
+// test can override one field. The configuration file fills this shape
+// (section `fault`, REQ-CFG-001); the defaults are the unit tests'
+// baseline, equal to the shipped file by test, never the binary's fallback.
 struct FaultDetectorConfig {
     uint64_t i2c_timeout_ms = 500;         // REQ-FAULT-001; FAULT-001, FAULT-002
     uint64_t uart_timeout_ms = 2000;       // REQ-FAULT-001; FAULT-003a. Must exceed the 1 Hz NMEA period.

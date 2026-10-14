@@ -24,14 +24,22 @@ from pipeline.receiver import FrameReceiver
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION_CYCLES = 500
 
+# The configuration of record (REQ-CFG-001). The binary reads it relative to the working
+# directory by default, and every run here happens in a temporary directory, so each run
+# names it explicitly; the run's copy of it beside the log is the session record (REQ-CFG-003).
+SHIPPED_CONFIG = REPO_ROOT / "config" / "telemetry_config.yaml"
+CONFIG_ARGS = ["--config", str(SHIPPED_CONFIG)]
+
 
 class Session(NamedTuple):
     directory: Path
-    log: Path          # logs/telemetry_000.bin from the simulated run
-    replay: Path       # logs/replay_000.bin from replaying it
-    jitter_csv: Path   # logs/telemetry_jitter.csv from the paced run
+    log: Path                   # logs/telemetry_000.bin from the simulated run
+    replay: Path                # logs/replay_000.bin from replaying it
+    jitter_csv: Path            # logs/telemetry_jitter.csv from the paced run
     stdout: str
     replay_stdout: str
+    config_record: Path         # logs/telemetry_config.yaml, the run's copy of the configuration
+    replay_config_record: Path  # logs/replay_config.yaml, the replay's copy of what it used
 
 
 @pytest.fixture(scope="session")
@@ -45,7 +53,7 @@ def telemetry_bin() -> Path:
 
 
 def _run(binary: Path, args: list[str], cwd: Path) -> str:
-    completed = subprocess.run([str(binary), *args], cwd=cwd, capture_output=True, text=True,
+    completed = subprocess.run([str(binary), *CONFIG_ARGS, *args], cwd=cwd, capture_output=True, text=True,
                                timeout=120, check=True)
     return completed.stdout
 
@@ -57,7 +65,8 @@ def sim_session(telemetry_bin: Path, tmp_path_factory: pytest.TempPathFactory) -
     log = directory / "logs" / "telemetry_000.bin"
     replay_stdout = _run(telemetry_bin, ["--replay", str(log), "--cycles", str(SESSION_CYCLES)], directory)
     return Session(directory, log, directory / "logs" / "replay_000.bin",
-                   directory / "logs" / "telemetry_jitter.csv", stdout, replay_stdout)
+                   directory / "logs" / "telemetry_jitter.csv", stdout, replay_stdout,
+                   directory / "logs" / "telemetry_config.yaml", directory / "logs" / "replay_config.yaml")
 
 
 # --- the transport tests' harness (TC-005, TC-010 steps 6 and 7) -----------------------------
@@ -96,7 +105,7 @@ def run_published(binary: Path, args: list[str], cwd: Path, receiver: FrameRecei
     events: list[FaultEvent] = []
     start = time.perf_counter()
     with open(stdout_path, "w") as out:
-        process = subprocess.Popen([str(binary), *args], cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([str(binary), *CONFIG_ARGS, *args], cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
         try:
             while True:
                 record = receiver.recv()

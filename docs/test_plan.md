@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-12
+> **Last Updated:** 2026-10-13
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -38,7 +38,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 - **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015).
 - **Framework:** pytest, with numpy and matplotlib for the analysis.
-- **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it.
+- **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it. Every run of the binary passes `--config` with the shipped `config/telemetry_config.yaml` (the binary reads it relative to the working directory by default, and these runs happen in temporary directories); a test that needs another configuration hands the binary a copy with one line edited, and a later `--config` on the command line wins.
 - **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
 - **Executed:** Every commit, locally and in CI: the workflow's "Integration tests" step runs `python -m pytest` after the unit tests and before the coverage capture, so the integration runs count toward structural coverage (Section 6.1).
 
@@ -158,7 +158,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Requirement:** REQ-LOG-003 (also exercises REQ-LOG-004)
 - **Level:** Integration
 - **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
-- **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary used for both runs. Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at the integration level by `tests/integration/test_replay_identity.py`, which runs the binary twice in a temporary directory and parses both logs with `pipeline/log_reader.py`; the binary has no output-path option, so the files are its own `logs/telemetry_000.bin` and `logs/replay_000.bin`.
+- **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary and the same configuration for both runs: the replay reads the configuration recorded beside the log (REQ-CFG-003). Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at the integration level by `tests/integration/test_replay_identity.py`, which runs the binary twice in a temporary directory and parses both logs with `pipeline/log_reader.py`; the output directory is `logging.directory`, `logs` in the shipped file, so the files are `logs/telemetry_000.bin` and `logs/replay_000.bin`.
 - **Steps:**
   1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`.
   2. Run the pipeline in replay mode with that log as the data source. Log every processed frame to `logs/replay_000.bin`.
@@ -479,10 +479,55 @@ Test cards are the individual test procedures. Each card is executed by one or m
   8. The derived barometric variance within 25% of 2.774 m² = (0.2 hPa × 8.327 m/hPa)²; the command line on the same log with `--jitter`, `--figures`, `--json`: exit 0, the JSON complete, four PNGs.
   9. *(Hardware)* `telemetry --live --cycles 45000` with the board flat and untouched, the room temperature and a METAR sea-level pressure noted before and after; the five rotated files, the jitter CSV, the stdout's last lines, the commit, OS, kernel, GCC, chip IDs, and SHA-256 sums kept under `captures/`.
   10. The reader's summary and the analysis on the capture, figures to `docs/img/`, the JSON beside the capture; the tables into FTS-NP-001 with the provenance filled.
-  11. `processor.cpp`: the barometric variance and the initial altitude variance from the JSON; the simulator's four sigmas as named constants; the C++ suite and pytest green.
+  11. `config/telemetry_config.yaml` and the defaults of `ProcessorConfig` and `SimulationNoise` together (`ConfigTest.ShippedFileEqualsDefaults` holds them equal): the barometric variance from the JSON, the initial altitude variance following it; the simulator's four sigmas; the C++ suite and pytest green.
   12. File 000 replayed on the Mac through the constants before and after the change, and through the three initial-velocity-variance candidates: the fused altitude sigma, the vertical speed sigma, and the startup transient's peak and settle time tabulated; the candidate chosen by the rule in FTS-NP-001 Section 3.
 - **Expected result:** Steps 1 through 8 as listed. Step 9: 45,000 frames in five files reading as one run, one event (the GPS timeout near 2020 ms), zero torn bytes, zero missed cycles; pressure sigma a few pascals, barometric altitude sigma 0.2 to 0.35 m, gyro sigma about 0.02 deg/s with a bias of a few deg/s, accelerometer sigma about 0.02 m/s², no identical run near 10 on a stuck-tracked channel, the barometer's detrended ρ₁ within sampling error of zero and the IMU's positive (the DLPF, about 0.1 to 0.3, so its σ/ADEV(τ₀) sits above 1). Step 12: the measured constants replace the placeholders, with the climb-response and scatter consequences recorded.
 - **Pass/fail:** Any tolerance in steps 1 through 8 fails. Step 9 fails on any event other than the GPS timeout, a frame count other than 45,000, pressure repeats beyond five times float32's chance count (the chip read faster than it converts), or a significantly negative detrended ρ₁ on the barometer (no mechanism produces it). A significantly positive detrended ρ₁ is not a failure: the R rule then takes the variance of the linearly detrended series (FTS-NP-001 Section 3.2). Steps 10 to 12 are recorded in FTS-VR-001 Entry 9; a constant that leaves the pipeline with a different value than the document states fails.
+
+### TC-016: Configuration Loading, Validation, and the Session Record
+
+- **Requirement:** REQ-CFG-001, REQ-CFG-002, REQ-CFG-003 (also exercises REQ-TRANS-002, REQ-SENS-006, REQ-LOG-003)
+- **Level:** Unit (steps 1 through 9, `tests/unit/test_config.cpp`; step 10, the injection tests in `test_kalman.cpp`, `test_complementary.cpp`, `test_simulated_data.cpp`, `test_live_sensor_source.cpp`), Integration (steps 11 through 20, `tests/integration/test_config.py`)
+- **Objective:** Verify that every tunable REQ-CFG-001 names is read from one YAML file and reaches the module that uses it; that every invalid value is refused at startup and named, all in one report; and that the configuration a session ran with is recorded beside its log and is what a replay uses unless another is named.
+- **Preconditions:** `config/telemetry_config.yaml` (the shipped file) and `src/config/telemetry_config.cpp`. Unit steps load YAML text in memory (`load_config_text`) except where a path is the point. Integration steps run the binary from a temporary directory with `--config` naming the shipped file, as every run in the suite does (Section 2.2); a "copy" is the shipped text with one `key: value` line edited.
+- **Steps:**
+  1. Load the shipped file: no problems; every field equals a default-constructed `TelemetryConfig` (the drift test).
+  2. A nonexistent path and a directory path: one problem each, naming the path.
+  3. A syntax error (an unterminated flow sequence on line 3): one problem naming line and column; an empty document and a sequence document: "must be a mapping".
+  4. A missing section, a section of the wrong type, a missing key, an unknown key at the top level and nested, a duplicate key: each named once with its dotted path. Then each of the 36 keys removed in turn: `<path>: missing`, except the two whose removal empties their section (`timing.period_ms`, `sensors.barometer.address`), reported as the section "must be a mapping (got nothing)".
+  5. The scalar rules: `0x76` reads 118; `010`, `1.5`, `abc`, an empty scalar and `0x` are refused as integers; `.inf`, `.nan` and `abc` are refused as numbers; `yes`, `on` and `1` are refused as booleans; an empty string is refused where a string is required. Then each of the 36 keys given a sequence, and the text its rule refuses (`abc` for a whole number, `.nan` for a number, `yes` for a switch, an empty string for text): each named under its path by its own rule.
+  6. Every range at both edges: period 20 to 1000; addresses 0x08 to 0x77; IMU rate 4 to 100 and an exact divisor of 1000; timeouts at least 1; stuck count at least 2; recovery count at least 1; pressure and temperature minimum below maximum; accelerometer limit, the four variances and the sea-level pressure positive; alpha 0 to 1 inclusive; maximum file bytes at least 121; UDP host a dotted quad, port 1 to 65535, ZeroMQ endpoint non-empty; seed within 32 bits; GPS interval at least 1; sigmas positive (`std::normal_distribution` requires it). Then every whole-number key one past each of its edges, every positive number at 0, alpha at -0.1 and 1.1: one table over every key, because gcov counts a template's branches per instantiation and one key per rule leaves the other field types' decisions untaken.
+  7. The cross-field rules: the UART timeout must exceed the GPS interval; the IMU rate must be at least the processing rate.
+  8. Three problems in one file (period 0, stuck count 1, port 70000): all three reported, in schema order, `ok` false.
+  9. `log_prefix` and `recorded_config_path`: `logs/telemetry_007.bin` gives `telemetry` and `logs/telemetry_config.yaml`; `replay_000.bin` gives `replay`; names without `_NNN.bin` give nothing.
+  10. Injection: a GPS variance of 2500 against 25 changes the fused altitude at the first fix; alpha 1.0 through `ProcessorConfig` reproduces TC-006 step 3; a sea-level reference of 1023.25 hPa moves the barometric altitude by about 83 m; a tenfold pressure sigma scales the pressure noise tenfold frame by frame while every other channel stays bit-identical, and sigmas of 1e-6 sit on the base values within float rounding (zero is outside `std::normal_distribution`'s precondition); an IMU rate of 50 Hz writes `SMPLRT_DIV` 19; a rate of 30 Hz refuses startup by name.
+  11. *(pytest)* No configuration file and no flag, in a bare directory: exit 1, the default path and `--config` named, no `logs/` created.
+  12. *(pytest)* `--config` naming a missing file: exit 1, the path named.
+  13. *(pytest)* A copy with three invalid values: exit 1, all three dotted keys in stderr in schema order, no log written.
+  14. *(pytest)* The session's `logs/telemetry_config.yaml` equals the shipped file byte for byte; the session's replay, handed the same file by `--config`, printed "equal to the configuration recorded with"; a replay with no `--config` printed "(recorded with", reproduced the session log byte for byte, and its `logs/replay_config.yaml` equals the same bytes.
+  15. *(pytest)* A copy with `gps_measurement_variance_m2: 2500`, 50 cycles: the raw fields equal the session's first 50 frames and a computed field differs; the record beside the log equals the copy.
+  16. *(pytest)* The session log copied alone into a bare directory and replayed: exit 1 naming the expected `telemetry_config.yaml`.
+  17. *(pytest)* `--replay <session log> --config <the changed copy>`: exit 0, "not the configuration recorded" printed, `logs/replay_000.bin` differs from the session log.
+  18. *(pytest)* `--replay logs/replay_000.bin` in the session directory: exit 1, "would write" in stderr, the file's bytes unchanged.
+  19. *(pytest, each transport)* The shipped file (both transports disabled) with `--zmq` or `--udp`: frames received, the `Transport:` summary 50 published, 0 failures.
+  20. *(pytest, each transport)* A copy with the transport enabled and the receiver's address, no flag: frames received and byte-identical to the log.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `ok`, zero problems, every field equal |
+  | 2 to 8 | `ok` false, the problems exactly as listed, nothing else reported |
+  | 9 | the prefixes and paths as listed |
+  | 10 | each value demonstrably used by its module |
+  | 11 to 13 | exit 1, the messages as listed, no log past the header |
+  | 14 | both records equal the shipped file |
+  | 15 | raw fields equal, a computed field different, the record equals the copy |
+  | 16 | exit 1, the path named |
+  | 17 | exit 0, the notice, a different log |
+  | 18 | exit 1, the input intact |
+  | 19 and 20 | frames received as listed |
+
+- **Pass/fail:** Any field of the shipped file differing from the defaults fails (step 1). Any invalid value accepted, any valid edge value refused, any problem reported under the wrong key, or fewer problems than planted fails. A record that differs from the file by one byte fails. A replay that runs without a record and without `--config`, or that runs another configuration silently, fails.
 
 ## 6. Coverage Strategy
 
@@ -511,11 +556,12 @@ Chasing these to 100% produces tests that exist to satisfy the metric rather tha
 | Scope | Branch coverage target |
 |---|---|
 | `src/processing/` (filters and fault detection) | 90% |
+| `src/config/` (the configuration loader and its rules) | 90% |
 | `src/timing/`, `src/logging/`, `src/transport/`, `src/replay/` | 80% |
 | `src/drivers/` | 70% |
 | Overall | 80% |
 
-Processing carries the highest target because filters and fault detection are pure logic with no hardware dependency, so every branch is reachable from a unit test. Drivers carry the lowest because their error branches are hardware-bound. The overall figure is a floor, not a goal.
+Processing carries the highest target because filters and fault detection are pure logic with no hardware dependency, so every branch is reachable from a unit test; the configuration loader shares it, every branch of it reachable from a string. Drivers carry the lowest because their error branches are hardware-bound. The overall figure is a floor, not a goal.
 
 ### 6.4 MC/DC
 
@@ -527,10 +573,10 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Eleven requirements are Partial in FTS-TM-001, the four I2C sensor requirements and the UDP transport among them (on-target evidence and REQ-CFG-001 pending). The Notes column there states what each is missing.
+- Nine requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence pending). The Notes column there states what each is missing.
 - TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (REQ-SENS-005).
-- The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The constants the live source starts from (barometer 0x76, MPU6050 identity 0x68, driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12).
-- Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both. REQ-TRANS-002 stays Partial until REQ-CFG-001 carries the destination. TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
+- The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
+- Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
 - GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.

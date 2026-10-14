@@ -10,7 +10,7 @@ This document is the measurement REQ-PROC-004 names. It states, before the data 
 
 ## 1. Purpose and scope
 
-The Kalman filter (FTS-DD-001 Section 5) needs the variance of a barometric altitude measurement, and the complementary filter's behaviour on hardware depends on the gyroscope's bias. Until this document carries measured values, the five constants in `src/processing/processor.cpp` are placeholders chosen from the simulator's own noise. The capture also sets the simulator's sigmas (REQ-SENS-006), so the simulator becomes the sensor's twin, and gives the fault detector's stuck-value rule its margin.
+The Kalman filter (FTS-DD-001 Section 5) needs the variance of a barometric altitude measurement, and the complementary filter's behaviour on hardware depends on the gyroscope's bias. Until this document carries measured values, the filter's constants (the `processing` keys of `config/telemetry_config.yaml` and the equal defaults of `ProcessorConfig`, REQ-CFG-001) are placeholders chosen from the simulator's own noise. The capture also sets the simulator's sigmas (`simulation.noise` in the file and the `SimulationNoise` defaults, REQ-SENS-006), so the simulator becomes the sensor's twin, and gives the fault detector's stuck-value rule its margin.
 
 **Measured here:** per channel, on fresh samples only, the mean, the population sigma, the Allan deviation over averaging times from one sample up, the lag-1 autocorrelation, the quantization step, and the longest run of identical samples; the gyroscope bias per axis and the tilt it predicts; the accelerometer offsets; the barometric altitude noise in metres two ways; the pipeline's own outputs after a settle window and the startup transient inside it; the scheduler's jitter over the run.
 

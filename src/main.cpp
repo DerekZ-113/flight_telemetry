@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -10,6 +11,7 @@
 #include <zmq.hpp>
 
 #include "telemetry_frame.h"
+#include "config/telemetry_config.h"
 #include "data_source.h"
 #include "logging/binary_logger.h"
 #include "processing/altitude.h"
@@ -31,29 +33,21 @@
 
 // The processor's default re-seed bound and the detector's default I2C
 // timeout are one number, "the IMU communication timeout" of REQ-PROC-002
-// and REQ-FAULT-001. Checked at compile time so the two cannot drift
-// apart in a header edit; main below also hands both the same value.
+// and REQ-FAULT-001. Checked at compile time so the two defaults the unit
+// tests build on cannot drift apart in a header edit; main below hands
+// both the one configured value, `fault.i2c_timeout_ms`.
 static_assert(FaultDetectorConfig{}.i2c_timeout_ms == TelemetryProcessor::kDefaultImuTimeoutMs,
               "REQ-PROC-002: the processor's re-seed bound must equal the detector's I2C timeout");
 
-// Log rotation size. Placeholder until config (REQ-CFG-001).
-constexpr uint64_t kMaxLogFileBytes = 1u << 20;   // 1 MiB, about 10,000 frames
-
-// Processing period, 50 Hz (REQ-TIME-001). Placeholder until config
-// (REQ-CFG-001). Digit separators: 20 ms in nanoseconds.
-constexpr uint64_t kPeriodNs = 20'000'000;
-
-// Frames per run without --cycles: a quick smoke run.
+// Frames per run without --cycles: a quick smoke run. A run length is a
+// property of the run, not of the system, so it is a flag and not a key
+// of the configuration file (REQ-CFG-001 does not list it).
 constexpr int kDefaultCycles = 5;
 
-// The live source's bus and addresses (REQ-SENS-001 through REQ-SENS-004).
-// Placeholders until config (REQ-CFG-001). The addresses are the boards'
-// defaults, provisional until the first hardware day reads them
-// (design.md section 12): a barometer with SDO to ground answers at
-// 0x76, an MPU6050 with AD0 low at 0x68.
-constexpr const char* kI2cDevicePath = "/dev/i2c-1";
-constexpr uint8_t kBarometerAddress = 0x76;
-constexpr uint8_t kImuAddress = 0x68;
+// Where the configuration of record is read from unless --config says
+// otherwise: relative to the working directory, which for the README's
+// commands and the Pi is the repository root (REQ-CFG-001).
+constexpr const char* kDefaultConfigPath = "config/telemetry_config.yaml";
 
 void print_frame(const TelemetryFrame& frame) {
     std::cout << "=== Telemetry Frame ===" << std::endl;
@@ -100,14 +94,18 @@ void print_event(const FaultEvent& event) {
               << " value=" << event.value << std::endl;
 }
 
-// Command line. --live takes no value and swaps the source for the real
-// sensors; the rest take one: --replay <file> swaps the source for a log,
-// --zmq <endpoint> and --udp <ipv4>:<port> each add a publisher (both may
-// be given), --cycles <n> sets the run length
-// (TC-005 step 2 needs 200; the default stays the 5-cycle smoke run).
-// Parsed once, here; the YAML config (REQ-CFG-001) will replace it.
+// Command line. The configuration file is the standing configuration
+// (REQ-CFG-001); a flag is a per-run instruction and wins where the two
+// overlap. --live takes no value and swaps the source for the real
+// sensors; the rest take one: --config <file> names the configuration,
+// --replay <file> swaps the source for a log, --zmq <endpoint> and
+// --udp <ipv4>:<port> each enable a publisher for this run and override
+// its address in the file (both may be given), --cycles <n> sets the run
+// length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
+// run). Nothing else on the command line overrides a key.
 struct Options {
     bool live = false;
+    std::optional<std::string> config_path;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
     std::optional<std::string> udp_destination;   // as typed, for messages
@@ -118,11 +116,13 @@ struct Options {
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
-              << "  --live               read the BMP280 and MPU6050 on " << kI2cDevicePath << ", paced\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+              << "  --config <file>      the configuration (default " << kDefaultConfigPath
+              << "; a replay reads the file recorded beside its log)\n"
+              << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device), paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
-              << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555\n"
-              << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556\n"
+              << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
+              << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
 }
 
@@ -133,7 +133,9 @@ Options parse_args(int argc, const char* const argv[]) {
     for (int i = 1; i < argc; i++) {
         const std::string flag = argv[i];
         const bool has_value = (i + 1 < argc);
-        if (flag == "--replay" && has_value) {
+        if (flag == "--config" && has_value) {
+            options.config_path = argv[++i];
+        } else if (flag == "--replay" && has_value) {
             options.replay_file = argv[++i];
         } else if (flag == "--zmq" && has_value) {
             options.zmq_endpoint = argv[++i];
@@ -178,10 +180,12 @@ Options parse_args(int argc, const char* const argv[]) {
     return options;
 }
 
-// Factory: decides which concrete DataSource to build. Today the choice
-// is two command-line flags; later it reads the YAML config (REQ-CFG-001).
-// The return type is the base class, so callers cannot tell which one
-// they got. That is the point (REQ-LOG-004).
+// Factory: decides which concrete DataSource to build. Two command-line
+// flags choose the source; the configuration supplies each source's
+// parameters (the bus and addresses, the IMU rate, the simulator's seed,
+// GPS period and noise: REQ-CFG-001). The return type is the base class,
+// so callers cannot tell which one they got. That is the point
+// (REQ-LOG-004).
 //
 // std::make_unique constructs the object on the heap and wraps the
 // pointer in a std::unique_ptr<Derived>, which converts implicitly to
@@ -192,9 +196,10 @@ Options parse_args(int argc, const char* const argv[]) {
 // throwing, the project's shape for startup errors, and a missing device
 // file or a chip answering with the wrong identity is a wiring or
 // configuration error that the first live run wants on one line.
-std::unique_ptr<DataSource> create_source(const Options& options, Clock& clock, std::string& error) {
+std::unique_ptr<DataSource> create_source(const Options& options, const TelemetryConfig& cfg, Clock& clock,
+                                          std::string& error) {
     if (options.live) {
-        auto bus = std::make_unique<LinuxI2cBus>(kI2cDevicePath);
+        auto bus = std::make_unique<LinuxI2cBus>(cfg.sensors.i2c_device);
         if (!bus->ok()) {
             error = bus->error();
             return nullptr;
@@ -202,8 +207,9 @@ std::unique_ptr<DataSource> create_source(const Options& options, Clock& clock, 
         // The raw pointer outlives the move below only for the message: the
         // source owns the bus from here on.
         const LinuxI2cBus* const bus_view = bus.get();
-        auto live = std::make_unique<LiveSensorSource>(std::move(bus), kBarometerAddress,
-                                                       kImuAddress, clock);
+        auto live = std::make_unique<LiveSensorSource>(std::move(bus), cfg.sensors.barometer.address,
+                                                       cfg.sensors.imu.address, clock,
+                                                       cfg.sensors.imu.sample_rate_hz);
         if (!live->ok()) {
             error = live->error();
             if (bus_view->last_errno() != 0) {
@@ -217,10 +223,12 @@ std::unique_ptr<DataSource> create_source(const Options& options, Clock& clock, 
         return std::make_unique<LogReplaySource>(
             std::vector<std::filesystem::path>{*options.replay_file});
     }
-    // 20 ms interval = 50 Hz. Seed 42 keeps the run reproducible (REQ-SENS-006).
+    // The simulator stamps its frames on the loop's own period and the
+    // configured seed keeps the run reproducible (REQ-SENS-006).
     // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
     // which comes from feeding logged frames back through the pipeline.
-    return std::make_unique<SimulatedSource>(20, 42);
+    return std::make_unique<SimulatedSource>(cfg.timing.period_ms, cfg.simulation.seed,
+                                             cfg.simulation.gps_interval_ms, cfg.simulation.noise);
 }
 
 // The processing loop: source -> fault detector -> processor -> output.
@@ -292,9 +300,10 @@ void run(DataSource& source, FaultDetector& detector, TelemetryProcessor& proces
     }
 }
 
-// Usage: telemetry                        simulated source, 5 frames
-//        telemetry --live --cycles 250    real sensors on /dev/i2c-1, 5 s paced
-//        telemetry --replay <log.bin>     replay a recorded log instead
+// Usage: telemetry                        simulated source, 5 frames, config/telemetry_config.yaml
+//        telemetry --config other.yaml    the same with another configuration file
+//        telemetry --live --cycles 250    real sensors on the configured I2C bus, 5 s paced
+//        telemetry --replay <log.bin>     replay a recorded log with the configuration recorded beside it
 //        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
 //                                         publish every processed frame; 10 s at 50 Hz
 //        telemetry --udp 127.0.0.1:5556 --cycles 500
@@ -310,6 +319,94 @@ int main(int argc, char* argv[]) {
     }
     const bool replaying = options.replay_file.has_value();
 
+    // The configuration (REQ-CFG-001, REQ-CFG-002, REQ-CFG-003). A replay
+    // reads the configuration recorded beside its log unless --config
+    // names another file, which is a legitimate run (tuning by replay) but
+    // not an identity claim, and the line below says so. A live or
+    // simulated run reads --config or the default path. Every problem is
+    // reported at once and nothing is built before the file passes: the
+    // loop reads values, never the file.
+    std::filesystem::path config_path = options.config_path.value_or(kDefaultConfigPath);
+    std::optional<std::filesystem::path> recorded;
+    if (replaying) {
+        recorded = recorded_config_path(*options.replay_file);
+        if (!recorded.has_value()) {
+            std::cerr << "error: cannot derive the configuration recorded with " << *options.replay_file
+                      << ": the log is not named <prefix>_NNN.bin; pass --config <file>" << std::endl;
+            return 1;
+        }
+        if (!options.config_path.has_value()) {
+            config_path = *recorded;
+        }
+    }
+    const ConfigLoad load = load_config_file(config_path);
+    if (!load.ok) {
+        const bool unreadable = load.problems.size() == 1 && load.problems[0].rfind("cannot read", 0) == 0;
+        if (unreadable) {
+            std::cerr << "error: " << load.problems[0];
+            if (config_path != kDefaultConfigPath && !replaying) {
+                std::cerr << std::endl;
+            } else {
+                std::cerr << "; pass --config <file>" << std::endl;
+            }
+        } else {
+            std::cerr << "error: configuration " << config_path.string() << " has " << load.problems.size()
+                      << (load.problems.size() == 1 ? " problem:" : " problems:") << std::endl;
+            for (const std::string& problem : load.problems) {
+                std::cerr << "  " << problem << std::endl;
+            }
+        }
+        return 1;
+    }
+    const TelemetryConfig& cfg = load.config;
+
+    // What the Configuration line says about a replay: the record beside
+    // the log, the same configuration by content under another name, a
+    // different one, or no record at all. Identity (REQ-LOG-003) is a
+    // property of the configuration's text, not of the file's path.
+    std::string config_note;
+    if (replaying) {
+        const std::string& log = *options.replay_file;
+        if (!options.config_path.has_value()) {
+            config_note = " (recorded with " + log + ")";
+        } else {
+            const ConfigLoad record = load_config_file(*recorded);
+            if (record.text.empty()) {
+                config_note = " (no configuration recorded with " + log + "; replay identity is not claimed)";
+            } else if (record.text == load.text) {
+                config_note = " (equal to the configuration recorded with " + log + ")";
+            } else {
+                config_note = " (not the configuration recorded with " + log + "; replay identity is not claimed)";
+            }
+        }
+    }
+    std::cout << "Configuration: " << config_path.string() << config_note << std::endl;
+
+    // A replay run logs under a different prefix, so session A and
+    // session B sit side by side, which is also what TC-004 compares. The
+    // replay source opens its input lazily, on the first read, after the
+    // logger has truncated its output; the prefixes keep the two apart
+    // unless the input is itself a replay log in the output directory,
+    // which is refused here rather than destroyed (REQ-LOG-003,
+    // REQ-CFG-003).
+    const std::string prefix = replaying ? "replay" : "telemetry";
+    if (replaying) {
+        const std::filesystem::path input(*options.replay_file);
+        std::filesystem::path input_directory = input.parent_path();
+        if (input_directory.empty()) {
+            input_directory = ".";
+        }
+        std::error_code ec;
+        const bool same_directory = std::filesystem::weakly_canonical(input_directory, ec) ==
+                                    std::filesystem::weakly_canonical(cfg.logging.directory, ec);
+        if (log_prefix(input) == prefix && same_directory) {
+            std::cerr << "error: refusing to replay " << input.string() << ": this run would write "
+                      << (std::filesystem::path(cfg.logging.directory) / (prefix + "_NNN.bin")).string()
+                      << " over it; copy the file elsewhere or change logging.directory" << std::endl;
+            return 1;
+        }
+    }
+
     // One monotonic clock paces the loop (below) and stamps live frames, so
     // the frame timestamps and the jitter CSV measure the same time
     // (design.md section 10).
@@ -319,7 +416,7 @@ int main(int argc, char* argv[]) {
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
     std::string source_error;
-    std::unique_ptr<DataSource> source = create_source(options, clock, source_error);
+    std::unique_ptr<DataSource> source = create_source(options, cfg, clock, source_error);
     if (!source) {
         std::cerr << "error: " << source_error << std::endl;
         return 1;
@@ -327,39 +424,48 @@ int main(int argc, char* argv[]) {
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
-    // One config object feeds both: the IMU timeout is the detector's
+    // One configured value feeds both: the IMU timeout is the detector's
     // fault bound and the processor's re-seed bound (REQ-PROC-002), and
-    // they must be the same number. Default thresholds until config
-    // (REQ-CFG-001).
-    const FaultDetectorConfig config{};
-    FaultDetector detector(config);
-    TelemetryProcessor processor(ProcessorConfig{}, config.i2c_timeout_ms);
+    // they must be the same number.
+    FaultDetector detector(cfg.fault);
+    TelemetryProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
 
-    // A replay run logs under a different prefix. The replay source opens
-    // its input before the logger opens its output, and both live in
-    // ./logs; with the same prefix the logger would truncate the very
-    // file being replayed. Different names keep session A and session B
-    // side by side, which is also what TC-004 compares.
-    BinaryLogger logger("logs", replaying ? "replay" : "telemetry", kMaxLogFileBytes);
+    BinaryLogger logger(cfg.logging.directory, prefix, cfg.logging.max_file_bytes);
     if (!logger.ok()) {
-        std::cerr << "cannot open log file in ./logs" << std::endl;
+        std::cerr << "cannot open log file in " << cfg.logging.directory << std::endl;
         return 1;
+    }
+
+    // The session's configuration record (REQ-CFG-003): the file's text,
+    // verbatim, beside the log under the log's prefix, so a replay of this
+    // session reads exactly what this run read.
+    const std::filesystem::path record_path = std::filesystem::path(cfg.logging.directory) / (prefix + "_config.yaml");
+    {
+        std::ofstream record(record_path, std::ios::binary | std::ios::trunc);
+        record << load.text;
+        if (!record) {
+            std::cerr << "error: cannot write the configuration record " << record_path.string() << std::endl;
+            return 1;
+        }
     }
 
     // ZeroMQ (REQ-TRANS-001). One context per process, declared before the
     // publisher so it is destroyed after it: terminating the context waits
     // for every socket on it to close, so this order is the difference
-    // between a clean exit and a hang. Both exist only with --zmq. A bind
-    // that fails is a startup error, loud and fatal like an unwritable log
-    // directory; failures during the loop are counted, never fatal
-    // (REQ-TRANS-003).
+    // between a clean exit and a hang. Both exist only when the file
+    // enables the transport or --zmq does; the flag's endpoint wins. A
+    // bind that fails is a startup error, loud and fatal like an
+    // unwritable log directory; failures during the loop are counted,
+    // never fatal (REQ-TRANS-003).
+    const bool zmq_enabled = options.zmq_endpoint.has_value() || cfg.transport.zmq.enabled;
+    const std::string zmq_endpoint = options.zmq_endpoint.value_or(cfg.transport.zmq.endpoint);
     std::optional<zmq::context_t> zmq_context;
     std::optional<ZmqPublisher> publisher;
-    if (options.zmq_endpoint.has_value()) {
+    if (zmq_enabled) {
         zmq_context.emplace(1);   // one I/O thread moves messages to the wire
-        publisher.emplace(*zmq_context, *options.zmq_endpoint);
+        publisher.emplace(*zmq_context, zmq_endpoint);
         if (!publisher->ok()) {
-            std::cerr << "cannot bind ZeroMQ publisher to " << *options.zmq_endpoint
+            std::cerr << "cannot bind ZeroMQ publisher to " << zmq_endpoint
                       << ": " << publisher->error() << std::endl;
             return 1;
         }
@@ -370,11 +476,15 @@ int main(int argc, char* argv[]) {
     // publisher refuses (not an IPv4 address, not unicast, no route) is
     // fatal here; a send the kernel refuses inside the loop is counted
     // (REQ-TRANS-003).
+    const bool udp_enabled = options.udp_destination.has_value() || cfg.transport.udp.enabled;
+    const std::string udp_host = options.udp_destination.has_value() ? options.udp_host : cfg.transport.udp.host;
+    const int udp_port = options.udp_destination.has_value() ? options.udp_port : cfg.transport.udp.port;
+    const std::string udp_destination = udp_host + ":" + std::to_string(udp_port);
     std::optional<UdpPublisher> udp_publisher;
-    if (options.udp_destination.has_value()) {
-        udp_publisher.emplace(options.udp_host, options.udp_port);
+    if (udp_enabled) {
+        udp_publisher.emplace(udp_host, udp_port);
         if (!udp_publisher->ok()) {
-            std::cerr << "cannot send UDP to " << *options.udp_destination
+            std::cerr << "cannot send UDP to " << udp_destination
                       << ": " << udp_publisher->error() << std::endl;
             return 1;
         }
@@ -392,13 +502,15 @@ int main(int argc, char* argv[]) {
     }
 
     // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
-    // held to the 50 Hz grid and their jitter is logged; a replay run is
-    // unpaced (see run()). The objects are built either way so their
-    // lifetime covers the loop; only the pointers decide whether they act.
-    FixedRateScheduler scheduler(clock, kPeriodNs);
+    // held to the configured grid and their jitter is logged beside the
+    // log; a replay run is unpaced (see run()). The objects are built
+    // either way so their lifetime covers the loop; only the pointers
+    // decide whether they act.
+    FixedRateScheduler scheduler(clock, cfg.timing.period_ms * 1'000'000);
+    const std::filesystem::path jitter_path = std::filesystem::path(cfg.logging.directory) / "telemetry_jitter.csv";
     std::optional<JitterLog> jitter;
     if (!replaying) {
-        jitter.emplace("logs/telemetry_jitter.csv");
+        jitter.emplace(jitter_path);
     }
 
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
@@ -414,20 +526,20 @@ int main(int argc, char* argv[]) {
 
     if (jitter.has_value()) {
         const JitterStats& st = jitter->stats();
-        std::cout << "Timing:    " << st.cycles << " cycles at " << kPeriodNs / 1'000'000 << " ms"
+        std::cout << "Timing:    " << st.cycles << " cycles at " << cfg.timing.period_ms << " ms"
                   << ", jitter min/mean/max = " << st.min_ns / 1000.0 << " / "
                   << st.mean_ns() / 1000.0 << " / " << st.max_ns / 1000.0 << " us"
                   << ", missed cycles = " << st.missed_cycles
-                  << "  (logs/telemetry_jitter.csv)" << std::endl;
+                  << "  (" << jitter_path.string() << ")" << std::endl;
     } else {
         std::cout << "Timing:    unpaced (replay)" << std::endl;
     }
 
     if (publisher.has_value()) {
-        print_transport_summary(publisher->stats(), "on " + *options.zmq_endpoint + " (ZeroMQ)");
+        print_transport_summary(publisher->stats(), "on " + zmq_endpoint + " (ZeroMQ)");
     }
     if (udp_publisher.has_value()) {
-        print_transport_summary(udp_publisher->stats(), "to " + *options.udp_destination + " (UDP)");
+        print_transport_summary(udp_publisher->stats(), "to " + udp_destination + " (UDP)");
     }
 
     // Sanity checks

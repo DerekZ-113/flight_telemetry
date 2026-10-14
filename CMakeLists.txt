@@ -53,6 +53,7 @@ add_library(telemetry_core STATIC
     src/timing/jitter_log.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
+    src/config/telemetry_config.cpp
 )
 
 # PUBLIC: anything that links telemetry_core (the executable, the tests)
@@ -138,6 +139,11 @@ enable_testing()
 file(GLOB UNIT_TEST_SOURCES CONFIGURE_DEPENDS tests/unit/*.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
+# The configuration tests load the shipped file itself (TC-016 step 1, the
+# drift test), so its path is compiled in rather than guessed from whatever
+# directory ctest runs from.
+target_compile_definitions(unit_tests PRIVATE
+    TELEMETRY_SHIPPED_CONFIG="${CMAKE_SOURCE_DIR}/config/telemetry_config.yaml")
 # gtest_main supplies main(), so test files contain only TEST() bodies.
 target_link_libraries(unit_tests PRIVATE telemetry_core GTest::gtest_main)
 

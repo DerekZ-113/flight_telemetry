@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.5.1
+> **Version:** 0.6.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-12
+> **Last Updated:** 2026-10-13
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
 
 ## Conventions
@@ -17,6 +17,8 @@ A *channel* is one sensor's data path: barometer (BMP280), IMU (MPU6050), or GPS
 ## Sensor Data Acquisition
 
 REQ-SENS-001: The system shall read barometric pressure from the BMP280 sensor via I2C at a configurable sample rate between 1 Hz and 50 Hz.
+
+> **Rationale:** the chip converts continuously at a rate fixed by its oversampling and standby settings (roughly 80 Hz as driven) and the system reads it once per cycle, so its sample rate is the processing rate of REQ-TIME-001: the 1 Hz to 50 Hz range is the range of `timing.period_ms` under REQ-CFG-001, 1000 ms to 20 ms. A period shorter than the chip's conversion would read repeated conversions and trip the stuck-value fault.
 
 REQ-SENS-002: The system shall read temperature from the BMP280 sensor via I2C with each pressure reading.
 
@@ -34,7 +36,7 @@ REQ-SENS-005: The system shall read position (latitude, longitude, altitude), gr
 
 REQ-SENS-006: The system shall provide a simulated data source that produces TelemetryFrames of raw sensor readings with configurable noise, delivering each channel's readings at a configurable rate and marking the frames between readings as not fresh (`read_ok` false).
 
-> **Rationale:** the pipeline can be developed and tested without hardware, so the simulator must model the one timing fact that changes the pipeline's behavior: a GPS that fixes once per second while the barometer and IMU are read every cycle. The rate is a constructor parameter until REQ-CFG-001. Replay of recorded sessions is a separate function (REQ-LOG-003).
+> **Rationale:** the pipeline can be developed and tested without hardware, so the simulator must model the one timing fact that changes the pipeline's behavior: a GPS that fixes once per second while the barometer and IMU are read every cycle. The GPS rate and the noise are keys of REQ-CFG-001 (`simulation.gps_interval_ms`, `simulation.noise.*`); the barometer and IMU are delivered every cycle at the processing rate. Replay of recorded sessions is a separate function (REQ-LOG-003).
 
 ## Data Processing
 
@@ -86,7 +88,7 @@ REQ-TRANS-001: The system shall publish every processed TelemetryFrame over Zero
 
 REQ-TRANS-002: The system shall publish every processed TelemetryFrame over UDP to a configurable destination address and port.
 
-> **Rationale:** the UDP transport is the network analog of a telemetry downlink: one datagram per frame, laid out as the same one-record log message the ZeroMQ transport sends (FTS-DD-001 Section 9), to one unicast destination, with no acknowledgement and no retransmission, because a frame resent after the next one is due is stale. Loss and reordering are measured at the receiver from frame timestamps; the sender counts only what the kernel refuses (REQ-TRANS-003). The destination is the `--udp <ipv4>:<port>` argument until the configuration file of REQ-CFG-001 carries it, which is why this requirement stays Partial until then. The binary log, not the wire, is the record of a run.
+> **Rationale:** the UDP transport is the network analog of a telemetry downlink: one datagram per frame, laid out as the same one-record log message the ZeroMQ transport sends (FTS-DD-001 Section 9), to one unicast destination, with no acknowledgement and no retransmission, because a frame resent after the next one is due is stale. Loss and reordering are measured at the receiver from frame timestamps; the sender counts only what the kernel refuses (REQ-TRANS-003). The destination is `transport.udp.host` and `transport.udp.port` in the configuration file of REQ-CFG-001; `--udp <ipv4>:<port>` enables the transport for one run and overrides them. The binary log, not the wire, is the record of a run.
 
 REQ-TRANS-003: A transport failure shall not block the processing loop or cause it to miss a cycle deadline (REQ-TIME-001).
 
@@ -100,7 +102,7 @@ REQ-LOG-002: The system shall rotate to a new log file when the current file wou
 
 REQ-LOG-003: When replaying a recorded binary log, the system shall produce processing outputs identical, bit for bit, to those of the original session recorded by the same build on the same platform.
 
-> **Rationale:** cross-platform identity is not claimed, because standard-library math and random-number implementations differ between toolchains (FTS-DD-001 Section 8).
+> **Rationale:** cross-platform identity is not claimed, because standard-library math and random-number implementations differ between toolchains (FTS-DD-001 Section 8). Identity also presumes the configuration recorded with the session (REQ-CFG-003): a replay through another configuration is reported as such and claims nothing.
 
 REQ-LOG-004: Replay mode shall use the same processing pipeline as live mode, differing only in data source.
 
@@ -108,7 +110,15 @@ REQ-LOG-004: Replay mode shall use the same processing pipeline as live mode, di
 
 REQ-CFG-001: The following system parameters shall be configurable through a YAML configuration file: sensor sample rates and the processing rate; fault detection timeouts, counts, and limits; filter tuning (Kalman covariances, complementary filter gain, and the sea-level reference pressure); transport addresses and ports; log file paths and maximum file size; and simulated-source noise.
 
+> **Rationale:** the file (`config/telemetry_config.yaml`, or the path given by `--config`) is the standing configuration and the only source of the values the binary runs with; there is no built-in fallback, so a missing file is refused at startup. `--live`, `--replay` and `--cycles` choose the run; `--zmq` and `--udp` enable a transport for one run and override its address, the only place a flag and a key overlap. Every key is required, and an unknown or duplicate key is an error, so a misspelled key cannot silently leave a value at some other setting. The defaults compiled into the module structs are the unit tests' baseline, never the binary's fallback; a test holds the shipped file equal to them.
+
 REQ-CFG-002: At startup, the system shall validate every configuration value and report an error naming each invalid or out-of-range parameter.
+
+> **Rationale:** *each* is binding: one pass over the file collects every problem and the report names them all, so the operator corrects the file once. Validation happens before any object is built and never again: the loop reads values, not the file (FTS-DD-001 Section 3).
+
+REQ-CFG-003: The system shall record the configuration in effect beside each session's log, and replay mode shall use that recorded configuration unless another file is named explicitly, reporting which configuration it used.
+
+> **Rationale:** the computed fields are a function of the raw frames, the code, and the configuration. The log header pins the code's layout (REQ-LOG-001) and the frames are the data; nothing pinned the configuration, so a changed filter constant could break the identity of REQ-LOG-003 silently. The record is the file's text copied verbatim beside the log (`<prefix>_config.yaml`), so a replay reads exactly what the session read. Replaying a session through a different configuration is a legitimate use (FTS-NP-001 chooses the initial velocity variance that way), so it is reported, not refused. Rejected placements: a hash in the log header's reserved field (the field's job is to be zero, and a one-record wire message would stop being a byte-exact log file), a configuration record in the stream (a format version bump), and operator discipline (no evidence).
 
 ## Testing
 

@@ -1,0 +1,91 @@
+# Flight Telemetry System: the configuration of record (REQ-CFG-001).
+#
+# This file is the standing configuration, the only source of the values the
+# binary runs with. `telemetry` reads config/telemetry_config.yaml from the
+# working directory, or the file named by --config; validates every value at
+# startup and refuses to start on any problem, naming each one (REQ-CFG-002);
+# and copies this text verbatim beside the session's log as
+# <prefix>_config.yaml, which a replay of that log then reads (REQ-CFG-003).
+#
+# Rules. Every key below is required; an unknown or duplicate key is an
+# error. A whole number is decimal digits or 0x and hex digits, nothing else
+# (010 is refused, not read as octal). A number is anything strtod reads in
+# full that is finite (.inf and .nan are refused). A switch is exactly true
+# or false. Text must not be empty. --zmq <endpoint> and --udp <ipv4>:<port>
+# enable a transport for one run and override its address; --live, --replay
+# and --cycles choose the run; nothing else on the command line overrides a key.
+#
+# The values here equal the defaults compiled into the module structs, the
+# unit tests' baseline; ConfigTest.ShippedFileEqualsDefaults fails the build
+# if the two drift apart. The addresses are the boards' defaults, provisional
+# until the chips are read on the Pi (FTS-DD-001 section 12).
+
+# REQ-TIME-001: the processing loop's period, 20 to 1000 ms. The barometer is
+# read once per cycle, so this is also its sample rate, 50 to 1 Hz
+# (REQ-SENS-001); the simulated source stamps its frames on the same grid.
+timing:
+  period_ms: 20
+
+# REQ-SENS-001 through REQ-SENS-004: live mode (--live).
+sensors:
+  i2c_device: /dev/i2c-1
+  barometer:
+    address: 0x76            # 7-bit I2C address, 0x08 to 0x77; SDO to ground
+  imu:
+    address: 0x68            # AD0 low
+    sample_rate_hz: 100      # 4 to 100, an exact divisor of 1000, at least the processing rate
+
+# REQ-FAULT-001, -002, -003, -005 (FTS-FM-001 FAULT-001 to FAULT-011).
+fault:
+  i2c_timeout_ms: 500        # FAULT-001, -002, -004; also the attitude filter's re-seed bound (REQ-PROC-002)
+  uart_timeout_ms: 2000      # FAULT-003a; must exceed the GPS output period (simulation.gps_interval_ms; 1 s on a NEO-6M)
+  stuck_count: 10            # N of REQ-FAULT-002 (FAULT-005, -006, -007); at least 2
+  recovery_count: 5          # M of REQ-FAULT-005 (FAULT-011); at least 1
+  pressure_min_hpa: 300      # FAULT-008: the BMP280 operating range
+  pressure_max_hpa: 1100
+  temperature_min_c: -40     # FAULT-009: the BMP280 operating range
+  temperature_max_c: 85
+  accel_limit_mps2: 19.62    # FAULT-010: the MPU6050's +/-2 g full scale, 2 x 9.81
+
+# REQ-PROC-001 to REQ-PROC-004: the processor's tuning. FTS-NP-001 gives the
+# provenance of each number; the placeholders stand until the stationary
+# capture is analyzed.
+processing:
+  baro_measurement_variance_m2: 3.0   # m^2; also the initial altitude variance (REQ-PROC-004)
+  gps_measurement_variance_m2: 25.0   # m^2; the datasheet figure until REQ-SENS-005
+  initial_velocity_variance: 1.0      # (m/s)^2
+  accel_noise_variance: 1.0           # (m/s^2)^2, the process noise
+  complementary_alpha: 0.98           # gyro weight, 0 to 1; at 50 Hz a time constant of about 1 s
+  sea_level_pressure_hpa: 1013.25     # ISA; a METAR value makes the barometric altitude absolute
+
+# REQ-LOG-001, REQ-LOG-002. The jitter CSV and the configuration record are
+# written to the same directory.
+logging:
+  directory: logs
+  max_file_bytes: 1048576    # 1 MiB, about 10,000 frames; at least 121, one record
+
+# REQ-TRANS-001, REQ-TRANS-002. Both off here: --zmq and --udp turn one on
+# for a run and override its address.
+transport:
+  zmq:
+    enabled: false
+    endpoint: tcp://127.0.0.1:5555
+  udp:
+    enabled: false
+    host: 127.0.0.1          # an IPv4 dotted quad, one unicast host
+    port: 5556
+
+# REQ-SENS-006: the simulated source, the default source. The seed makes a
+# run reproducible; each sigma is one channel's noise, one standard
+# deviation, positive.
+simulation:
+  seed: 42
+  gps_interval_ms: 1000      # a NEO-6M fixes once per second
+  noise:
+    pressure_sigma_hpa: 0.2        # pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS
+    temperature_sigma_c: 0.1
+    accel_sigma_mps2: 0.05         # the MPU6050's 400 ug/sqrt(Hz) at 100 Hz bandwidth
+    gyro_sigma_dps: 0.1            # about twice the datasheet figure at 100 Hz
+    latitude_sigma_deg: 0.00002    # about 2.2 m
+    longitude_sigma_deg: 0.00002   # about 1.8 m at 37.5 N
+    gps_altitude_sigma_m: 2.0      # optimistic: a NEO-6M is closer to 5 m

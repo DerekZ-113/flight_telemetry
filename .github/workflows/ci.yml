@@ -67,7 +67,10 @@ jobs:
         # times (one simulated session, the transport runs); the binary is
         # the instrumented telemetry_core, so these runs add their counts
         # to the .gcda files the unit tests wrote (test_plan.md 6.1).
-        run: python -m pytest
+        # -rA: the summary carries each passing test's captured prints
+        # (the transport tests' join index and stall counts), which the
+        # verification record quotes from this log.
+        run: python -m pytest -rA
 
       - name: Coverage report
         run: |

@@ -4,9 +4,9 @@
 
 Embedded flight telemetry for a Raspberry Pi in C++17, built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and structural coverage, static analysis, and a formal fault model are part of every build.
 
-**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; two transports behind one `Publisher` seam: a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket, and a UDP publisher that sends the same message as one datagram to a unicast destination over a connected non-blocking socket, neither ever blocking the loop, with a Python receiver that reads either transport through the log's byte layout; an `I2cBus` seam with a Linux device-file implementation and a test fake, the BMP280 (BME280-compatible) and MPU6050 drivers verified against the manufacturers' arithmetic, and a live sensor source selected by `--live`; a Python log reader that is the C++ reader's twin, the replay-identity pytest, the noise analysis (per-channel sigma, Allan deviation, gyro bias, the derived Kalman constants) verified against simulated logs, and the transport pytest over both transports; Google Test unit tests and a pytest suite that runs in CI on every push; CI with a branch-coverage gate and cppcheck; seven controlled documents under `docs/`.
+**Built:** the 104-byte `TelemetryFrame` record; the `DataSource` abstraction with a simulated source, a fault-injecting decorator, and a log-replay source; the processing pipeline (ISA pressure-to-altitude, 2-state Kalman altitude/velocity fusion, complementary-filter pitch and roll); the fault detector (communication timeout, stuck value, range, recovery) with per-channel DEGRADED state; a binary logger with rotation, a reader, and bit-identical deterministic replay; a fixed-rate scheduler on absolute deadlines with per-cycle jitter logging; two transports behind one `Publisher` seam: a ZeroMQ publisher that sends every processed frame as a one-record log message on a PUB socket, and a UDP publisher that sends the same message as one datagram to a unicast destination over a connected non-blocking socket, neither ever blocking the loop, with a Python receiver that reads either transport through the log's byte layout; an `I2cBus` seam with a Linux device-file implementation and a test fake, the BMP280 (BME280-compatible) and MPU6050 drivers verified against the manufacturers' arithmetic, and a live sensor source selected by `--live`; a Python log reader that is the C++ reader's twin, the replay-identity pytest, the noise analysis (per-channel sigma, Allan deviation, gyro bias, the derived Kalman constants) verified against simulated logs, and the transport pytest over both transports; one YAML configuration file (`config/telemetry_config.yaml`, 36 keys) loaded and validated at startup, handed to every module by constructor, and recorded beside each session's log so a replay runs with the configuration its log was recorded with; Google Test unit tests and a pytest suite that runs in CI on every push; CI with a branch-coverage gate and cppcheck; seven controlled documents under `docs/`.
 
-**Planned:** a UART GPS driver (NEO-6M) behind the live `DataSource`; the stationary capture that feeds the measured constants into `processor.cpp`; YAML configuration; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
+**Planned:** a UART GPS driver (NEO-6M) behind the live `DataSource`; the stationary capture that feeds the measured constants into the configuration file; a Python/React Primary Flight Display. The scope of record is `docs/requirements.md`; the architecture of record is `docs/design.md`.
 
 ## The One Rule That Matters
 
@@ -31,15 +31,16 @@ Every feature follows this exact sequence:
 cmake -S . -B build                                 # configure; fetches Google Test (pinned v1.15.2)
 cmake --build build --parallel                      # telemetry_core, telemetry, unit_tests
 ctest --test-dir build --output-on-failure          # every TEST() is its own CTest case
-./build/telemetry                                   # 5 paced cycles on the simulator -> logs/telemetry_000.bin
-./build/telemetry --replay logs/telemetry_000.bin   # same pipeline fed from the log, unpaced -> logs/replay_000.bin
+./build/telemetry                                   # 5 paced cycles on the simulator with config/telemetry_config.yaml -> logs/telemetry_000.bin and a copy of the configuration beside it
+./build/telemetry --config other.yaml               # another file; every key required, every problem named, exit 1 before anything is built
+./build/telemetry --replay logs/telemetry_000.bin   # same pipeline fed from the log, unpaced, with the configuration recorded beside it -> logs/replay_000.bin
 ./build/telemetry --live --cycles 250               # on the Pi: BMP280 and MPU6050 over /dev/i2c-1, paced
 cmp logs/telemetry_000.bin logs/replay_000.bin      # silent: the two logs are byte-identical
 .venv/bin/python -m pipeline.receiver --endpoint tcp://127.0.0.1:5555   # start first; one line per frame, gap count at exit
 ./build/telemetry --zmq tcp://127.0.0.1:5555 --cycles 500             # 10 s at 50 Hz, logged and published
 python3 -m pipeline.receiver --udp 127.0.0.1:5556                      # the same receiver over UDP, standard library only
 ./build/telemetry --udp 127.0.0.1:5556 --cycles 500                   # one datagram per frame; --zmq and --udp may be combined
-.venv/bin/python -m pytest                                              # 66 tests in about 50 s: one simulated session, the transport runs
+.venv/bin/python -m pytest                                              # 78 tests in about 60 s: one simulated session, the transport runs, the configuration file
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # the noise profile
 ```
@@ -50,8 +51,8 @@ CI (`.github/workflows/ci.yml`) configures with `-DWARNINGS_AS_ERRORS=ON -DENABL
 
 ## Tech Stack
 
-- **Built:** C++17 (CMake 3.16+, g++ or clang++), Google Test via FetchContent, ZeroMQ (system libzmq 4.3.5, cppzmq v4.11.0 via FetchContent), POSIX UDP sockets, Python 3.12+ with pyzmq, numpy, matplotlib, and pytest (pinned in `requirements.txt`; CI runs 3.13), gcov/lcov, cppcheck, GitHub Actions
-- **Planned:** YAML (configuration), React (PFD dashboard)
+- **Built:** C++17 (CMake 3.16+, g++ or clang++), Google Test via FetchContent, ZeroMQ (system libzmq 4.3.5, cppzmq v4.11.0 via FetchContent), POSIX UDP sockets, yaml-cpp 0.9.0 via FetchContent, Python 3.12+ with pyzmq, numpy, matplotlib, and pytest (pinned in `requirements.txt`; CI runs 3.13), gcov/lcov, cppcheck, GitHub Actions
+- **Planned:** React (PFD dashboard)
 
 ## Project Structure
 
@@ -69,13 +70,16 @@ src/
   timing/                 clock, fixed_rate_scheduler, jitter_log                     built
   transport/              publisher (the seam), zmq_publisher (PUB socket),
                           udp_publisher (connected datagram socket); drop-not-block  built
-  main.cpp                composition root; --replay, --zmq, --udp, --live            built
+  config/                 telemetry_config: the typed structs, the loader and its
+                          rules, the record's naming (REQ-CFG-001 to -003)            built
+  main.cpp                composition root; --config, --replay, --zmq, --udp, --live  built
 
 tests/
   unit/                   Google Test, one file per module                            built
   integration/            pytest: conftest (one simulated session, the published-run
                           harness), synthetic_log, test_log_reader, test_replay_identity,
-                          test_noise_profile, test_transport (TC-005, TC-010, both)    built
+                          test_noise_profile, test_transport (TC-005, TC-010, both),
+                          test_config (TC-016)                                        built
   fault_injection/        parameterized fault scenarios                               planned
 
 docs/                     requirements, design, traceability_matrix, fault_model,
@@ -87,7 +91,8 @@ pipeline/                 frame_format (byte layout shared by log and wire),
                           log_reader (files, rotation, the numpy layout)              built
 analysis/                 noise_profile (per-channel noise, Allan deviation,
                           the derived Kalman constants)                               built
-dashboard/ config/                                                                    planned
+config/                 telemetry_config.yaml, the configuration of record (36 keys)   built
+dashboard/                                                                            planned
 coverage/ static_analysis/   generated reports (committed selectively, see .gitignore)
 ```
 
@@ -106,13 +111,14 @@ coverage/ static_analysis/   generated reports (committed selectively, see .giti
 ## Key Architecture Decisions
 
 - **Data source abstraction:** abstract base class so the processing engine doesn't know if it's reading live sensors or replaying from a binary log. Sources fill raw fields and `read_ok` only; computed fields and health belong to the pipeline. This is what lets replay use the same code path as live mode (REQ-LOG-004).
-- **Drivers behind the I2C seam:** `I2cBus` is addressed per transaction (one descriptor serves the bus); drivers return `std::optional` readings and never throw, and a failed read becomes `read_ok` false with the fields held; the live source stamps frames with the actual read time from the monotonic clock; the Linux implementation sits behind the second `#if` and compiles to a stub elsewhere; the barometer and IMU constants in `main.cpp` (0x76, 0x68, `Bmp280`) are provisional until the chip IDs are read on the Pi (design §12).
+- **Drivers behind the I2C seam:** `I2cBus` is addressed per transaction (one descriptor serves the bus); drivers return `std::optional` readings and never throw, and a failed read becomes `read_ok` false with the fields held; the live source stamps frames with the actual read time from the monotonic clock; the Linux implementation sits behind the second `#if` and compiles to a stub elsewhere; the barometer and IMU addresses in `config/telemetry_config.yaml` (0x76, 0x68) and the driver's name (`Bmp280`) are provisional until the chip IDs are read on the Pi (design §12).
 - **Detector before processor:** the fault detector runs first and owns `ChannelStatus`; the filters consume a reading only when its channel is NOMINAL and the reading is fresh (`read_ok`): predict every cycle, update at each sensor's own rate (REQ-PROC-006). The detector judges timeouts on the frame's own timestamp, never a wall clock, so replay reproduces the same faults at the same frames.
 - **Fault detection → DEGRADED state:** failed sensors don't crash the system. The channel is marked DEGRADED, the fault is logged as a tagged record in the same stream, remaining sensors continue processing, and the channel returns to NOMINAL after M consecutive valid reads.
 - **Log format:** raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker); rotation at record boundaries; bit-identity is claimed for the same build on the same platform only (`docs/design.md` §8 and §9).
 - **Fixed-rate timing with clock_nanosleep:** absolute-time scheduling (`TIMER_ABSTIME` on Linux; the `nanosleep` fallback for other platforms is one of the two `#if`s in the codebase, the other being the I2C device file in `src/drivers/i2c_bus.cpp`; both sit on the OS boundary), re-phase and count missed cycles on overrun, never burst. Jitter is logged per cycle to a CSV, not into the telemetry log, so the log stays deterministic.
-- **Kalman filter constants: two measured, two retained, one chosen by replay (REQ-PROC-004, `docs/noise_profile.md`):** the barometric measurement variance is the white part of the barometric altitude noise on a stationary capture (the one-sample Allan deviation squared, immune to the weather's trend) and the initial altitude variance equals it; the process noise describes the vehicle, not a sensor, and stays a documented tuning choice (a Q taken from the accelerometer's own noise would lag a real climb by ten seconds); the GPS variance stays the datasheet figure until a GPS exists; the initial velocity variance, which owns the startup transient, is chosen by replaying the capture through candidates under a rule written before the data. The analysis script and its oracles are built; the capture supplies the values.
-- **Dual transport behind one seam:** ZeroMQ for local IPC and UDP for network streaming, mirroring an aircraft-to-ground-station architecture; both built. `Publisher` is `DataSource`'s twin on the output side: the loop holds base pointers and never learns which transport it has, `main` owns the concrete objects, and `--zmq` and `--udp` may be combined. The wire format is the log format: every message and every datagram is a one-record log file (header, tag, frame) assembled by one function in `log_format`, so one Python module describes both and the receiver reads either. Neither publisher blocks (REQ-TRANS-003): the PUB socket has a 100-message high-water mark per subscriber and a bounded linger; the UDP socket is connected at startup (an unroutable or non-unicast destination is refused before the loop), sends with `MSG_DONTWAIT`, and counts every kernel refusal, including the port-unreachable the kernel reports on a later send. No sequence number travels on the wire (design §12); loss and reordering are measured at the receiver from timestamp gaps.
+- **Kalman filter constants: two measured, two retained, one chosen by replay (REQ-PROC-004, `docs/noise_profile.md`):** the barometric measurement variance is the white part of the barometric altitude noise on a stationary capture (the one-sample Allan deviation squared, immune to the weather's trend) and the initial altitude variance equals it; the process noise describes the vehicle, not a sensor, and stays a documented tuning choice (a Q taken from the accelerometer's own noise would lag a real climb by ten seconds); the GPS variance stays the datasheet figure until a GPS exists; the initial velocity variance, which owns the startup transient, is chosen by replaying the capture through candidates under a rule written before the data. The analysis script and its oracles are built; the capture supplies the values, which land in the `processing` keys of the configuration file and the equal defaults of `ProcessorConfig`.
+- **Configuration: one file, validated at startup, injected by value, never global, recorded beside the log (REQ-CFG-001 to REQ-CFG-003):** `config/telemetry_config.yaml` (or `--config`) is the standing configuration and the only source of the values the binary runs with; there is no built-in fallback, and a missing file is refused. `src/config/telemetry_config.cpp` is the one translation unit that knows YAML: it turns the document into typed structs in one pass, checking type and range as it goes (parse, don't validate), with the project's own scalar rules (decimal or `0x` hex, finite numbers, `true`/`false`, non-empty text) and every problem reported together under its dotted key. Values reach modules by constructor, by value (`FaultDetectorConfig`, `ProcessorConfig`, `SimulationNoise`, plain arguments for the rest); no module includes the config header, so a test can hand a module any value. The struct defaults equal the shipped file and are the unit tests' baseline; `ConfigTest.ShippedFileEqualsDefaults` keeps them equal. The file's text is copied beside the log as `<prefix>_config.yaml`; a replay reads it by default, and with `--config` says whether the named file equals the record by content. Flags choose the run and win only on the transports.
+- **Dual transport behind one seam:** ZeroMQ for local IPC and UDP for network streaming, mirroring an aircraft-to-ground-station architecture; both built. `Publisher` is `DataSource`'s twin on the output side: the loop holds base pointers and never learns which transport it has, `main` owns the concrete objects, and `--zmq` and `--udp` may be combined. The wire format is the log format: every message and every datagram is a one-record log file (header, tag, frame) assembled by one function in `log_format`, so one Python module describes both and the receiver reads either. Neither publisher blocks (REQ-TRANS-003): the PUB socket has a 100-message high-water mark per subscriber and a bounded linger; the UDP socket is connected at startup (an unroutable or non-unicast destination is refused before the loop), sends with `MSG_DONTWAIT`, and counts every kernel refusal, including the port-unreachable the kernel reports on a later send. The addresses come from the file's `transport` section; `--zmq` and `--udp` enable a transport for one run and override its address. No sequence number travels on the wire (design §12); loss and reordering are measured at the receiver from timestamp gaps.
 
 ## Scope Discipline
 
@@ -130,7 +136,7 @@ This project is built incrementally, topic by topic. When editing files:
 
 - Don't write code without a requirement in `docs/requirements.md`
 - Don't skip the traceability matrix update when adding code or tests
-- Don't hardcode sensor parameters — they go in `config/telemetry_config.yaml` (REQ-CFG-001); until that lands, a named constant with a comment citing the requirement
+- Don't hardcode a tunable — it is a key of `config/telemetry_config.yaml` and a field of its module's config struct, equal by test (REQ-CFG-001); a tunable no requirement names needs the requirement first. The named-constant exception ended with the configuration (2026-10-13)
 - Don't use raw `new`/`delete` — use RAII, std::vector, std::unique_ptr
 - Don't skip Google Test for any new C++ module
 - Don't mix build artifacts with source (out-of-source build in `build/`)

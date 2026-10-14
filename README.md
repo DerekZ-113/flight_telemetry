@@ -4,7 +4,7 @@
 
 Embedded flight telemetry for a Raspberry Pi, in C++17: barometer, IMU, and GPS readings fused into altitude and attitude at a fixed 50 Hz, with per-channel fault detection, a binary log that replays bit-for-bit through the same pipeline, and per-cycle timing evidence. Built with DO-178C-aligned practices: every line of code traces to a written requirement and to a test, and coverage, static analysis, and a formal fault model are part of every build.
 
-**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ and over UDP to a Python receiver that reads either; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi; the Python log reader, the replay-identity pytest, and the noise analysis are built and verified against simulated logs, ready for the first stationary capture; the pytest suite runs in CI on every push. The measured constants and the GPS driver are next.
+**Status:** the deterministic core is complete and verified on simulated and replayed data; processed frames leave the process over ZeroMQ and over UDP to a Python receiver that reads either; the BMP280 and MPU6050 drivers and the live sensor source are built and unit-tested against a fake bus, awaiting their first run on the Raspberry Pi; the Python log reader, the replay-identity pytest, and the noise analysis are built and verified against simulated logs, ready for the first stationary capture; the pytest suite runs in CI on every push; every tunable comes from one YAML configuration file, validated at startup and recorded beside each session's log. The measured constants and the GPS driver are next.
 
 ## Architecture
 
@@ -24,6 +24,7 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
 - **Fault handling.** Communication timeout, stuck value, out-of-range, and recovery after five consecutive valid reads, per channel. A failed sensor marks its channel DEGRADED and logs an event; the rest of the pipeline keeps running.
 - **Logging and replay.** Records are raw struct bytes behind a 16-byte self-describing header (magic, version, record sizes, endianness marker), with fault events as tagged records in the same stream and rotation at record boundaries. `LogReplaySource` strips a log back to raw readings and feeds the same pipeline; the output log is byte-identical to the original (same build, same platform).
 - **Timing.** Absolute deadlines (`clock_nanosleep` with `TIMER_ABSTIME` on Linux), re-phase and count missed cycles on overrun, never burst to catch up. Jitter goes to a CSV per run so the telemetry log stays deterministic.
+- **Configuration.** `config/telemetry_config.yaml` holds the 36 tunables (the period, the sensors' bus, addresses and IMU rate, the fault thresholds, the filter tuning, the log directory and size, the transport addresses, the simulator's seed and noise). It is loaded once at startup, every value checked and every problem named in one report, and handed to each module by constructor; nothing reads it after that, and nothing in the binary falls back to a built-in value. A copy is written beside the log, and a replay reads that copy, so a changed constant can never silently break replay identity.
 - **Transport.** Two publishers behind one `Publisher` seam, so the loop knows neither: with `--zmq <endpoint>` every processed frame goes out on a ZeroMQ PUB socket, with `--udp <ipv4>:<port>` as one datagram to one unicast destination, both as the same one-record log message (the 16-byte header, the tag, the frame bytes), assembled by one function, so `pipeline/receiver.py` reads either transport with the layout module it uses for the log. Neither blocks the loop: the PUB socket drops to a slow or absent subscriber at a 100-message high-water mark; the datagram socket is connected at startup and sends with `MSG_DONTWAIT`, so a destination that cannot be routed is refused before the loop starts and every refusal the kernel reports later (a full buffer, the port-unreachable it learns from an earlier datagram) is counted and never retried. Loss and reordering are measured at the receiver from timestamp gaps.
 
 ## Verification
@@ -39,17 +40,17 @@ Measurement of record: GitHub Actions run [38329662749](https://github.com/Derek
 | Compiler warnings under `-Werror` | 0 |
 | cppcheck findings | 0 |
 
-Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and six GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
+Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and seven GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
 
 ## DO-178C-aligned practices
 
 | Document | ID | What it holds |
 |---|---|---|
-| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.5.1 | 33 "shall" statements with rationale; the scope of record |
+| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.6.0 | 34 "shall" statements with rationale; the scope of record |
 | [Design](docs/design.md) | FTS-DD-001 | software level, every architecture decision with its reason, log format, timing, open decisions |
-| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (19 Verified, 11 Partial, 3 Not started) |
+| [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (24 Verified, 9 Partial, 1 Not started) |
 | [Fault model](docs/fault_model.md) | FTS-FM-001 | 11 failure modes, each with cause, detection, response, and the test that proves it |
-| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-015, coverage thresholds and exclusion policy |
+| [Test plan](docs/test_plan.md) | FTS-TP-001 | test levels including on-target hardware steps, pass/fail criteria, test cards TC-001 to TC-016, coverage thresholds and exclusion policy |
 | [Verification results](docs/verification_results.md) | FTS-VR-001 | per-commit test and coverage records, justified exclusions, findings, the CI run of record |
 | [Noise profile](docs/noise_profile.md) | FTS-NP-001 | the stationary-capture method, the estimators and their tolerances, which Kalman constants are measured and which are tuning choices, the capture's provenance |
 
@@ -67,7 +68,7 @@ Three findings, none of them caught by a unit test on a single machine, each wri
 
 ## Build, test, run, replay
 
-Requires CMake 3.16 or newer, a C++17 compiler (GCC or clang), and the ZeroMQ C library (`brew install zeromq` on macOS, `sudo apt-get install libzmq3-dev` on Debian and Ubuntu). Google Test (v1.15.2) and the cppzmq header wrapper (v4.11.0) are fetched at configure time, pinned.
+Requires CMake 3.16 or newer, a C++17 compiler (GCC or clang), and the ZeroMQ C library (`brew install zeromq` on macOS, `sudo apt-get install libzmq3-dev` on Debian and Ubuntu). Google Test (v1.15.2), the cppzmq header wrapper (v4.11.0) and yaml-cpp (0.9.0) are fetched at configure time, pinned.
 
 ```bash
 cmake -S . -B build
@@ -76,10 +77,11 @@ ctest --test-dir build --output-on-failure
 ```
 
 ```bash
-./build/telemetry                                   # 5 paced cycles at 50 Hz on the simulated source
-./build/telemetry --replay logs/telemetry_000.bin   # the same pipeline fed from the log, unpaced
+./build/telemetry                                   # 5 paced cycles on the simulated source, config/telemetry_config.yaml
+./build/telemetry --config other.yaml               # the same with another file (every key required, every problem named)
+./build/telemetry --replay logs/telemetry_000.bin   # the same pipeline fed from the log, unpaced, with the configuration recorded beside it
 cmp logs/telemetry_000.bin logs/replay_000.bin      # prints nothing: the two logs are byte-identical
-./build/telemetry --live --cycles 250               # on the Pi: BMP280 and MPU6050 over /dev/i2c-1, 5 s paced
+./build/telemetry --live --cycles 250               # on the Pi: BMP280 and MPU6050 over the configured I2C bus, 5 s paced
 ```
 
 ```bash
@@ -91,12 +93,12 @@ python3 -m pipeline.receiver --udp 127.0.0.1:5556                      # the sam
 ```
 
 ```bash
-.venv/bin/python -m pytest                                              # 66 tests in about 50 s: one simulated session, replay identity, the log reader, the noise oracles, both transports
+.venv/bin/python -m pytest                                              # 78 tests in about 60 s: one simulated session, replay identity, the log reader, the noise oracles, both transports, the configuration file
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence: counts, steps, freshness, events
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # per-channel noise, Allan deviation, the derived Kalman constants
 ```
 
-The live run prints each frame, writes `logs/telemetry_000.bin` and `logs/telemetry_jitter.csv`, and prints a timing summary. The replay writes `logs/replay_000.bin`. A run with `--zmq`, `--udp`, or both adds one transport summary line per publisher (frames published, send failures); `--replay` with either publishes the log as a burst. The pytest suite, coverage, and static analysis run in CI on every push; the exact lcov and cppcheck invocations are in [.github/workflows/ci.yml](.github/workflows/ci.yml).
+The live run prints each frame, writes `logs/telemetry_000.bin`, `logs/telemetry_jitter.csv` and `logs/telemetry_config.yaml` (the configuration it ran with, verbatim), and prints a timing summary. The replay writes `logs/replay_000.bin` and `logs/replay_config.yaml`. A run with `--zmq`, `--udp`, or both adds one transport summary line per publisher (frames published, send failures); `--replay` with either publishes the log as a burst. The pytest suite, coverage, and static analysis run in CI on every push; the exact lcov and cppcheck invocations are in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Layout
 
@@ -109,18 +111,20 @@ src/            telemetry_frame, data_source, main.cpp
   replay/       log_replay_source
   timing/       clock, fixed_rate_scheduler, jitter_log
   transport/    publisher (the seam), zmq_publisher, udp_publisher
+  config/       telemetry_config (the typed structs, the loader and its rules, the record's naming)
+config/         telemetry_config.yaml, the configuration of record (36 keys, one comment per section citing its requirement)
 pipeline/       frame_format (the byte layout, shared by log and wire), receiver (ZeroMQ SUB or UDP),
                 log_reader (files, rotation, the numpy layout)
 analysis/       noise_profile (per-channel noise, Allan deviation, the derived Kalman constants)
 tests/unit/     one Google Test file per module
-tests/integration/  pytest: replay identity, the log reader, the noise oracles, both transports
+tests/integration/  pytest: replay identity, the log reader, the noise oracles, both transports, the configuration file
 docs/           the seven controlled documents above
 scripts/        coverage_check.sh, the per-scope branch threshold gate
 ```
 
 ## Roadmap
 
-Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); YAML configuration; redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
+Planned, no dates: the NEO-6M GPS driver over UART behind the same `DataSource` seam; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); redundancy voting across sources; the Primary Flight Display; an ADS-B data source.
 
 ## License
 

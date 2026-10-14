@@ -38,7 +38,8 @@ public:
     // non-unicast address (0.0.0.0, 255.255.255.255), a socket the process
     // cannot create, or a destination the kernel cannot route leaves ok()
     // false with the reason in error(); nothing throws. The destination is
-    // the --udp argument until the configuration file (REQ-CFG-001).
+    // the configuration file's `transport.udp` keys, or the --udp argument
+    // for one run (REQ-CFG-001); main hands it in either way.
     UdpPublisher(const std::string& host, int port);
     ~UdpPublisher() override;
 
