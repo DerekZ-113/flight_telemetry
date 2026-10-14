@@ -28,17 +28,18 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
 
 ## Verification
 
-Measurement of record: GitHub Actions run [34445017604](https://github.com/DerekZ-113/flight_telemetry/actions/runs/34445017604) on commit `c69d13d`, Ubuntu, GCC 13 ([verification_results.md](docs/verification_results.md), Entry 5 §5.8).
+Measurement of record: GitHub Actions run [38329662749](https://github.com/DerekZ-113/flight_telemetry/actions/runs/38329662749) on commit `9e68222`, Ubuntu, GCC 13, the first run with the pytest suite ([verification_results.md](docs/verification_results.md), Entry 10 §10.6).
 
 | Item | Value |
 |---|---|
-| Unit tests (Google Test) | 106 of 106 passed |
-| Branch coverage (gcov/lcov) | 100.0% (142 of 142), every per-scope threshold met |
-| Line coverage | 99.7% (575 of 577) |
+| Unit tests (Google Test) | 168 of 168 passed |
+| Integration tests (pytest) | 66 of 66 passed in 52.5 s |
+| Branch coverage (gcov/lcov) | 90.7% (292 of 322), every per-scope threshold met: transport 96.2%, drivers 81.3% (hardware-bound error paths), the other scopes 100% |
+| Line coverage | 98.0% (909 of 928) |
 | Compiler warnings under `-Werror` | 0 |
 | cppcheck findings | 0 |
 
-Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/`, 80% in timing, logging, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and six GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
+Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and six GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
 
 ## DO-178C-aligned practices
 
