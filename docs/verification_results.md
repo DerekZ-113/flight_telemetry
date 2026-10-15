@@ -989,3 +989,70 @@ Reserved for the Raspberry Pi with the GT-U7: which port the board offers (`/dev
 - FTS-DD-001 §12: GPS fix latency (the frame keeps the cycle's time; a fix is up to half a second old at 9600 baud); 2D fixes (quality 1 for 2D and 3D alike; GSA or a satellite count, parked with the fix-quality byte); the Kalman filter born from the barometer only, now decidable once a capture with a fix exists; the GPS variance retained at 25 m² until such a capture is analysed.
 - FAULT-003b's own event, with the fix-quality byte at the next format bump.
 - Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the runner's pseudo-terminal behaves as the Mac's did.
+
+---
+
+## Entry 14 — 2026-10-14, FAULT-010 at both rails: the accelerometer saturation limits derived from the driver (macOS preview)
+
+One defect, parked since Entry 8 §8.7 (2026-10-12): positive accelerometer saturation never tripped. FTS-SRD-001 0.9.0 (REQ-FAULT-003 reworded with a rationale), FTS-FM-001 0.4.0 (FAULT-010), TC-013 step 7, the matrix, design §3 and §12; the key `fault.accel_limit_mps2` removed (38 keys). Built from the Obsidian plan `Plan - FAULT-010 Positive Saturation` (written from the chat's outline and executed in one session on 2026-10-14) in the worktree branch cut from `4783b9d`. The first CI run with this commit is the measurement of record and goes in §14.6.
+
+### 14.1 The defect, and how the tests missed it
+
+`Mpu6050::read()` converts each axis as `count / 16384 × 9.81`. A 16-bit two's-complement count runs from −32768 to +32767, so the negative rail converts to exactly −2 g (−19.62 m/s²; 19.62 is the same float as `2.0f * 9.81f` and as the parsed key, 19.6200008) and the positive rail to 32767/16384 × 9.81 = 19.619402 m/s², one count (9.81/16384, 0.000599 m/s²) short. The detector compared `fabs(a) >= 19.62`: the negative rail satisfied it; the positive rail never could. The one test, `AccelSaturationDegradesImu`, fed `2.0f * 9.81f` itself, a value the driver cannot produce, so it passed against a detector that could not see a saturated positive axis, and nothing in the pytest suite or the simulator approaches a rail. Checked in IEEE single precision before any edit (numpy float32): 32767 → 19.619402, 32766 → 19.618803, −32767 → −19.619402 (minus the positive rail, bit for bit), −32768 → −19.620001; 32767/16384 is exact in a float, so the gap is the sensor's, not rounding's.
+
+No other current threshold has this kind of mismatch: the pressure and temperature limits are plausibility bounds inside the sensor's output range, the timeouts and counts are not sensor ranges, and the GPS fix-quality limit is read from the sentence. The one other full-scale comparison the system could have, the gyroscope's (FTS-FM-001 TODO, design §12), has no entry; written as a nominal 250 deg/s it would err the other way, since 131 LSB per deg/s puts the rails at +250.13 and −250.14.
+
+### 14.2 What was built
+
+- `src/drivers/mpu6050.h`: `kAccelPositiveRailMps2` and `kAccelNegativeRailMps2`, `INT16_MAX` and `INT16_MIN` through the same three constants in the same order (divide, then multiply) as `read()`, so each is the float `read()` returns for 0x7FFF and 0x8000.
+- `src/processing/fault_detector.cpp`: the `find_if` predicate is `a >= kAccelPositiveRailMps2 || a <= kAccelNegativeRailMps2`, two signed tests, inclusive at each rail; no `fabs`, because −32767 converts to minus the positive rail and is a legitimate reading one count inside the negative rail; the file includes the driver header, as the loader does for the divider rule. `FaultDetectorConfig` loses `accel_limit_mps2`.
+- `config/telemetry_config.yaml`, `src/config/telemetry_config.cpp`: the key and its `read_positive` line removed; a comment in the file says where FAULT-010's limits live; 38 keys. `test_config.cpp`: the drift-test line, `AccelLimitPositive` and the sweep row removed, the sweep's count 38.
+- Tests: `FaultDetectionTest.AccelAtPositiveRailDegradesImu` (written first and watched fail against the unchanged detector), `AccelAtNegativeRailDegradesImu`, `AccelOneCountInsideEitherRailIsValid` (+32766 and −32767 on each axis in turn: NOMINAL, no event; the test first asserts that −32767's value equals minus the positive rail), replacing `AccelSaturationDegradesImu`; `FaultOnFirstReadingDegradesFromNoData` feeds the positive rail instead of `2.0f * 9.81f`; `Mpu6050Test.ExtremeCountsAreTheRails` (TC-013 step 7: `read()` of 0x7FFF and 0x8000 equals the constants under `EXPECT_EQ`, the positive rail below 2 × g, the negative rail equal to −2 × g, the gap one count).
+- Documents: FTS-SRD-001 0.9.0 (REQ-FAULT-003: pressure and temperature against configurable limits, the accelerometer at either rail of the full scale the driver configures, GPS fix quality; a rationale), 37 statements; FTS-FM-001 0.4.0 (the "every threshold is a key" sentence gains its exception; FAULT-010's Detection, Test and the gyroscope TODO); FTS-TP-001 (TC-013's objective, step 7, its expected row and pass/fail; TC-016 steps 4 to 6 at 38 keys); FTS-TM-001 (the FAULT-003 row: the driver header, eight detector tests and the driver test, TC-013 step 7, the note; the CFG-001 and CFG-002 rows; the reverse trace for `mpu6050.h` and the file; the SRD pin 0.9.0; 28 Verified, 9 Partial, 0 Not started of 37, unchanged); FTS-DD-001 (§3's MPU6050 paragraph, and the configuration paragraph's count and not-keys list; §12 "Accelerometer saturation rails", decided, and the gyroscope bullet); README and CLAUDE.md (38 keys).
+
+### 14.3 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 289 of 289 (287 before: four added, two removed with the key), 2.95 s; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| The red run | `AccelAtPositiveRailDegradesImu` against the unchanged detector: `test_fault_detection.cpp:367` `imu_status` NOMINAL where DEGRADED was expected, `:369` 0 events where 1; the negative-rail, one-count-inside and driver tests green against it, because the negative rail already tripped and the values one count inside were already NOMINAL |
+| pytest | 85 of 85 in 66.0 s, the main checkout's venv against this worktree's binary |
+| cppcheck 2.21.0 | 0 findings on 29 files, CI's flags |
+| The seed-42 500-frame log | SHA-256 `6d43f343311b77c107a1af4ff40bbdaa827b7efd4eea5b5c12055f29f80da345` before and after, the Entry 12 §12.4 reference: the simulated accelerations never approach a rail and the run logs 0 events; its replay at `--cycles 500` `cmp`s silent with the same hash; the `telemetry_config.yaml` recorded beside it no longer carries `accel_limit_mps2` |
+
+### 14.4 Coverage preview (clang, the Mac recipe of Entry 8, unit tests only)
+
+| Scope | Preview | Entry 13 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% (233 of 238) | 97.9% (233 of 238) | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 89.3% | 89.3% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 96.1% | 96.1% | 70% |
+| overall | 96.2% | 96.2% | 80% |
+
+`fault_detector.cpp` 54 of 54 branches: clang puts the predicate's one decision on the `||` line (118), both edges taken, and executes the second operand's line 5007 times of 5009, the two short-circuits being the positive-rail frames; GCC will count the second operand as a decision of its own, and both of its outcomes are taken (the negative rail, and everything else). `mpu6050.cpp` 28 of 28; the constants add no branch. The removed `read_positive` line carried no branch of its own (the template's branches belong to its other instantiations), so the config scope's count is Entry 13's, the five untaken still the marked `for` line's unwind edges (Entry 11).
+
+The first capture read processing 98.1%, config 0.0% and overall 67.5%, with the profiler complaining at the test run that it could not merge `telemetry_config.cpp.gcda` ("cannot merge previous GCDA file: corrupt arc tag"). Cause: `gtest_discover_tests` runs the instrumented `unit_tests` at link time to list the tests, which writes a `.gcda` for every object; the tree was then rebuilt with the fix, and the new objects could not merge into the files the old ones had written, so one object's data was discarded and another's was stale. Deleting every `.gcda` under `build-cov` before the test run gave the table above. Not a property of the code; a step of the recipe from now on (§14.5).
+
+### 14.5 Decisions taken, and deviations from the outline
+
+- The key `fault.accel_limit_mps2` is gone, which reverses `Plan - YAML Configuration`'s decision to make it one. A stated number is exactly what drifted from the sensor, and "the threshold can't drift from what the sensor can produce" cannot hold while a file can say 19.7; the rails are a fact of the driver's `ACCEL_CONFIG` write, like the register maps and chip identities design §3 lists as "facts, not tuning". The alternative, kept open in §12: a key for the full-scale range in g that the driver would write and both rails would derive from, a REQ-SENS-003 change for the day the range needs configuring. Consequence: a configuration recorded beside a log older than this change carries the key and is refused on replay as unknown; `--config` with a current file is the remedy, as after the `sensors.gps` keys.
+- The gap lived in Entry 8 §8.7, not in design §12 as the outline said; §12 now carries the decision.
+- Two signed tests rather than `fabs` against the positive rail, which would flag −32767, one count inside the negative rail (`AccelOneCountInsideEitherRailIsValid` is the guard). `std::find_if` and its marker stay as they were; only the predicate changed.
+- The rails are constants in the class rather than a shared `constexpr` function: a static data member's initializer inside the class body is not a complete-class context, so it cannot call a static member function declared in the same class; the exact-equality driver test is the proof of the link instead.
+- The test plan and this entry are touched beyond the outline's four documents: TC-013 step 7 so the driver test has a card step as its siblings do, TC-016's counts, and this record.
+- The Mac coverage recipe gains a step: delete `build-cov/**/*.gcda` before running the instrumented tests (§14.4).
+
+### 14.6 Measurement of record
+
+Reserved for the first CI run with this commit: `fault_detector.cpp` on GCC with the predicate's second operand counted as its own decision (both outcomes taken), the config scope at 238 branches, the pytest line (85), every other scope, and cppcheck on the runner's version.
+
+### 14.7 Open
+
+- §14.6.
+- The gyroscope saturation entry, still parked (design §12), now with its derivation rule written beside it.
+- A recorded configuration older than this change is refused on replay (§14.5); whether the stationary capture of 2026-10-13 has a record beside it decides whether FTS-NP-001's replay runs need `--config`.
+- The key's removal is Derek's to confirm or reverse before the v0.1.0 tag; nothing else in this entry depends on it except the key count.
