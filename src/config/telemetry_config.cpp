@@ -481,7 +481,8 @@ ConfigLoad load_config_text(const std::string& text, const std::string& name) {
             const std::string against = show(c.fault.temperature_max_c) + " against " + show(c.fault.temperature_min_c);
             s.problem("temperature_max_c", "must exceed fault.temperature_min_c (" + against + ")");
         }
-        s.read_positive("accel_limit_mps2", c.fault.accel_limit_mps2);
+        // No accelerometer limit: FAULT-010's rails are the driver's full
+        // scale, derived in mpu6050.h, not a key (FTS-DD-001 section 3).
         s.finish();
     }
 

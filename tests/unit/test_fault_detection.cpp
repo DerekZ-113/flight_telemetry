@@ -8,11 +8,13 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <vector>
 
 #include "drivers/fault_injecting_source.h"
+#include "drivers/mpu6050.h"
 #include "drivers/simulated_source.h"
 #include "processing/fault_detector.h"
 #include "processing/processor.h"
@@ -353,16 +355,59 @@ TEST(FaultDetectionTest, TemperatureOutOfRangeDegradesBaro) {
     EXPECT_EQ(out.imu_status, ChannelStatus::NOMINAL);
 }
 
-// FAULT-010. Any axis at the ±2g power-on full scale is a clipped reading.
-TEST(FaultDetectionTest, AccelSaturationDegradesImu) {
+// FAULT-010. The positive rail: count +32767 through the driver's scaling,
+// 19.6194 m/s^2, one count short of 2 g. The 0.3.0 detector compared the
+// magnitude against a limit of 19.62 and never saw this value (FTS-VR-001
+// Entry 8 section 8.7); its only saturation test fed 2 x 9.81 itself, a
+// number the driver cannot produce. This test was red against it.
+TEST(FaultDetectionTest, AccelAtPositiveRailDegradesImu) {
     FaultDetector d;
     TelemetryFrame f = healthy_frame(0);
-    f.accel_x = 2.0f * 9.81f;
+    f.accel_x = Mpu6050::kAccelPositiveRailMps2;
     EXPECT_EQ(d.check(f).imu_status, ChannelStatus::DEGRADED);
     const auto events = d.take_events();
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].channel, Channel::IMU);
     EXPECT_EQ(events[0].type, FaultType::OUT_OF_RANGE);
+    EXPECT_EQ(events[0].value, Mpu6050::kAccelPositiveRailMps2);
+}
+
+// FAULT-010. The negative rail: count -32768, exactly -2 g, on another
+// axis so the sign and the axis search are both exercised.
+TEST(FaultDetectionTest, AccelAtNegativeRailDegradesImu) {
+    FaultDetector d;
+    TelemetryFrame f = healthy_frame(0);
+    f.accel_z = Mpu6050::kAccelNegativeRailMps2;
+    EXPECT_EQ(d.check(f).imu_status, ChannelStatus::DEGRADED);
+    const auto events = d.take_events();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].channel, Channel::IMU);
+    EXPECT_EQ(events[0].type, FaultType::OUT_OF_RANGE);
+    EXPECT_EQ(events[0].value, Mpu6050::kAccelNegativeRailMps2);
+}
+
+// FAULT-010. One count inside either rail is a reading the sensor
+// represented, not a clipped one: +32766, and -32767, which converts to
+// the negation of the positive rail and is exactly what a magnitude test
+// against that rail would flag. Each value on each axis in turn.
+TEST(FaultDetectionTest, AccelOneCountInsideEitherRailIsValid) {
+    FaultDetector d;
+    const float inside_positive = static_cast<float>(INT16_MAX - 1) / Mpu6050::kAccelLsbPerG * Mpu6050::kGravityMps2;
+    const float inside_negative = static_cast<float>(INT16_MIN + 1) / Mpu6050::kAccelLsbPerG * Mpu6050::kGravityMps2;
+    ASSERT_EQ(inside_negative, -Mpu6050::kAccelPositiveRailMps2);   // the asymmetry this test guards against
+
+    uint64_t ts = 0;
+    for (float value : {inside_positive, inside_negative}) {
+        for (int axis = 0; axis < 3; axis++) {
+            TelemetryFrame f = healthy_frame(ts);
+            if (axis == 0) f.accel_x = value;
+            if (axis == 1) f.accel_y = value;
+            if (axis == 2) f.accel_z = value;
+            EXPECT_EQ(d.check(f).imu_status, ChannelStatus::NOMINAL) << value << " on axis " << axis;
+            ts += kDtMs;
+        }
+    }
+    EXPECT_TRUE(d.take_events().empty());
 }
 
 // The datasheet limits are inclusive: a reading exactly at the edge is
@@ -566,7 +611,7 @@ TEST(FaultDetectionTest, FaultOnFirstReadingDegradesFromNoData) {
     FaultDetector d;
     TelemetryFrame f = healthy_frame(0);
     f.pressure_hpa = 200.0f;
-    f.accel_x = 2.0f * 9.81f;
+    f.accel_x = Mpu6050::kAccelPositiveRailMps2;   // a value the driver produces, not the nominal 2 g
     const TelemetryFrame out = d.check(f);
     EXPECT_EQ(out.baro_status, ChannelStatus::DEGRADED);
     EXPECT_EQ(out.imu_status, ChannelStatus::DEGRADED);

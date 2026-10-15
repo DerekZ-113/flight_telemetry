@@ -52,7 +52,10 @@ fault:
   pressure_max_hpa: 1100
   temperature_min_c: -40     # FAULT-009: the BMP280 operating range
   temperature_max_c: 85
-  accel_limit_mps2: 19.62    # FAULT-010: the MPU6050's +/-2 g full scale, 2 x 9.81
+  # FAULT-010 has no key: the accelerometer's saturation limits are the two
+  # rails of the +/-2 g full scale the driver configures, derived from its
+  # own scale constants (FTS-DD-001 section 3), so they cannot drift from
+  # what the sensor produces.
 
 # REQ-PROC-001 to REQ-PROC-004: the processor's tuning. FTS-NP-001 gives the
 # provenance of each number; the placeholders stand until the stationary

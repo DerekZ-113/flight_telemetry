@@ -108,7 +108,6 @@ TEST(ConfigTest, ShippedFileEqualsDefaults) {
     EXPECT_EQ(c.fault.pressure_max_hpa, d.fault.pressure_max_hpa);
     EXPECT_EQ(c.fault.temperature_min_c, d.fault.temperature_min_c);
     EXPECT_EQ(c.fault.temperature_max_c, d.fault.temperature_max_c);
-    EXPECT_EQ(c.fault.accel_limit_mps2, d.fault.accel_limit_mps2);
     EXPECT_EQ(c.processing.baro_measurement_variance_m2, d.processing.baro_measurement_variance_m2);
     EXPECT_EQ(c.processing.gps_measurement_variance_m2, d.processing.gps_measurement_variance_m2);
     EXPECT_EQ(c.processing.initial_velocity_variance, d.processing.initial_velocity_variance);
@@ -456,13 +455,6 @@ TEST(ConfigTest, PressureAndTemperatureBoundsOrdered) {
     expect_accepted(load_edited("temperature_min_c: -40", "temperature_min_c: 84.5"));
 }
 
-TEST(ConfigTest, AccelLimitPositive) {
-    expect_one_problem(load_edited("accel_limit_mps2: 19.62", "accel_limit_mps2: 0"),
-                       "fault.accel_limit_mps2: must be greater than 0 (got 0)");
-    expect_one_problem(load_edited("accel_limit_mps2: 19.62", "accel_limit_mps2: -1"),
-                       "fault.accel_limit_mps2: must be greater than 0 (got -1)");
-}
-
 TEST(ConfigTest, VariancesPositive) {
     for (const char* key : {"baro_measurement_variance_m2: 3.0", "gps_measurement_variance_m2: 25.0",
                             "initial_velocity_variance: 1.0", "accel_noise_variance: 1.0"}) {
@@ -582,7 +574,6 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"pressure_max_hpa: 1100", "1100", "fault.pressure_max_hpa", Rule::Number},
         {"temperature_min_c: -40", "-40", "fault.temperature_min_c", Rule::Number},
         {"temperature_max_c: 85", "85", "fault.temperature_max_c", Rule::Number},
-        {"accel_limit_mps2: 19.62", "19.62", "fault.accel_limit_mps2", Rule::Positive},
         {"baro_measurement_variance_m2: 3.0", "3.0", "processing.baro_measurement_variance_m2", Rule::Positive},
         {"gps_measurement_variance_m2: 25.0", "25.0", "processing.gps_measurement_variance_m2", Rule::Positive},
         {"initial_velocity_variance: 1.0", "1.0", "processing.initial_velocity_variance", Rule::Positive},
@@ -609,7 +600,7 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"longitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.longitude_sigma_deg", Rule::Positive},
         {"gps_altitude_sigma_m: 2.0", "2.0", "simulation.noise.gps_altitude_sigma_m", Rule::Positive},
     };
-    EXPECT_EQ(std::size(keys), 39u);   // the file's key count, as the documents state it
+    EXPECT_EQ(std::size(keys), 38u);   // the file's key count, as the documents state it
 
     const std::string shipped = shipped_text();
     for (const Key& key : keys) {

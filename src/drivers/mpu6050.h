@@ -57,10 +57,21 @@ public:
     static constexpr int kDefaultSampleRateHz = 100;
 
     // Sensitivity at the ranges above (4.17 and 4.19). g is the project's
-    // 9.81, which the fault detector's limit and the simulator also use.
+    // 9.81, which the fault detector's rails and the simulator also use.
     static constexpr float kAccelLsbPerG = 16384.0f;
     static constexpr float kGyroLsbPerDps = 131.0f;
     static constexpr float kGravityMps2 = 9.81f;
+
+    // The accelerometer's rails: the two extreme 16-bit codes through the
+    // scaling read() applies, in the same order (divide, then multiply),
+    // so each is bit-identical to what read() returns for 0x7FFF and
+    // 0x8000. Two's complement is asymmetric: -32768 reaches -2 g exactly,
+    // +32767 stops one count (g / 16384, 0.0006 m/s^2) short of it, at
+    // 19.6194 m/s^2. The fault detector's saturation check (FAULT-010)
+    // compares against these, never against a stated 2 g: a limit of
+    // 19.62 was never reached by a positive reading (FTS-VR-001 Entry 8).
+    static constexpr float kAccelPositiveRailMps2 = static_cast<float>(INT16_MAX) / kAccelLsbPerG * kGravityMps2;
+    static constexpr float kAccelNegativeRailMps2 = static_cast<float>(INT16_MIN) / kAccelLsbPerG * kGravityMps2;
 
     // The SMPLRT_DIV value for a sample rate, or nullopt if the chip cannot
     // produce that rate exactly. With the DLPF on, rate = 1 kHz / (1 + n)

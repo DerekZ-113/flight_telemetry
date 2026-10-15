@@ -193,6 +193,28 @@ TEST(Mpu6050Test, FailedBurstReturnsEmpty) {
     EXPECT_NEAR(r->accel_z, 9.81f, 1e-4f);
 }
 
+// TC-013 step 7. The two extreme codes through read() are the rails the
+// fault detector compares against (FAULT-010), bit for bit: the constants
+// are the same three numbers in the same order as the conversion in
+// read(). The range is asymmetric: +32767 falls one count short of 2 g,
+// which is where the 0.3.0 limit of 2 x 9.81 sat, so positive saturation
+// never tripped (FTS-VR-001 Entry 8 section 8.7).
+TEST(Mpu6050Test, ExtremeCountsAreTheRails) {
+    FakeI2cBus bus = bus_with_chip();
+    Mpu6050 imu(bus, kAddress);
+    ASSERT_TRUE(imu.init());
+    load_sample(bus, INT16_MAX, INT16_MIN, 0, 0, 0, 0);
+
+    const std::optional<ImuReading> r = imu.read();
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->accel_x, Mpu6050::kAccelPositiveRailMps2);
+    EXPECT_EQ(r->accel_y, Mpu6050::kAccelNegativeRailMps2);
+    EXPECT_LT(Mpu6050::kAccelPositiveRailMps2, 2.0f * Mpu6050::kGravityMps2);    // one count short of 2 g
+    EXPECT_EQ(Mpu6050::kAccelNegativeRailMps2, -2.0f * Mpu6050::kGravityMps2);   // exactly -2 g
+    EXPECT_NEAR(2.0f * Mpu6050::kGravityMps2 - Mpu6050::kAccelPositiveRailMps2,
+                Mpu6050::kGravityMps2 / Mpu6050::kAccelLsbPerG, 1e-6f);          // the gap is one count
+}
+
 // read() before a successful init() is empty and touches the bus not at
 // all: the registers would be whatever the chip powered up with.
 TEST(Mpu6050Test, ReadBeforeInitReturnsEmpty) {

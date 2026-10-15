@@ -23,7 +23,9 @@
 // Three detection strategies, one recovery rule, and a start state:
 //   Communication timeout  no successful read within a bound   (FAULT-001..004)
 //   Stuck sensor           N identical readings on any axis    (FAULT-005..007)
-//   Out of range           value outside configured limits     (FAULT-008..010)
+//   Out of range           value outside configured limits, or an
+//                          accelerometer axis at a rail of the
+//                          driver's full scale                  (FAULT-008..010)
 //   Recovery               M consecutive valid readings        (FAULT-011)
 //   NO_DATA                until a channel's first reading     (REQ-FAULT-006)
 
@@ -67,7 +69,9 @@ struct FaultDetectorConfig {
     float pressure_max_hpa = 1100.0f;
     float temperature_min_c = -40.0f;      // FAULT-009, BMP280 operating range
     float temperature_max_c = 85.0f;
-    float accel_limit_mps2 = 2.0f * 9.81f; // FAULT-010, MPU6050 power-on full scale (±2g)
+    // FAULT-010 has no field: the accelerometer's limits are the rails of
+    // the full scale the driver configures (Mpu6050::kAccelPositiveRailMps2
+    // and kAccelNegativeRailMps2), a fact of the sensor, not a tuning.
 };
 
 class FaultDetector {

@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.8.0
+> **Version:** 0.9.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-13
+> **Last Updated:** 2026-10-14
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
 
 ## Conventions
@@ -72,7 +72,9 @@ REQ-FAULT-001: The system shall declare a communication fault on an I2C channel 
 
 REQ-FAULT-002: The system shall detect a stuck sensor condition: N consecutive identical readings on any channel, or on any single axis of a channel, where N is configurable.
 
-REQ-FAULT-003: The system shall detect out-of-range or invalid sensor readings against configurable limits. Default limits: pressure 300 to 1100 hPa; temperature −40 to 85 °C; accelerometer within its configured full-scale range (±2 g at power-on); GPS fix quality greater than 0.
+REQ-FAULT-003: The system shall detect out-of-range or invalid sensor readings: pressure and temperature against configurable limits (300 to 1100 hPa and −40 to 85 °C by default); an accelerometer reading at either rail of the full-scale range the driver configures (±2 g at power-on), the rails being the two extreme 16-bit codes converted by the driver's own scaling; and GPS fix quality greater than 0.
+
+> **Rationale:** the accelerometer's limits are derived, not configured. A 16-bit two's-complement reading runs from −32768 to +32767, so at ±2 g and 16384 LSB/g the negative rail is exactly −2 g (−19.62 m/s²) and the positive rail is 32767/16384 × 9.81 = 19.6194 m/s², one count short of 2 g. Until 0.9.0 the limit was a configured 19.62 m/s² compared by magnitude, which the positive rail never reached, so positive saturation never tripped (FTS-VR-001 Entry 8 §8.7, closed in Entry 14). Deriving both rails from the driver's scale constants (FTS-DD-001 Section 3) makes the threshold what the sensor can produce, and a reading at a rail is clipped whatever its sign. The pressure and temperature limits stay configurable because they are plausibility bounds inside the sensor's output range, not the range itself.
 
 REQ-FAULT-004: Upon detecting a sensor fault, the system shall mark the affected channel DEGRADED, log a fault event carrying the timestamp, channel, and fault type, and continue processing with the remaining NOMINAL channels.
 

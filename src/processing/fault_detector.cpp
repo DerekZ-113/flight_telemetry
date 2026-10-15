@@ -1,7 +1,8 @@
 #include "processing/fault_detector.h"
 
 #include <algorithm>
-#include <cmath>
+
+#include "drivers/mpu6050.h"
 
 FaultDetector::FaultDetector(const FaultDetectorConfig& config)
     : config_(config)
@@ -103,12 +104,20 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
         return obs;
     }
 
-    // FAULT-010. Any axis at or beyond full scale is a clipped reading.
+    // FAULT-010. An axis at either rail is a clipped reading. The rails are
+    // the driver's: the two extreme 16-bit codes through its own scaling
+    // (mpu6050.h), so the threshold is what the sensor can produce, never
+    // a stated 2 g. Two signed tests, not a magnitude test: the range is
+    // asymmetric, the positive rail one count short of 2 g and the count
+    // one inside the negative rail equal to minus the positive rail, so a
+    // fabs() against either rail misses one case or flags a valid reading.
     // std::find_if names the intent: locate the first saturated axis.
     const float accel[3] = {raw.accel_x, raw.accel_y, raw.accel_z};
-    const float limit = config_.accel_limit_mps2;
     const float* saturated = std::find_if(std::begin(accel), std::end(accel),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-                                          [limit](float a) { return std::fabs(a) >= limit; });
+                                          [](float a) {
+                                              return a >= Mpu6050::kAccelPositiveRailMps2 ||
+                                                     a <= Mpu6050::kAccelNegativeRailMps2;
+                                          });
     if (saturated != std::end(accel)) {
         obs.faulted = true;
         obs.type = FaultType::OUT_OF_RANGE;

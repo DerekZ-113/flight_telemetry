@@ -1,15 +1,15 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-13
+> **Last Updated:** 2026-10-14
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
 Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9).
 
-Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
+Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants; the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
 
 Where a response says a computed field is "marked invalid" or "flagged", the frame's validity byte for that field reads FAILURE_WARNING (REQ-PROC-007): the field keeps a defined number, held or coasting, and the flag is what the display acts on. A raw field (position, heading, ground speed, GPS altitude, pressure) carries no validity byte of its own; it is invalid when its channel's status says so. See "Start-up and validity" before the degradation table.
 
@@ -117,15 +117,15 @@ Where a response says a computed field is "marked invalid" or "flagged", the fra
 
 ### FAULT-010: MPU6050 accelerometer saturation
 
-- **What:** Acceleration reading hits the configured full-scale range of the sensor
+- **What:** Acceleration reading reaches either rail of the full-scale range the driver configures
 - **Cause:** Physical shock (dropping the board), sensor configured at too narrow a range for the motion
 - **Likelihood:** Low (more likely during handling)
-- **Detection:** Any axis reads at or above `fault.accel_limit_mps2` (19.62 m/s², the ±2 g the driver configures; the full-scale range is a driver constant tied to its scaling, FTS-DD-001 Section 3)
+- **Detection:** Any axis at either rail of the ±2 g full scale the driver configures: +19.6194 m/s² (count +32767) or −19.62 m/s² (count −32768), the two extreme 16-bit codes through the driver's own scaling (`Mpu6050::kAccelPositiveRailMps2` and `kAccelNegativeRailMps2`, FTS-DD-001 Section 3). Not a key and not a magnitude test: a 16-bit two's-complement range is asymmetric, so the positive rail is one count short of 2 g, and the count one inside the negative rail (−32767) converts to the negation of the positive rail. Until 0.4.0 the limit was `fault.accel_limit_mps2`, 19.62 m/s², compared by magnitude, which the positive rail never reached, so positive saturation never tripped (FTS-VR-001 Entry 8 §8.7, closed in Entry 14).
 - **Response:** Discard reading. Mark IMU channel DEGRADED. Pitch and roll held and flagged FAILURE_WARNING until readings return within range (REQ-PROC-007). Log fault event with the clipped value.
 - **Requirement:** REQ-FAULT-003, REQ-FAULT-004
-- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.AccelSaturationDegradesImu`
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.AccelAtPositiveRailDegradesImu`, `AccelAtNegativeRailDegradesImu`, `AccelOneCountInsideEitherRailIsValid`; `tests/unit/test_mpu6050.cpp` → `Mpu6050Test.ExtremeCountsAreTheRails` (the driver's conversion of 0x7FFF and 0x8000 equals the two constants bit for bit, which is what ties the detector's threshold to what the sensor produces; TC-013 step 7)
 
-> **TODO (deferred, decide in build session):** The gyroscope has an equivalent saturation mode (±250°/s at power-on default, up to ±2000°/s). No fault entry exists yet.
+> **TODO (deferred, decide in build session):** The gyroscope has an equivalent saturation mode (±250°/s at power-on default, up to ±2000°/s). No fault entry exists yet; when it is written, its rails derive from `Mpu6050::kGyroLsbPerDps` the same way (at 131 LSB per deg/s the codes ±32768 convert to ±250.1 deg/s, outside a nominal 250, so a stated number would err in the other direction: inside the rails).
 
 ---
 
