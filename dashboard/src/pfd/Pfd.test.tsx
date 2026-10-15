@@ -1,0 +1,73 @@
+// The instrument panel's strip (REQ-DISP-001, REQ-DISP-004, REQ-DISP-006;
+// TC-023 step 6): the mode label inside the panel, never LIVE for the
+// simulator or a replay; the feed's state with its cause; PIPELINE only
+// with a NOT_JUDGED field; the rate and the lag. The panel is rendered
+// from a feed state built by hand, so nothing here waits on a socket.
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { Pfd } from "./Pfd";
+import { frame, runningFeed } from "../testMessages";
+
+afterEach(cleanup);
+
+describe("the panel's strip", () => {
+  it("shows no mode before a status, boxes SIM and REPLAY, and never shows the simulator as LIVE", () => {
+    const { rerender, container } = render(<Pfd feed={runningFeed({ session: null })} />);
+    let mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("MODE UNKNOWN");
+    expect(mode.dataset.mode).toBe("UNKNOWN");
+    expect(mode.dataset.boxed).toBe("true");
+
+    rerender(<Pfd feed={runningFeed({ session: { mode: "SIMULATED", state: "RUNNING" } })} />);
+    mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("SIM");
+    expect(mode.dataset.boxed).toBe("true");
+    expect(container.textContent).not.toMatch(/LIVE/);
+
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING" } })} />);
+    mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("REPLAY");
+    expect(mode.dataset.boxed).toBe("true");
+    expect(container.textContent).not.toMatch(/LIVE/);
+
+    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING" } })} />);
+    mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("LIVE");
+    expect(mode.dataset.boxed).toBe("false");
+  });
+
+  it("names the feed's state and its cause", () => {
+    const cases: Array<[Parameters<typeof runningFeed>[0], string, string]> = [
+      [{ lastFrame: null, connection: "connecting", opened: false }, "CONNECTING", "none"],
+      [{ lastFrame: null }, "WAITING", "none"],
+      [{}, "RUNNING", "none"],
+      [{ stale: true, ageMs: 1234 }, "STALE 1.2 s", "stale"],
+      [{ ended: true }, "ENDED", "ended"],
+      [{ lagExceeded: true, lagMs: 812 }, "LAG 0.8 s", "lag"],
+      [{ connection: "closed" }, "BRIDGE DISCONNECTED", "link"],
+      [{ connection: "closed", ended: true, stale: true, lagExceeded: true }, "BRIDGE DISCONNECTED", "link"],
+    ];
+    for (const [overrides, text, cause] of cases) {
+      const { unmount } = render(<Pfd feed={runningFeed(overrides)} />);
+      const state = screen.getByTestId("pfd-state");
+      expect(state.textContent).toBe(text);
+      expect(state.dataset.cause).toBe(cause);
+      unmount();
+    }
+  });
+
+  it("lights PIPELINE only while a field is NOT_JUDGED", () => {
+    const { rerender } = render(<Pfd feed={runningFeed()} />);
+    expect(screen.queryByTestId("pfd-pipeline")).toBeNull();
+    rerender(<Pfd feed={runningFeed({ lastFrame: frame(0, { fused_altitude_m: "NOT_JUDGED" }) })} />);
+    expect(screen.getByTestId("pfd-pipeline").textContent).toBe("PIPELINE");
+  });
+
+  it("shows the rate and the lag", () => {
+    const { rerender } = render(<Pfd feed={runningFeed({ rate: 50, lagMs: 12.4 })} />);
+    expect(screen.getByTestId("pfd-rate").textContent).toBe("50 fps · lag 12 ms");
+    rerender(<Pfd feed={runningFeed({ rate: 0, lagMs: null, lastFrame: null })} />);
+    expect(screen.getByTestId("pfd-rate").textContent).toBe("0 fps · lag ---");
+  });
+});

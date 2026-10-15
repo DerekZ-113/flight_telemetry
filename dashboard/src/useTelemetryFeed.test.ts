@@ -1,8 +1,10 @@
-// The feed hook's state machine (REQ-DISP-003, REQ-DISP-004; TC-022 steps
-// 9, 11, 12 and 13 at the hook level): staleness from the hook's own clock,
-// an ended stream never stale, the rate over the trailing second, the
-// threshold from hello, the reconnect after the backoff. A fake socket and
-// an injected clock stand in for the bridge and for time, so nothing waits.
+// The feed hook's state machine (REQ-DISP-003, REQ-DISP-004, REQ-DISP-006;
+// TC-022 steps 9, 11, 12 and 13 and TC-025 step 5 at the hook level):
+// staleness from the hook's own clock, an ended stream never stale, the rate
+// over the trailing second, the thresholds from hello, the reconnect after
+// the backoff, the lag from elapsed times on each clock and its origins, the
+// trail of fresh fixes. A fake socket and an injected clock stand in for the
+// bridge and for time, so nothing waits.
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -143,5 +145,93 @@ describe("useTelemetryFeed", () => {
     deliver({ type: "something-else" });
     expect(result.current.lastFrame).toBeNull();
     expect(result.current.frameCount).toBe(0);
+  });
+
+  // --- TC-025 step 5: the lag, its origins, the thresholds, the trail (REQ-DISP-006) ---------
+
+  it("takes the lag and track thresholds from hello", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    expect(result.current.lagThresholdMs).toBe(500);
+    expect(result.current.trackMinSpeedMps).toBe(1.0);
+    openWithHello(hello(null, STALE_MS, { lag_ms: 250, track_min_speed_mps: 2.5 }));
+    expect(result.current.lagThresholdMs).toBe(250);
+    expect(result.current.trackMinSpeedMps).toBe(2.5);
+  });
+
+  it("measures the lag from elapsed times on each clock, never by subtracting one clock from the other", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello();
+    expect(result.current.lagMs).toBeNull();
+    expect(result.current.bridgeLagMs).toBeNull();
+    deliver(frame(0)); // t=0, received_at 0, arriving at 0: the origin
+    expect(result.current.lagMs).toBe(0);
+    expect(result.current.bridgeLagMs).toBe(0);
+    advance(PERIOD_MS);
+    deliver(frame(1)); // t=20, received_at 20, arriving at 20: on time
+    expect(result.current.lagMs).toBe(0);
+    expect(result.current.bridgeLagMs).toBe(0);
+    advance(380); // the clock at 400
+    deliver({ ...frame(2), received_at_ms: 300 }); // t=40, held 260 ms in the bridge and 100 ms in the socket
+    expect(result.current.lagMs).toBe(360);
+    expect(result.current.bridgeLagMs).toBe(260);
+    expect(result.current.lagExceeded).toBe(false); // 360 is under the shipped 500
+    deliver(hello(null, STALE_MS, { lag_ms: 250 }));
+    advance(PERIOD_MS);
+    deliver({ ...frame(3), received_at_ms: 320 }); // t=60 at 420: the same lag, now past 250
+    expect(result.current.lagMs).toBe(360);
+    expect(result.current.lagExceeded).toBe(true);
+    expect(result.current.lastFrame?.frame.fused_altitude_m).toBe(12.5); // the metres the message carried, untouched
+  });
+
+  it("re-takes the lag origin after a reconnect, after ENDED and after a backwards timestamp", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello();
+    deliver(frame(0));
+    advance(100);
+    deliver(frame(1)); // t=20 at 100: 80 ms of lag against the first frame
+    expect(result.current.lagMs).toBe(80);
+
+    act(() => FakeSocket.latest().closeFromServer());
+    advance(1000);
+    openWithHello();
+    advance(50); // the clock at 1150
+    deliver(frame(2)); // t=40: a new origin, so no lag however long the gap
+    expect(result.current.lagMs).toBe(0);
+
+    deliver(session("REPLAY", "ENDED"));
+    advance(100); // the clock at 1250
+    deliver(frame(3)); // t=60: a frame after an end is a new session
+    expect(result.current.lagMs).toBe(0);
+    advance(PERIOD_MS);
+    deliver(frame(4)); // t=80 at 1270: on time against the new origin
+    expect(result.current.lagMs).toBe(0);
+
+    advance(PERIOD_MS); // the clock at 1290
+    deliver(frame(1)); // t=20 after t=80: a restarted binary
+    expect(result.current.lagMs).toBe(0);
+  });
+
+  it("keeps a trail of fresh fixes, capped, and clears it with the origin", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello();
+    for (let i = 0; i <= 100; i++) {
+      deliver({ ...frame(i), position: { east_m: i, north_m: 0 } }); // fresh on 0, 50 and 100 only
+    }
+    expect(result.current.trail).toEqual([
+      { east_m: 0, north_m: 0 },
+      { east_m: 50, north_m: 0 },
+      { east_m: 100, north_m: 0 },
+    ]);
+    deliver({ ...frame(150), position: null }); // fresh, but the bridge has no origin: nothing to add
+    expect(result.current.trail).toHaveLength(3);
+    for (let i = 0; i < 3700; i++) {
+      deliver({ ...frame(200 + i, {}, { gps_read_ok: true }), position: { east_m: 200 + i, north_m: 1 } });
+    }
+    expect(result.current.trail).toHaveLength(3600);
+    expect(result.current.trail[3599]).toEqual({ east_m: 200 + 3699, north_m: 1 });
+    deliver(session("REPLAY", "ENDED"));
+    expect(result.current.trail).toHaveLength(3600); // kept until a new session's first frame
+    deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
+    expect(result.current.trail).toEqual([{ east_m: 0, north_m: 0 }]);
   });
 });

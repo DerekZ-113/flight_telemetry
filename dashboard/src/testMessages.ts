@@ -1,8 +1,12 @@
-// Messages the tests deliver, built the way the bridge builds them.
+// Messages the tests deliver, built the way the bridge builds them, and a
+// feed state built by hand for the instruments' tests.
 import type { ComputedField, FrameMessage, HelloMessage, Session, SessionMessage, ValidityName } from "./feed";
+import type { FeedState } from "./useTelemetryFeed";
 
 export const PERIOD_MS = 20;
 export const STALE_MS = 1000;
+export const LAG_MS = 500;
+export const TRACK_MIN_SPEED_MPS = 1.0;
 
 const VALIDITY_BYTES: Record<ValidityName, number> = {
   NOT_JUDGED: 0,
@@ -11,8 +15,19 @@ const VALIDITY_BYTES: Record<ValidityName, number> = {
   NORMAL: 3,
 };
 
-export function hello(session: Session | null = null, staleMs = STALE_MS): HelloMessage {
-  return { type: "hello", stale_ms: staleMs, period_ms: PERIOD_MS, session, frames_received: 0, gaps: 0, out_of_order: 0 };
+export function hello(session: Session | null = null, staleMs = STALE_MS, extra: Partial<HelloMessage> = {}): HelloMessage {
+  return {
+    type: "hello",
+    stale_ms: staleMs,
+    period_ms: PERIOD_MS,
+    session,
+    frames_received: 0,
+    gaps: 0,
+    out_of_order: 0,
+    track_min_speed_mps: TRACK_MIN_SPEED_MPS,
+    lag_ms: LAG_MS,
+    ...extra,
+  };
 }
 
 export function session(mode: Session["mode"], state: Session["state"] = "RUNNING"): SessionMessage {
@@ -72,5 +87,31 @@ export function frame(
     },
     validity: names,
     status: { baro: "NOMINAL", imu: "NOMINAL", gps: "NOMINAL" },
+    position: null,
+  };
+}
+
+// A feed in the middle of a run: open, SIM, one NORMAL frame just arrived,
+// fifty a second, no lag, nothing stale or ended; overrides pick the case.
+export function runningFeed(overrides: Partial<FeedState> = {}): FeedState {
+  return {
+    connection: "open",
+    opened: true,
+    session: { mode: "SIMULATED", state: "RUNNING" },
+    staleMs: STALE_MS,
+    lastFrame: frame(0),
+    lastArrivalMs: 0,
+    frameCount: 1,
+    rate: 50,
+    ageMs: 0,
+    stale: false,
+    ended: false,
+    lagThresholdMs: LAG_MS,
+    trackMinSpeedMps: TRACK_MIN_SPEED_MPS,
+    lagMs: 0,
+    bridgeLagMs: 0,
+    lagExceeded: false,
+    trail: [],
+    ...overrides,
   };
 }

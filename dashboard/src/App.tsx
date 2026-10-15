@@ -1,13 +1,17 @@
-// The page (part 1 of the Primary Flight Display): frames arriving. The
-// mode label and the feed's state (REQ-DISP-003, REQ-DISP-004), the rate,
-// the last frame, and each computed field with its validity by name beside
-// the number (REQ-PROC-007: a display tells a value from its absence by the
-// flag, never by the number). No instrument yet: part 2 builds those on
-// this feed. No position, by construction: the bridge sends none.
+// The page: the instrument panel (REQ-DISP-001, REQ-DISP-002) on top, and
+// below it the diagnostic view of part 1, frames arriving: the mode label
+// and the feed's state (REQ-DISP-003, REQ-DISP-004), the rate, the last
+// frame, the lag (REQ-DISP-006), and each computed field with its validity
+// by name beside the number (REQ-PROC-007: a display tells a value from its
+// absence by the flag, never by the number). The diagnostic view keeps a
+// flagged or stale value on screen, struck through; the instruments remove
+// it under a flag (FTS-DS-001 §8). No coordinate anywhere, by construction:
+// the bridge sends a position relative to the first fix and nothing else.
 import type { JSX } from "react";
 
 import { badgeFor } from "./badge";
 import { CHANNELS, COMPUTED_FIELDS, modeLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
+import { Pfd } from "./pfd/Pfd";
 import { useTelemetryFeed, type FeedOptions } from "./useTelemetryFeed";
 
 const FIELD_LABELS: Record<ComputedField, string> = {
@@ -43,7 +47,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
 
   return (
     <main className="pfd">
-      <header className="bar">
+      <header className="bar" data-testid="bar">
         <span className="mode" data-mode={feed.session?.mode ?? "UNKNOWN"}>
           {modeLabel(feed.session)}
         </span>
@@ -54,6 +58,10 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
           {badge.detail}
         </span>
       </header>
+
+      <section className="instruments">
+        <Pfd feed={feed} />
+      </section>
 
       <section className="counters">
         <div>
@@ -73,6 +81,15 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
           <span className="label">last frame</span>
           <span className="number" data-testid="last-frame">
             {feed.lastFrame === null ? "---" : `t=${feed.lastFrame.frame.timestamp_ms} ms`}
+          </span>
+        </div>
+        <div>
+          <span className="label">lag</span>
+          <span className="number" data-testid="lag">
+            {feed.lagMs === null ? "---" : `${Math.round(feed.lagMs)} ms`}
+          </span>
+          <span className="unit" data-testid="bridge-lag">
+            {feed.bridgeLagMs === null ? "" : `bridge ${Math.round(feed.bridgeLagMs)} ms`}
           </span>
         </div>
       </section>

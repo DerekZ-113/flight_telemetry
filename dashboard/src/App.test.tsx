@@ -1,9 +1,11 @@
-// The page (REQ-DISP-003, REQ-DISP-004, REQ-PROC-007; TC-022 steps 8 to 14):
-// no mode until a status arrives and the simulator never LIVE, each validity
-// rendered by name, the feed marked stale from arrival time and recovering,
-// an ended stream shown as ended, a lost bridge reported, no coordinate
-// anywhere.
-import { act, cleanup, render, screen } from "@testing-library/react";
+// The page (REQ-DISP-003, REQ-DISP-004, REQ-PROC-007; TC-022 steps 8 to 14;
+// TC-023 and TC-025 for the panel above the diagnostic view): no mode until a
+// status arrives and the simulator never LIVE, each validity rendered by
+// name, the feed marked stale from arrival time and recovering, an ended
+// stream shown as ended, a lost bridge reported, no coordinate anywhere.
+// The header bar and the panel's strip both carry the mode and the state, so
+// the bar's words are read inside the bar.
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -30,8 +32,8 @@ function openWithHello(initial = hello()): void {
   deliver(initial);
 }
 
-function renderPage(): void {
-  render(<App url="ws://127.0.0.1:8765" options={options} />);
+function renderPage() {
+  return render(<App url="ws://127.0.0.1:8765" options={options} />);
 }
 
 function row(label: string): HTMLTableRowElement {
@@ -45,6 +47,10 @@ function row(label: string): HTMLTableRowElement {
 
 function valueOf(label: string): string {
   return row(label).querySelector(".value")?.textContent ?? "";
+}
+
+function bar() {
+  return within(screen.getByTestId("bar"));
 }
 
 beforeEach(() => {
@@ -61,11 +67,11 @@ afterEach(() => {
 describe("the page", () => {
   it("shows no mode and waits before any message (step 8)", () => {
     renderPage();
-    expect(screen.getByText("MODE UNKNOWN")).toBeTruthy();
-    expect(screen.getByText("CONNECTING")).toBeTruthy();
+    expect(bar().getByText("MODE UNKNOWN")).toBeTruthy();
+    expect(bar().getByText("CONNECTING")).toBeTruthy();
     openWithHello();
-    expect(screen.getByText("MODE UNKNOWN")).toBeTruthy();
-    expect(screen.getByText("WAITING")).toBeTruthy();
+    expect(bar().getByText("MODE UNKNOWN")).toBeTruthy();
+    expect(bar().getByText("WAITING")).toBeTruthy();
     expect(valueOf("Fused altitude (m)")).toBe("---");
   });
 
@@ -73,20 +79,20 @@ describe("the page", () => {
     renderPage();
     openWithHello();
     deliver(session("SIMULATED"));
-    expect(screen.getByText("SIM")).toBeTruthy();
+    expect(bar().getByText("SIM")).toBeTruthy();
     expect(screen.queryByText(/LIVE/)).toBeNull();
     deliver(session("REPLAY"));
-    expect(screen.getByText("REPLAY")).toBeTruthy();
+    expect(bar().getByText("REPLAY")).toBeTruthy();
     expect(screen.queryByText(/LIVE/)).toBeNull();
     deliver(session("LIVE"));
-    expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(bar().getByText("LIVE")).toBeTruthy();
   });
 
   it("knows the mode from hello when it joins mid-run (step 9)", () => {
     renderPage();
     openWithHello(hello({ mode: "SIMULATED", state: "RUNNING" }));
-    expect(screen.getByText("SIM")).toBeTruthy();
-    expect(screen.queryByText("MODE UNKNOWN")).toBeNull();
+    expect(bar().getByText("SIM")).toBeTruthy();
+    expect(screen.queryAllByText("MODE UNKNOWN")).toHaveLength(0);
   });
 
   it("renders each validity value by name, distinguishable by text and class (step 10)", () => {
@@ -135,7 +141,7 @@ describe("the page", () => {
       deliver(frame(i));
       advance(PERIOD_MS);
     }
-    expect(screen.getByText("RUNNING")).toBeTruthy();
+    expect(bar().getByText("RUNNING")).toBeTruthy();
     expect(screen.getByTestId("rate").textContent).toBe("50");
     expect(screen.getByTestId("frames").textContent).toBe("50");
     expect(screen.getByTestId("last-frame").textContent).toBe("t=980 ms");
@@ -148,7 +154,7 @@ describe("the page", () => {
     openWithHello();
     deliver(frame(0));
     advance(STALE_MS + 100);
-    expect(screen.getByText("STALE")).toBeTruthy();
+    expect(bar().getByText("STALE")).toBeTruthy();
     expect(screen.getByTestId("age").textContent).toBe("last frame 1.1 s ago");
     expect(screen.getByTestId("rate").textContent).toBe("0");
     for (const label of ["Baro altitude (m)", "Pitch (deg)", "Roll (deg)", "Fused altitude (m)", "Vertical speed (m/s)"]) {
@@ -156,8 +162,8 @@ describe("the page", () => {
     }
     expect(valueOf("Fused altitude (m)")).toBe("12.50"); // the last number stays legible under the mark
     deliver(frame(1));
-    expect(screen.queryByText("STALE")).toBeNull();
-    expect(screen.getByText("RUNNING")).toBeTruthy();
+    expect(bar().queryByText("STALE")).toBeNull();
+    expect(bar().getByText("RUNNING")).toBeTruthy();
     expect(row("Fused altitude (m)").classList.contains("stale")).toBe(false);
   });
 
@@ -166,23 +172,23 @@ describe("the page", () => {
     openWithHello();
     deliver(frame(3));
     deliver(session("REPLAY", "ENDED"));
-    expect(screen.getByText("ENDED")).toBeTruthy();
+    expect(bar().getByText("ENDED")).toBeTruthy();
     expect(screen.getByTestId("last-frame").textContent).toBe("t=60 ms");
     advance(5 * STALE_MS);
-    expect(screen.getByText("ENDED")).toBeTruthy();
-    expect(screen.queryByText("STALE")).toBeNull();
+    expect(bar().getByText("ENDED")).toBeTruthy();
+    expect(screen.queryAllByText(/STALE/)).toHaveLength(0);
   });
 
   it("reports a lost bridge and reconnects after the backoff (step 13)", () => {
     renderPage();
     openWithHello();
     act(() => FakeSocket.latest().closeFromServer());
-    expect(screen.getByText("BRIDGE DISCONNECTED")).toBeTruthy();
+    expect(bar().getByText("BRIDGE DISCONNECTED")).toBeTruthy();
     advance(1000);
     expect(FakeSocket.instances).toHaveLength(2);
     openWithHello();
-    expect(screen.queryByText("BRIDGE DISCONNECTED")).toBeNull();
-    expect(screen.getByText("WAITING")).toBeTruthy();
+    expect(screen.queryAllByText("BRIDGE DISCONNECTED")).toHaveLength(0);
+    expect(bar().getByText("WAITING")).toBeTruthy();
   });
 
   it("never renders a coordinate (step 14)", () => {
@@ -192,5 +198,31 @@ describe("the page", () => {
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/latitude|longitude/i);
     expect(text).not.toMatch(/\d{2}\.\d{4,}/); // no decimal-degree-looking number anywhere
+  });
+
+  // --- TC-023 and TC-025: the panel above the diagnostic view, the lag beside the counters ------
+
+  it("renders the instrument panel above the diagnostic view", () => {
+    const { container } = renderPage();
+    const main = container.querySelector("main");
+    const panel = screen.getByTestId("pfd");
+    const table = container.querySelector("table.fields");
+    expect(main).not.toBeNull();
+    expect(table).not.toBeNull();
+    const order = Array.from(main!.querySelectorAll("*"));
+    expect(order.indexOf(panel)).toBeLessThan(order.indexOf(table!));
+    expect(bar().getByText("MODE UNKNOWN")).toBeTruthy();
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("MODE UNKNOWN");
+  });
+
+  it("shows the lag and the bridge's share of it beside the counters", () => {
+    renderPage();
+    openWithHello();
+    expect(screen.getByTestId("lag").textContent).toBe("---");
+    deliver(frame(0));
+    advance(400);
+    deliver(frame(1)); // t=20, received_at 20, arriving 400 ms after the first: the queue is past the bridge
+    expect(screen.getByTestId("lag").textContent).toBe("380 ms");
+    expect(screen.getByTestId("bridge-lag").textContent).toBe("bridge 0 ms");
   });
 });

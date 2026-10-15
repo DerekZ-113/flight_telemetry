@@ -62,12 +62,21 @@ export interface FrameFields {
   reserved_b: number;
 }
 
+// A position relative to the first fix the bridge saw, in metres
+// (REQ-DISP-005): a displacement reveals a shape, not a place. Null before
+// the bridge has an origin.
+export interface Position {
+  east_m: number;
+  north_m: number;
+}
+
 export interface FrameMessage {
   type: "frame";
   received_at_ms: number;
   frame: FrameFields;
   validity: Record<ComputedField, ValidityName>;
   status: Record<Channel, StatusName>;
+  position: Position | null;
 }
 
 export interface Session {
@@ -88,6 +97,8 @@ export interface HelloMessage {
   frames_received: number;
   gaps: number;
   out_of_order: number;
+  track_min_speed_mps: number; // the ground speed under which the track is withheld (REQ-DISP-002)
+  lag_ms: number; // the lag past which the instruments are removed (REQ-DISP-006)
 }
 
 export type BridgeMessage = FrameMessage | SessionMessage | HelloMessage;
