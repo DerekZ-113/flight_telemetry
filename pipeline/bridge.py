@@ -222,7 +222,8 @@ def main(argv: list[str] | None = None) -> int:
             host, port = bridge.address
             print(f"bridge: reading {source.endpoint}, serving ws://{host}:{port} (Ctrl-C to stop)", flush=True)
             stop = asyncio.Event()
-            asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)
+            for signum in (signal.SIGINT, signal.SIGTERM):   # Ctrl-C, or a plain kill: both end with the summary
+                asyncio.get_running_loop().add_signal_handler(signum, stop.set)
             await stop.wait()
             receiver = bridge.receiver
             session = (f"session {receiver.session.mode} {receiver.session.state.lower()}"

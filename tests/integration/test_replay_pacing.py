@@ -110,13 +110,20 @@ def test_paced_replay_records_lateness_by_prefix(telemetry_bin, tmp_path, sim_se
     rows = np.loadtxt(logs / "replay_jitter.csv", delimiter=",", skiprows=1)
     assert rows.shape == (PACED_CYCLES, 5)
     lateness_ns = rows[:, 3]
+    # Never early is the pacer's property; how late is the machine's (the Mac's nanosleep fallback
+    # under load has woken 62 ms late, FTS-VR-001 Entry 16), as REQ-TIME-003's jitter is the Pi's.
+    # So the mean is bounded by a period, the count late by a period or more by one frame in twenty,
+    # and the maximum is printed and recorded.
     assert (lateness_ns >= 0).all(), "a frame was released before its deadline"
-    assert lateness_ns.max() < PERIOD_MS * 1e6, f"a frame was {lateness_ns.max() / 1e6:.1f} ms late, a period or more"
+    assert lateness_ns.mean() < PERIOD_MS * 1e6, f"mean lateness {lateness_ns.mean() / 1e6:.1f} ms, a period or more"
+    late_frames = int((lateness_ns >= PERIOD_MS * 1e6).sum())
+    assert late_frames <= PACED_CYCLES // 20, f"{late_frames} frames a period or more late"
     match = PACED_TIMING_LINE.search(stdout)
     assert match is not None, stdout[-400:]
     assert int(match.group("frames")) == PACED_CYCLES
-    assert int(match.group("late")) == 0
-    print(f"lateness min/mean/max = {match.group('min')} / {match.group('mean')} / {match.group('max')} us")
+    assert int(match.group("late")) == late_frames
+    print(f"lateness min/mean/max = {match.group('min')} / {match.group('mean')} / {match.group('max')} us, "
+          f"late by a period or more = {late_frames}")
 
 
 # --- TC-020 step 8: --pace is a replay's flag ---------------------------------------------------

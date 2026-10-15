@@ -1172,3 +1172,94 @@ Reserved for the first CI run with this commit: GCC's count on the five lines ag
 - §15.4.
 - The comment at `nmea.cpp:258` (§15.5), Derek's call. (Closed 2026-10-14: added on review.)
 - Everything in Entry 13 §13.9 but its second item: §13.8, the capture fixture and step 17, the marked lines, the design §12 items, FAULT-003b.
+
+## Entry 16 — 2026-10-14, the display's data path: a replay that ends and paces, the session status on the wire, the bridge and the page (macOS preview)
+
+Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in seven commits; the branch stays off `main` until after the v0.1.0 tag, and the first CI run on its draft pull request is the measurement of record (§16.7).
+
+### 16.1 What was built
+
+- `src/data_source.h`: `virtual bool has_next()`, true by default; `src/replay/log_replay_source.h/.cpp`: the one-frame look-ahead (`has_next`) and `read_frame` consuming it, `exhausted` unchanged in meaning; `src/drivers/fault_injecting_source.*`: the forward. `src/main.cpp`: the loop asks the source before every read, `--cycles` is `std::optional<int>` (5 for a live or simulated run, no cap for a replay), the `Replay:` line names which ended the run (REQ-LOG-006).
+- `src/transport/session_message.h/.cpp`: `RunMode`, `StreamState`, `session_message` (eight bytes: `FTSS`, version 1, mode, state, reserved), `mode_name`, `state_name`, `kStatusIntervalMs` 1000, `kEndedRepeats` 3; `src/transport/publisher.h`: `publish_status`, `PublishStats::status_published`; both publishers: `publish_status` through a shared `send_bytes`; `src/main.cpp`: the mode chosen with the source, RUNNING before frame 0 and every `1000 / period_ms` cycles, ENDED three times after the loop, `status messages = N` on the transport line (REQ-TRANS-004). `pipeline/frame_format.py`: `SESSION`, `SessionStatus`, `parse_session`, `parse_message` dispatching on the magic; `pipeline/receiver.py`: `session`, `ended`, the iteration ending on ENDED, `format_session`, main ending on ENDED and the exit line's session.
+- `src/timing/timestamp_pacer.h/.cpp`: `TimestampPacer::wait_for`, the origin from the first frame, the signed deadline `origin + (t − t0)` clamped at the epoch, `sleep_until_ns` through the `Clock` seam, lateness in `CycleTiming` with whole periods late in `missed_cycles`; `src/main.cpp`: `--pace` (refused without `--replay`), the pacer after the read in `run`, the jitter log for a paced replay, the CSV named by the run's prefix (`<prefix>_jitter.csv`, which the matrix's REQ-TIME-002 note had described since the UDP topic while the code wrote `telemetry_jitter.csv`), the paced `Timing:` line (REQ-TIME-004). `config/telemetry_config.yaml`: the flag comment names `--pace` (no key, no value).
+- `pipeline/bridge.py`: `Bridge` (a reader thread on `FrameReceiver.recv()`, `call_soon_threadsafe` to the loop, `websockets.asyncio.server.serve`, `broadcast`), `frame_message` without `WITHHELD_FIELDS`, `session_message`, `hello`, `DEFAULT_HOST` 127.0.0.1, `--listen`, `--period-ms`, `--stale-ms`; SIGINT and SIGTERM end it with a summary (REQ-DISP-005). `requirements.txt`: `websockets==17.2`.
+- `dashboard/`: `package.json` (pinned, §16.6) and its lockfile, `tsconfig.json`, `vite.config.ts` (jsdom, coverage), `index.html`, `src/main.tsx` (`?bridge=` for a bridge elsewhere), `src/feed.ts` (the JSON contract typed field for field, `parseMessage`, `modeLabel`, `SocketLike`), `src/useTelemetryFeed.ts` (the hook: the socket, arrival time, the rate over the trailing second, `judge`, the ticker, the reconnect), `src/badge.ts` (`badgeFor`), `src/App.tsx` and `App.css` (the view), `src/fakeSocket.ts` and `src/testMessages.ts` (test support), `src/useTelemetryFeed.test.ts` (8), `src/App.test.tsx` (9), `README.md` (REQ-DISP-003, REQ-DISP-004).
+- `.github/workflows/ci.yml`: the `page` job (Node 22, `npm ci`, the tests with coverage, the build) in parallel with the C++ job; the Python step's comment. `.gitignore`: `dashboard/node_modules/`, `dist/`, `coverage/`, `.claude/launch.json`.
+- Tests: `tests/unit/test_replay.cpp` (+6, the thesis loop driven by `has_next`), `test_session_message.cpp` (4), `test_zmq_publisher.cpp` (+2, the shut-down context also refusing a status), `test_udp_publisher.cpp` (+2, the kernel's report also refusing a status), `test_timestamp_pacer.cpp` (6); `tests/integration/test_replay_pacing.py` (8), `test_session_status.py` (10), `test_bridge.py` (6), `test_validity.py` (the end-of-log line; its past-the-end test moved), `conftest.py` (the third record kind; the receiver closed on every exit path), `test_transport.py` (statuses on the UDP socket filtered).
+- Documents: SRD 0.10.0 (the six statements and rationale, the Display section, REQ-CFG-001's flag rule); FTS-TM-001 (six rows Verified, the `main.cpp`, seam, replay, injector, publisher, Python and page reverse traces, TEST-001 and TEST-002, 34/9/0 of 43); FTS-TP-001 (TC-019 to TC-022, §2.2, §2.5, §3, §6.3, §7, TC-017 step 13); FTS-DD-001 (§3, §9: end of stream, the session status, the bridge, the page; §10: pacing, the CSV by prefix; §11.2; §12: real-time replay and end-of-stream decided, the sequence number's trigger moved to the voter, the rotated replay's number); README; CLAUDE.md; this entry.
+
+### 16.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 314 of 314 (294 before), 3.2 s; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 108 of 108 (85 before) in about 100 s on the plain build; 108 on the instrumented build too, once the paced lateness bound was amended (§16.5) |
+| Page (Vitest 4.1.11, jsdom) | 17 of 17; statements 98.2%, branches 98.9%, lines 100%, functions 92.9% (the two real defaults, a `WebSocket` and `performance.now`, run in no test; one defensive `?? 0` in `badge.ts`) |
+| `npm run build` | the TypeScript check and the bundle, clean (224 kB, 70 kB gzipped) |
+| cppcheck 2.21.0 | 0 findings, CI's flags, 29 files |
+| The hand run (plan §7) | the page in the built-in browser: SIM, RUNNING, 50 to 51 frames a second (the trailing-second window keeps its boundary frame, so a 50 Hz feed reads 50 or 51), every field NORMAL, the GPS held between fixes; ENDED at the run's end; REPLAY at the same rate through a paced replay of that run's 1500-frame log, then ENDED; STALE 3.7 s after the binary was killed mid-run, the rate 0, every number struck through and legible; BRIDGE DISCONNECTED when the bridge was stopped, reconnected within a second of its restart (MODE UNKNOWN and STALE, the restarted bridge having seen no status) |
+
+Red first throughout: the unit files were watched failing on the missing members and headers, the pytest files on the missing module or flag, the page tests on the missing modules; the end-to-end bridge test and the status tests then passed on their first run against the code, and the page's two rate tests failed on a boundary (§16.5) before passing.
+
+### 16.3 Coverage preview (clang, the Mac recipe of Entry 8, unit and integration tests on the instrumented build)
+
+| Scope | Preview | Entry 15 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 88.9% | 89.3% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 96.4% | 96.4% | 70% |
+| overall | 96.2% | 96.3% | 80% |
+
+The new and changed files: `timestamp_pacer.cpp` 6 of 6 branches, 30 of 30 lines; `log_replay_source.cpp` 16 of 16, 48 of 48; `fault_injecting_source.cpp` 16 of 16; `zmq_publisher.cpp` 8 of 8; `udp_publisher.cpp` 27 of 30 (the three edges Entry 10 lists, kernel-bound); `session_message.cpp` 5 of 7 before the two `switch` no-match edges were marked as the five sites of Entry 1 are (`LCOV_EXCL_BR_LINE` on the switch, `LCOV_EXCL_LINE` on the trailing return), which is the transport scope's 0.4 point. The page's figures are Vitest's (§16.2); Python coverage is not measured in this project, and the bridge's branches are listed against its tests by hand: the loopback and the explicit bind, `hello` with and without a session, a frame, a status, a client leaving, the end-to-end run; untested by any test, the `FormatError` count in the reader thread, the `dropped` count for a record kind the page has no use for, and `main` (the flags, the signal handlers, the summary), exercised by hand in §16.2's run.
+
+### 16.4 The byte checks
+
+| Check | Result |
+|---|---|
+| The seed-42 500-frame log, after every step | `6d43f343…` (Entry 12 §12.4), with and without `--zmq` |
+| Its replay, capped at 500, uncapped, and capped at 9999 | each byte-identical to the original; `Replay:    500 frames, end of log reached` on all three |
+| Its replay paced, against the unpaced replay and against the original | byte-identical; 500 frames paced in 9.99 s, lateness 0 / 3243 / 11526 us, none a period late |
+| A 5-frame log for 12, 3 and no cycles | 5, 3 and 5 frames; the 12-cycle and the 5-cycle logs byte-identical, no timestamp repeated (TC-019 steps 6 and 7) |
+| The demo run's 1500-frame log, replayed paced over ZeroMQ to the page | byte-identical; lateness 0 / 5477 / 16304 us, none a period late; `status messages = 33` (30 RUNNING, before frames 0, 50, ..., 1450, and 3 ENDED) |
+| The pytest's 150-frame paced replay | byte-identical to the unpaced and to the original's first 150 frames; lateness 0 / 4844 / 14623 us, none a period late |
+
+### 16.5 Decisions taken, and deviations from the plan
+
+- All as recommended in the plan, with the answers to the trust test's flags folded in (three mode labels; no format change; deadlines from the recorded timestamps through the `Clock` seam; a replay to its end with `--cycles` as a cap; the CSV by prefix; REQ-DISP-003 and -004 now, -001 and -002 with part 2; the branch name kept).
+- **The pytest harness closes the receiver on every exit path.** A test that handed `run_published` a directory that did not exist raised before the harness's `try`, the receiver was never closed, and the interpreter hung at exit for ten minutes: a pyzmq `Context` whose socket is still open blocks its termination forever. Fixed in the test (the directory created) and in the harness (`receiver.close()` in a `finally` around the whole run), so no later test can hang the suite that way.
+- **The paced lateness bound.** The plan bounded the maximum under one period. On the instrumented build, under the load of the demo and the dev server, one frame of 150 woke 62 ms late on the Mac's `nanosleep` fallback, and again on a rerun. Never early is the pacer's property and byte identity its proof; how late is the machine's, as REQ-TIME-003's jitter is the Pi's. TC-020 step 7 now bounds the mean under a period and the frames a period or more late at one in twenty, and records the maximum; the `Timing:` line's count must agree.
+- **The rate window keeps its boundary frame.** Fifty frames at 20 ms judged on the grid read 49 with a half-open window; the window is closed on its old side, so the page reads 50, and 51 at times, at 50 Hz.
+- **`badge.ts`.** Vite's Fast Refresh reloads a page whose component module also exports a plain function, and a reload loses the feed's state (seen twice in the hand run: the frame counter back to 0, the ended state recovered from `hello`). `badgeFor` moved to its own module so an edit to the view hot-swaps it and keeps the state.
+- React 19's types have no global `JSX` namespace; `App.tsx` imports the type from React.
+- **The lockfile.** npm 10.9.3's resolver fails on this manifest with `Cannot read properties of null (reading 'edgesOut')` while walking jsdom's optional `canvas` peer, with a fresh cache too; `npm install --legacy-peer-deps` produced the lockfile, and `npm ci` from it installs cleanly (121 packages in 0.8 s), which is what CI runs. Recorded in CLAUDE.md's prerequisites.
+- jsdom 30.1.2 declares Node `^22.22.2 || ^24.15.0 || >=26`; this Mac runs 22.18.0, npm warns, the tests run. CI's `setup-node` '22' resolves to a newer patch.
+- `CycleIndexIncrements` is asserted inside `DeadlinesFollowRecordedTimestamps`; `DeadlineBeforeTheClockEpochIsClampedToZero` was added beyond the plan, because the clamp is a branch and needed a test.
+- Lateness of a whole period or more rides `CycleTiming::missed_cycles` as whole periods, so `JitterLog` and its summary serve the pacer unchanged; the paced `Timing:` line prints it as "late by a period or more".
+- The bridge handles SIGTERM like SIGINT: the demo's bridge, ended by `kill`, printed no summary.
+- The two `switch` no-match edges in `session_message.cpp` are marked as Entry 1's five sites are (seven sites now).
+- **Found by the final run, a test defect of this topic's making:** `test_no_receiver_counts_and_continues[udp]` asserted `published + send_failures == 50`, which assumed every refusal the kernel reports is a frame's. Since the status rides the same socket, the port-unreachable report can land on a status send instead (`send_failures` counts frames and statuses alike), and the sum read 51 once in three full runs. The invariant is now over every attempt: frames published plus statuses published plus failures equals 50 frames plus the RUNNING status before frame 0 plus three ENDED, 54; the ZeroMQ variant still expects no refusal at all. Five consecutive runs over both transports pass.
+- Not done, by the plan's own order: the draft pull request and the CI run (Derek's commands), §16.7; TC-021 step 9 (the LIVE mode's status) and the paced replay's lateness on the Pi.
+
+### 16.6 Library and toolchain facts this entry rests on
+
+- `websockets` 17.2 (2026-10-03; Python 3.11 or later): the asyncio implementation (`websockets.asyncio.server.serve`, `broadcast`, `ServerConnection.wait_closed`); `broadcast(raise_exceptions=...)` is keyword-only since 17.0; `broadcast` is synchronous and writes without backpressure.
+- pyzmq 27.2: a `Context` whose socket is still open blocks `term()` and therefore the interpreter's exit; `close(linger=0)` then `term()` in the receiver's `close()` is what the harness now guarantees.
+- Node 22.18.0, npm 10.9.3. Pinned (the newest release of each package whose major was at least three months old on the build day; TypeScript 7.0, two months old, and Vitest 5.0, six weeks, skipped): react and react-dom 19.3.1, vite 8.3.4 (8.0 since 2026-03-12), @vitejs/plugin-react 6.1.2 (requires vite ^8), typescript 5.9.3, vitest 4.1.11 (accepts vite ^6 || ^7 || ^8), @vitest/coverage-v8 4.1.11, jsdom 30.1.2, @testing-library/react 16.3.3 with its peer @testing-library/dom 10.4.2, @types/react and @types/react-dom 19.3.0.
+- Vite's Fast Refresh (plugin-react) hot-swaps only modules that export components alone; any other export means a full page reload on edit.
+- jsdom provides `Event`, `MessageEvent` and `CloseEvent`, so the fake socket constructs real events; React Testing Library 16 needs an explicit `afterEach(cleanup)` when Vitest runs without globals.
+- `vi.useFakeTimers()` drives `setInterval` and `setTimeout`; the hook's clock is injected rather than taken from the faked `performance`, so a test advances both together.
+
+### 16.7 Measurement of record
+
+Reserved for the first CI run on the branch's draft pull request: the C++ job's per-scope table on GCC (the session message's two marked lines, the pacer's six branches), the pytest line (108, the paced timings on the runner), the `page` job's Vitest table and build.
+
+### 16.8 Open
+
+- §16.7.
+- On the Pi: TC-021 step 9 (a live run's LIVE status reaching the receiver, the bridge and the page on the Mac), and a paced replay's lateness on `clock_nanosleep`.
+- Parked in FTS-DD-001 §12 with this entry: replay across rotated files (part 2's demo decides), the sequence number (with the voter, on the same bump as the fix-quality byte).
+- Part 2: the instruments (REQ-DISP-001 and -002 entering the SRD), `display_spec.md`, the deterministic replay demo; heading has no direct source on this hardware.

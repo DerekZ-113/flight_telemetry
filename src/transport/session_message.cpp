@@ -13,19 +13,19 @@ std::array<uint8_t, kSessionMessageBytes> session_message(RunMode mode, StreamSt
 }
 
 const char* mode_name(RunMode mode) {
-    switch (mode) {
+    switch (mode) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case RunMode::LIVE:      return "LIVE";
         case RunMode::SIMULATED: return "SIMULATED";
         case RunMode::REPLAY:    return "REPLAY";
     }
     // A byte outside the enumeration: never main, which chooses the mode.
-    return "UNKNOWN";
+    return "UNKNOWN";  // LCOV_EXCL_LINE
 }
 
 const char* state_name(StreamState state) {
-    switch (state) {
+    switch (state) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case StreamState::RUNNING: return "RUNNING";
         case StreamState::ENDED:   return "ENDED";
     }
-    return "UNKNOWN";
+    return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see mode_name)
 }
