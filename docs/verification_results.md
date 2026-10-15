@@ -1175,7 +1175,7 @@ Reserved for the first CI run with this commit: GCC's count on the five lines ag
 
 ## Entry 16 — 2026-10-14, the display's data path: a replay that ends and paces, the session status on the wire, the bridge and the page (macOS preview)
 
-Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in seven commits; the branch stays off `main` until after the v0.1.0 tag, and the first CI run on its draft pull request is the measurement of record (§16.7).
+Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in eight commits: the seventh closed the topic, and the eighth adds `dashboard/src/badge.ts`, which the page's commit left out (§16.5); the branch stays off `main` until after the v0.1.0 tag, and the first green CI run on its draft pull request (number 1) is the measurement of record (§16.7).
 
 ### 16.1 What was built
 
@@ -1242,7 +1242,8 @@ The new and changed files: `timestamp_pacer.cpp` 6 of 6 branches, 30 of 30 lines
 - The bridge handles SIGTERM like SIGINT: the demo's bridge, ended by `kill`, printed no summary.
 - The two `switch` no-match edges in `session_message.cpp` are marked as Entry 1's five sites are (seven sites now).
 - **Found by the final run, a test defect of this topic's making:** `test_no_receiver_counts_and_continues[udp]` asserted `published + send_failures == 50`, which assumed every refusal the kernel reports is a frame's. Since the status rides the same socket, the port-unreachable report can land on a status send instead (`send_failures` counts frames and statuses alike), and the sum read 51 once in three full runs. The invariant is now over every attempt: frames published plus statuses published plus failures equals 50 frames plus the RUNNING status before frame 0 plus three ENDED, 54; the ZeroMQ variant still expects no refusal at all. Five consecutive runs over both transports pass.
-- Not done, by the plan's own order: the draft pull request and the CI run (Derek's commands), §16.7; TC-021 step 9 (the LIVE mode's status) and the paced replay's lateness on the Pi.
+- **The page's commit left out `dashboard/src/badge.ts`.** The commits were handed over as incremental patches taken with `git diff`; `badge.ts` was created after the page's patch, and the patch for its refactor was taken before the new file was marked for adding, so `git diff` did not see it, and the check that the nine patches rebuild the working tree could not either (`git diff --quiet` ignores an untracked file). The first push therefore carried an `App.tsx` that imports a module the branch does not hold; the branch's first CI run fails the `page` job on that import while the C++ job stands. Found when Derek asked for the commits to be checked; the eighth commit adds the file, and the run on it is the record.
+- Not done, by the plan's own order: the CI run of record (§16.7); TC-021 step 9 (the LIVE mode's status) and the paced replay's lateness on the Pi.
 
 ### 16.6 Library and toolchain facts this entry rests on
 
