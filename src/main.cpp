@@ -41,9 +41,10 @@
 static_assert(FaultDetectorConfig{}.i2c_timeout_ms == TelemetryProcessor::kDefaultImuTimeoutMs,
               "REQ-PROC-002: the processor's re-seed bound must equal the detector's I2C timeout");
 
-// Frames per run without --cycles: a quick smoke run. A run length is a
-// property of the run, not of the system, so it is a flag and not a key
-// of the configuration file (REQ-CFG-001 does not list it).
+// Frames per live or simulated run without --cycles: a quick smoke run. A
+// replay without --cycles runs to the end of its log (REQ-LOG-006). A run
+// length is a property of the run, not of the system, so it is a flag and
+// not a key of the configuration file (REQ-CFG-001 does not list it).
 constexpr int kDefaultCycles = 5;
 
 // Where the configuration of record is read from unless --config says
@@ -180,7 +181,8 @@ void print_event(const FaultEvent& event) {
 // --udp <ipv4>:<port> each enable a publisher for this run and override
 // its address in the file (both may be given), --cycles <n> sets the run
 // length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
-// run). Nothing else on the command line overrides a key.
+// run, and a replay without it runs to the end of its log, REQ-LOG-006).
+// Nothing else on the command line overrides a key.
 struct Options {
     bool live = false;
     std::optional<std::string> config_path;
@@ -189,7 +191,7 @@ struct Options {
     std::optional<std::string> udp_destination;   // as typed, for messages
     std::string udp_host;                         // the two halves, split here
     int udp_port = 0;
-    int cycles = kDefaultCycles;
+    std::optional<int> cycles;                    // absent: kDefaultCycles, or a replay's whole log
     std::string error;   // non-empty: a usage error; main prints it and exits
 };
 
@@ -199,10 +201,11 @@ void print_usage() {
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
               << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
-              << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
+              << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced, to its end\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
-              << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
+              << "  --cycles <n>         frames to run (default " << kDefaultCycles
+              << "; a replay runs to the end of its log, and --cycles caps it)" << std::endl;
 }
 
 // Both levels const: the pointers and the characters are only read.
@@ -349,9 +352,12 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // (REQ-TRANS-001, REQ-TRANS-002).
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
-                  FixedRateScheduler* scheduler, JitterLog* jitter, int frame_count) {
+                  FixedRateScheduler* scheduler, JitterLog* jitter, std::optional<int> frame_count) {
     ValidityTally tally;
-    for (int i = 0; i < frame_count; i++) {
+    // The source is asked before every read (REQ-LOG-006): a replay stops
+    // at its log's end, an endless source always answers yes, and
+    // --cycles, when given, caps either.
+    for (int i = 0; (!frame_count.has_value() || i < *frame_count) && source.has_next(); i++) {
         // The wait is the first thing in the cycle, so everything below it
         // starts on the deadline grid and the jitter measured is the
         // lateness of the whole cycle, not of some step inside it.
@@ -538,10 +544,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     // The composition root built the source and knows which one it built;
-    // nothing below create_source() does. The replay source's counters are
-    // read at exit so a run that outlasted its log says so (REQ-LOG-005):
-    // a replay that ran past its log is a plausible-looking log too.
-    const LogReplaySource* replay = replaying ? static_cast<const LogReplaySource*>(source.get()) : nullptr;
+    // nothing below create_source() does. The replay source is asked at
+    // exit whether its log went on (REQ-LOG-006), so the Replay: line says
+    // which ended the run, the log or --cycles.
+    LogReplaySource* replay = replaying ? static_cast<LogReplaySource*>(source.get()) : nullptr;
     const LiveSensorSource* live = options.live ? static_cast<const LiveSensorSource*>(source.get()) : nullptr;
 
     // The processor lives on the stack: main owns it for the whole run and
@@ -639,19 +645,28 @@ int main(int argc, char* argv[]) {
     // Vert Speed (REQ-PROC-003) and their validity (REQ-PROC-007) are all
     // computed by the processor. Status comes from the detector
     // (REQ-FAULT-004, REQ-FAULT-006); the simulator never faults.
+    // The run length: --cycles when given; otherwise the smoke run's five
+    // frames, or for a replay no cap at all, the log's end ends it
+    // (REQ-LOG-006).
+    std::optional<int> cycles = options.cycles;
+    if (!cycles.has_value() && !replaying) {
+        cycles = kDefaultCycles;
+    }
     const ValidityTally tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
                                     jitter.has_value() ? &jitter.value() : nullptr,
-                                    options.cycles);
+                                    cycles);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
     print_validity_summary(tally);
 
-    if (replay != nullptr && replay->exhausted()) {
-        std::cout << "Replay:    exhausted after " << replay->frames_read() << " frames; "
-                  << static_cast<size_t>(options.cycles) - replay->frames_read()
-                  << " cycles repeated the last frame" << std::endl;
+    // Which ended the run, the log or --cycles (REQ-LOG-006). Asking the
+    // source here looks one frame ahead and processes nothing.
+    if (replay != nullptr) {
+        std::cout << "Replay:    " << replay->frames_read() << " frames, "
+                  << (replay->has_next() ? "stopped by --cycles before the end of the log" : "end of log reached")
+                  << std::endl;
     }
 
     if (jitter.has_value()) {

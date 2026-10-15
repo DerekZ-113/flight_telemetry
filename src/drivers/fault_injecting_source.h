@@ -27,6 +27,9 @@ public:
 
     TelemetryFrame read_frame() override;
 
+    // The inner source knows whether a next frame exists (REQ-LOG-006).
+    bool has_next() override;
+
     // Communication failure: read_ok = false, fields held at the last
     // good value, as a driver that got no reply would leave them.
     void fail_reads(Channel channel, bool enable);
