@@ -30,24 +30,24 @@ DataSource ──raw + read_ok──▶ FaultDetector ──raw + status──�
 
 ## Verification
 
-Measurement of record: GitHub Actions run [38490312035](https://github.com/DerekZ-113/flight_telemetry/actions/runs/38490312035) on commit `797f06b`, Ubuntu 24.04, GCC 13.3, the first run with the configuration scope gated ([verification_results.md](docs/verification_results.md), Entry 11 §11.7).
+Measurement of record: GitHub Actions run [38674948292](https://github.com/DerekZ-113/flight_telemetry/actions/runs/38674948292) on commit `c988cf9`, Ubuntu 24.04, GCC 13.3, the first run with FAULT-010 tripping at both accelerometer rails, after the GPS receiver's run on `4783b9d` ([verification_results.md](docs/verification_results.md), Entry 14 §14.6; Entry 13 §13.7 and Entry 12 §12.7 record the two runs before it).
 
 | Item | Value |
 |---|---|
-| Unit tests (Google Test) | 212 of 212 passed |
-| Integration tests (pytest) | 78 of 78 passed in 64.8 s |
-| Branch coverage (gcov/lcov) | 94.2% (488 of 518), every per-scope threshold met: config 100%, transport 96.2%, drivers 81.3% (hardware-bound error paths), the other scopes 100% |
-| Line coverage | 98.6% (1313 of 1332) |
+| Unit tests (Google Test) | 289 of 289 passed |
+| Integration tests (pytest) | 85 of 85 passed in 67.5 s |
+| Branch coverage (gcov/lcov) | 95.4% (796 of 834), every per-scope threshold met: config 100%, transport 96.2%, drivers 91.0% (hardware-bound error paths, and five parser and driver outcomes no test takes yet, Entry 13 §13.7), the other scopes 100% |
+| Line coverage | 98.6% (1805 of 1831) |
 | Compiler warnings under `-Werror` | 0 |
 | cppcheck findings | 0 |
 
-Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/` and `src/config/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and seven GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
+Branch coverage is the gating figure. `scripts/coverage_check.sh` fails the build below 90% in `src/processing/` and `src/config/`, 80% in timing, logging, transport, and replay, 70% in drivers, and 80% overall. Every exclusion is listed with its justification in the verification results: the composition root `main.cpp`, Google Test's own sources and the test files themselves, the no-match edge of exhaustive `switch` statements, one `EINTR` retry loop, and six GCC exception-unwind edges marked per line. Numbers from a developer Mac (clang) are recorded as previews only, because the Pi's compiler family is GCC.
 
 ## DO-178C-aligned practices
 
 | Document | ID | What it holds |
 |---|---|---|
-| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.8.0 | 37 "shall" statements with rationale; the scope of record |
+| [Requirements](docs/requirements.md) | FTS-SRD-001 v0.9.0 | 37 "shall" statements with rationale; the scope of record |
 | [Design](docs/design.md) | FTS-DD-001 | software level, every architecture decision with its reason, log format, timing, open decisions |
 | [Traceability matrix](docs/traceability_matrix.md) | FTS-TM-001 | requirement → code → test, forward and reverse; status per requirement (28 Verified, 9 Partial, 0 Not started) |
 | [Fault model](docs/fault_model.md) | FTS-FM-001 | 11 failure modes, each with cause, detection, response, and the test that proves it; what each one does to the validity of every computed field |

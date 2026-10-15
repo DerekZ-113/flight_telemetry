@@ -889,18 +889,32 @@ The replay of the commit-2 log through the same build `cmp`s silent against it (
 - cppcheck 2.21.0 reports nothing on the reserved members, the trailing `return "UNKNOWN"` of the name switches, or the `static_cast` in `main`.
 - lcov 2.5 on clang data counts the two marked `list_log_files` lines at 8 and 16 edges; §11.7 recorded that the runner's lcov 2.0 drops both lines entirely.
 
-### 12.7 Measurement of record
+### 12.7 Measurement of record — GitHub Actions run 38499690270, commit `e0a8792`, Ubuntu 24.04, GCC 13.3
 
-Reserved for the first CI run with this entry's commits: processing, logging and replay on GCC with the new branches (100% predicted, §12.3), the rewritten `log_reader.cpp` line, the pytest line (85) with its captured prints, every other scope, and the build time with no new dependency. The README verification table and the FTS-TM-001 TEST rows move to that run.
+The first CI run with this entry's commits (`0101e0a`, the judgments, and `e0a8792`, this record), 2026-10-14 02:11 UTC, green in 2 min 20 s: Install tools 21 s, Configure 7 s, Build 18 s, Unit tests 4 s, Set up Python 2 s, Install the Python side 7 s, Integration tests 67 s, Coverage report 4 s, thresholds 2 s, cppcheck 1 s. Image `ubuntu-24.04` (20261004.327.1), Entry 11's toolchain unchanged: GCC 13.3.0, CMake 3.28.3, lcov 2.0-4ubuntu2, cppcheck 2.13.0, libzmq 4.3.5, Python 3.13.16 with pytest 9.1.1. Written on the night of 2026-10-14 from the run's log and HTML report, after Entry 14's push, the section having stayed reserved through Entries 13 and 14; the README verification table and the FTS-TM-001 TEST rows cite Entry 14 §14.6, the run that supersedes this one.
+
+| Item | Value |
+|---|---|
+| Unit tests (Google Test) | 231 of 231 passed, 2.22 s |
+| Integration tests (pytest) | 85 passed in 67.44 s (78 in 64.77 s in Entry 11; `test_validity.py`'s seven are the growth) |
+| Branch coverage (gcov/lcov) | 94.8% (534 of 563), every per-scope threshold met |
+| Line coverage | 98.7% (1392 of 1410); functions 96.3% (157 of 163) |
+| Per scope | processing 100.0%, config 100.0%, timing 100.0%, logging 100.0%, transport 96.2%, replay 100.0%, drivers 81.3%, overall 94.8% |
+| Compiler warnings under `-Werror` | 0 |
+| cppcheck findings | 0 on 24 files |
+
+**§12.3's prediction held: processing, logging and replay at 100% on GCC.** Per file on the record: `telemetry_frame.cpp` 9 of 9, `fault_detector.cpp` 54 of 54 (the preview's 52), `processor.cpp` 54 of 54 (44), `log_format.cpp` 12 of 12, `binary_logger.cpp` 12 of 12, `log_reader.cpp` 18 of 18 (the preview's 38 of 48), `log_replay_source.cpp` 8 of 8 (12), `telemetry_config.cpp` 196 of 196 as in Entry 11, `live_sensor_source.cpp` 16 of 16. The reader's eighteen edges sit on nine `if` lines, two each: the rewritten header-check line (`if (!problem.empty())`, 7 refusals and 35 passes) carries its two decision edges and no unwind edge, and the three marked lines of `list_log_files` carry none, as §11.7 said they would. The branch total rose from Entry 11's 518 to 563 and the untaken count fell from thirty to twenty-nine: `i2c_bus.cpp` 15, `mpu6050.cpp` 7 and `bmp280.cpp` 6 (the Linux device-file error paths, compiled on the runner and unreachable without a bus) and `udp_publisher.cpp`'s `connect` failure, as before; the DEGRADED outcome of `status_name` in `telemetry_frame.cpp`, untaken since Entry 10, is taken now that `test_telemetry_frame.cpp` names every status. The six unhit functions are Entry 11's six deleting destructors (`Clock`, `DataSource`, `I2cBus`, `Publisher`, `LinuxI2cBus`, `UdpPublisher`).
+
+**The pytest line.** The captured prints are Entry 11's to the number: TC-005, join index 0 and 200 received in 5.01 s on both transports; TC-010 step 6, ZeroMQ 500 received with 0 gaps, UDP 359 received and 141 gaps, 0 missed cycles, 11.01 s each; step 7, ZeroMQ 50 published and 0 refused, UDP 25 and 25. The replay-identity, log-reader, noise and configuration tests ran on the version-2 layout, and `test_validity.py` (TC-017 steps 11 to 15) ran for the first time against GCC's bytes: the validity bytes the Python reader finds at offsets 98 to 102 are the ones the GCC-built processor wrote, which is §12.4's byte check on the other compiler. Build 18 s (Entry 11's run: 26 s), no new dependency.
 
 ### 12.8 Open
 
-- §12.7.
+- §12.7. (Written 2026-10-14 from run 38499690270.)
 - The six remaining `LCOV_EXCL_EXCEPTION_BR_LINE` lines and the rule they rest on (Entry 11 §11.8), unchanged by this topic.
 - Parked in FTS-DD-001 §11.2 and §12 for the PFD and the voter: a sequence number and a frame age, the Kalman covariance in the frame, GPS fix quality in a reserved byte, the run mode on the wire, pacing a replay.
 - The Kalman filter is born from the barometer only (FTS-DD-001 §12): a session whose barometer never reads has NO_COMPUTED_DATA fused altitude although the GPS reads.
 - `LogReplaySource` still skips an unreadable continuation file in a list silently (`ReplayTest.UnreadableFileIsSkipped`); `main`'s single-file `--replay` never reaches it.
-- Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the rewritten reader line keeps its two decision edges there.
+- Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the rewritten reader line keeps its two decision edges there. (Settled in §12.7: the three scopes at 100%, the reader line two edges, both taken.)
 
 ## Entry 13 — 2026-10-14, the GPS receiver: the serial port seam, the NMEA parser, the `NmeaGps` driver, the live source at the receiver's rate (macOS preview)
 
@@ -973,9 +987,25 @@ The board, from its vendors' pages (checked 2026-10-13): a GT-U7, sold as NEO-6M
 - `std::string_view::substr` may throw `std::out_of_range`, so it is a call that may throw under the coverage style rule and never shares a line with a conditional.
 - lcov 2.5 on clang data counts six edges for a two-term `||` and four for a `?:` (§13.3); the record's GCC 13 through lcov 2.0 counts two per decision (§11.7). The GitHub `ubuntu-latest` image moves to Ubuntu 26 after 2026-10-19 (Entry 11), so §13.7 may run on a newer GCC and cppcheck.
 
-### 13.7 Measurement of record
+### 13.7 Measurement of record — GitHub Actions run 38668973387, commit `4783b9d`, Ubuntu 24.04, GCC 13.3
 
-Reserved for the first CI run with this entry's commits: `nmea.cpp`, `nmea_gps.cpp`, `serial_port.cpp` and `live_sensor_source.cpp` on GCC with the pseudo-terminal test on the runner (every decision of the parser, the driver and the live source taken; the port's six hardware-bound edges; §13.3), the config scope with the `gps` section, the pytest line (85) with its captured prints, every other scope, and the build time with no new dependency. The README verification table and the FTS-TM-001 TEST rows move to that run.
+The first CI run with this entry's commits (`37e1fad`, the receiver, and `4783b9d`, this record), 2026-10-15 02:03 UTC, green in 2 min 33 s: Install tools 19 s, Configure 6 s, Build 28 s, Unit tests 5 s, Set up Python 1 s, Install the Python side 9 s, Integration tests 71 s, Coverage report 5 s, thresholds 3 s, cppcheck 1 s. Image `ubuntu-24.04` (20261012.334.1, a newer image than the runs before and after it drew from the pool, 20261004.327.1), the same toolchain: GCC 13.3.0, CMake 3.28.3, lcov 2.0-4ubuntu2, cppcheck 2.13.0, libzmq 4.3.5, Python 3.13.16 with pytest 9.1.1. Written on the night of 2026-10-14 from the run's log and HTML report, together with Entry 12 §12.7 and Entry 14 §14.6; the README verification table and the FTS-TM-001 TEST rows cite §14.6.
+
+| Item | Value |
+|---|---|
+| Unit tests (Google Test) | 287 of 287 passed, 4.11 s, the pseudo-terminal tests included |
+| Integration tests (pytest) | 85 passed in 70.68 s |
+| Branch coverage (gcov/lcov) | 95.4% (792 of 830), every per-scope threshold met |
+| Line coverage | 98.6% (1805 of 1831); functions 95.9% (188 of 196) |
+| Per scope | processing 100.0%, config 100.0%, timing 100.0%, logging 100.0%, transport 96.2%, replay 100.0%, drivers 91.0%, overall 95.4% |
+| Compiler warnings under `-Werror` | 0: termios, `cfmakeraw`, `CRTSCTS` and the pseudo-terminal calls compile clean under `-std=gnu++17`, the §13.6 fact |
+| cppcheck findings | 0 on 27 files, `serial_port.cpp`, `nmea.cpp` and `nmea_gps.cpp` the three new |
+
+**The new code on the record: 267 branches more than Entry 12's run, nine of them untaken, five of those real.** `nmea.cpp` 154 of 158, `nmea_gps.cpp` 59 of 60, `serial_port.cpp` 27 of 31, `live_sensor_source.cpp` 28 of 28 (16 before the receiver), `telemetry_config.cpp` 202 of 202 (Entry 11's 196 plus the `gps` section's six). The pseudo-terminal behaved on the runner as on the Mac: every serial-port test passed, and the port's untaken edges are the hardware-bound ones §13.3 predicted, `cfsetspeed`, `tcsetattr` and `tcflush` failing on a terminal that opened (lines 65 to 67) and `read` itself failing (line 114), one edge each where clang counted six: no exclusion, the standing of `i2c_bus.cpp`'s device-file edges. Drivers read 91.0% rather than the preview's 96.1% because the runner compiles the Linux I2C implementation, whose error paths no test reaches (28 edges across `i2c_bus.cpp`, `mpu6050.cpp` and `bmp280.cpp`, Entry 11 §11.7), where the Mac compiles the stub. Build 28 s (Entry 12's run: 18 s): three translation units and the new tests, no new dependency.
+
+**§13.3's prediction failed on five outcomes, and its reading of the preview was wrong on two of them.** The preview's surplus edges on lines 258 and 281 were dismissed as clang's way of counting a `||` chain whose every outcome a test takes; GCC counts one decision per operand, and the record shows one outcome of each untaken, with three more the preview had not shown at all. Read from the report's per-edge counts: `nmea.cpp` line 100, `latitude.has_value() && longitude.has_value()`, the second operand never false, a longitude that fails to convert beside a latitude that converts (the four malformed-latitude sentences take the first operand's false edge; nothing takes the second); line 239, `position == Position::PRESENT && altitude_present`, a GGA with a position and an empty altitude field (the no-fix fixture has neither, six times); line 258, `status == "A" || status == "V" || status.empty()`, the empty status field, which §13.3 named as tested and is not: the no-fix RMC fixture says V, and the two refusals line 259 counts are the X sentence's; line 281, `!ok || course < 0.0 || course > 360.0`, a course that is not a number: the `fast` of §13.3 is fed as the speed (`test_nmea.cpp` line 205) and takes line 272's edge, never line 281's, while −1.0 and 361.0 take the other two; and `nmea_gps.cpp` line 163, `gga.fix_quality >= 1 && rmc.valid`, a fix-quality GGA paired with a status-V RMC (the three no-fix epochs have quality 0, so the second operand was never false). Each is a behaviour the code defines (MALFORMED, `has_position` false, a known status, a dropped RMC, no fix) that no test asserts. Five tests to add, red first against the branch data, in their own commit (§13.9); until then those five outcomes are defined by the code and unproven. Entry 11 found the preview counting decisions the record folds; this run shows the reverse, the preview's surplus hiding real gaps inside lines explained away as a whole. The rule that follows: an untaken edge on a `&&` or `||` line is read per operand on the record, never dismissed by the preview's total for the line.
+
+**The pytest line.** The prints are Entry 11's to the number (join index 0 and 200 received on both transports; the stall 500 and 0 gaps on ZeroMQ, 359 and 141 on UDP; 50 and 0, 25 and 25 refused with nobody listening), on a build whose configuration carries the three `sensors.gps` keys and whose recorded copy the suite's `--config` runs read back. The eight unhit functions are Entry 12's six deleting destructors plus `SerialPort`'s and `PosixSerialPort`'s: the interface's is unreachable, and the concrete port is destroyed as a complete object in every test and through the base pointer only inside a live source, which no test builds with a real port.
 
 ### 13.8 On-target results
 
@@ -983,12 +1013,13 @@ Reserved for the Raspberry Pi with the GT-U7: which port the board offers (`/dev
 
 ### 13.9 Open
 
-- §13.7 and §13.8.
+- §13.8. (§13.7 written 2026-10-14 from run 38668973387.)
+- Five parser and driver outcomes the record shows untaken (§13.7): a longitude that fails to convert beside a good latitude, a GGA with a position and an empty altitude, an RMC with an empty status field, a course that is not a number, a fix-quality GGA paired with a status-V RMC. Five tests, red first, in their own commit; TC-018's unit rows and the matrix's SENS-005 test list grow with them, and §13.3's sentence on lines 258 and 281 stands corrected by §13.7.
 - The capture fixture and TC-018 step 17's test, which land when the file does.
 - The six remaining `LCOV_EXCL_EXCEPTION_BR_LINE` lines and the rule they rest on (Entry 11 §11.8), unchanged by this topic.
 - FTS-DD-001 §12: GPS fix latency (the frame keeps the cycle's time; a fix is up to half a second old at 9600 baud); 2D fixes (quality 1 for 2D and 3D alike; GSA or a satellite count, parked with the fix-quality byte); the Kalman filter born from the barometer only, now decidable once a capture with a fix exists; the GPS variance retained at 25 m² until such a capture is analysed.
 - FAULT-003b's own event, with the fix-quality byte at the next format bump.
-- Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the runner's pseudo-terminal behaves as the Mac's did.
+- Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the runner's pseudo-terminal behaves as the Mac's did. (Settled in §13.7: the counts above, five real gaps among them; the pseudo-terminal behaved the same.)
 
 ---
 
@@ -1046,13 +1077,27 @@ The first capture read processing 98.1%, config 0.0% and overall 67.5%, with the
 - The test plan and this entry are touched beyond the outline's four documents: TC-013 step 7 so the driver test has a card step as its siblings do, TC-016's counts, and this record.
 - The Mac coverage recipe gains a step: delete `build-cov/**/*.gcda` before running the instrumented tests (§14.4).
 
-### 14.6 Measurement of record
+### 14.6 Measurement of record — GitHub Actions run 38674948292, commit `c988cf9`, Ubuntu 24.04, GCC 13.3
 
-Reserved for the first CI run with this commit: `fault_detector.cpp` on GCC with the predicate's second operand counted as its own decision (both outcomes taken), the config scope at 238 branches, the pytest line (85), every other scope, and cppcheck on the runner's version.
+The first CI run with this entry's commits (`b9dce78`, the rails; `72edb7f`, this record; `c988cf9`, §14.7's close-out and the design §12 bullet), pushed together, 2026-10-15 03:11 UTC, green in 2 min 33 s: Install tools 28 s, Configure 6 s, Build 24 s, Unit tests 3 s, Set up Python 3 s, Install the Python side 8 s, Integration tests 68 s, Coverage report 4 s, thresholds 1 s, cppcheck 1 s. Image `ubuntu-24.04` (20261004.327.1): GCC 13.3.0, CMake 3.28.3, lcov 2.0-4ubuntu2, cppcheck 2.13.0, libzmq 4.3.5, Python 3.13.16 with pytest 9.1.1. This is the measurement of record for REQ-TEST-002, REQ-TEST-003 and REQ-TEST-004; the README verification table and the FTS-TM-001 TEST-002 to TEST-004 rows cite it. Written the same night as Entry 12 §12.7 and Entry 13 §13.7, from the run's log and HTML report.
+
+| Item | Value |
+|---|---|
+| Unit tests (Google Test) | 289 of 289 passed, 2.86 s |
+| Integration tests (pytest) | 85 passed in 67.54 s |
+| Branch coverage (gcov/lcov) | 95.4% (796 of 834), every per-scope threshold met |
+| Line coverage | 98.6% (1805 of 1831); functions 95.9% (188 of 196) |
+| Per scope | processing 100.0% (threshold 90%), config 100.0% (90%), timing 100.0%, logging 100.0%, transport 96.2%, replay 100.0% (80% each), drivers 91.0% (70%), overall 95.4% (80%) |
+| Compiler warnings under `-Werror` | 0 |
+| cppcheck findings | 0 on 27 files; 2.13.0 reports nothing on the constants or the lambda, as 2.21.0 did not (§14.3) |
+
+**The predicate on GCC: four edges, all taken, and the first time FAULT-010's decision has been measured on the record.** `fault_detector.cpp` 58 of 58 branches (143 of 143 lines), against 54 of 54 on Entry 13's run: the `||` line carries two decisions, `a >= kAccelPositiveRailMps2` true twice (the positive-rail test and the first-reading test, each on the x axis, where `find_if` stops) and false 17,043 times, `a <= kAccelNegativeRailMps2` true once (the negative-rail test, on z, after x and y failed both tests) and false 17,042 times. The growth is four, not the two §14.4 predicted, because the old predicate had contributed nothing: `return std::fabs(a) >= limit;` on the record's `-O0` build is a compare and a `setcc`, no conditional jump, so gcov saw no branch on that line in any earlier run (Entry 13's report shows it executed 17,024 times with no branch data), and the one decision this fault rests on was never inside the 94.2% or the 95.4%. The same shape sits on `nmea.cpp` line 262, `rmc.valid = status == "A";`, which carries no branch either. Not a defect of the record, a property of what branch coverage measures: a comparison that becomes a value has no edge, so a decision of that shape is proven by the test that asserts it or not at all, as §11.7 said of the marked lines; `AccelAtPositiveRailDegradesImu` fails on the old code (§14.3), measured or not.
+
+**Everything else is Entry 13's run to the edge.** `telemetry_config.cpp` 202 of 202 on one line fewer (410 of 410; the removed `read_positive` line carried no branch of its own, as §14.4 said), and 202 on GCC where the preview counted 238: the thirty-six are Entry 11's per-instantiation and marked-line differences (232 against 196 there), unchanged by the key's removal. `mpu6050.cpp` 37 of 44 with the same seven device-file edges; the constants add no branch. The thirty-eight untaken edges are §13.7's thirty-eight: twenty-eight on the I2C device-file paths, four on the port's hardware-bound calls, the `connect` failure, and the five parser and driver outcomes no test takes. The eight unhit functions are the same eight deleting destructors. The pytest prints are the same to the number (join index 0 and 200 received; 500 and 0 gaps, 359 and 141; 50 and 0, 25 and 25), and the configuration the suite's runs record and read back carries 38 keys and no `accel_limit_mps2`.
 
 ### 14.7 Open
 
-- §14.6.
+- §14.6. (Written 2026-10-14 from run 38674948292.)
 - The gyroscope saturation entry, still parked (design §12), now with its derivation rule written beside it.
 - A recorded configuration older than this change is refused on replay (§14.5); whether the stationary capture of 2026-10-13 has a record beside it decides whether FTS-NP-001's replay runs need `--config`. (Closed 2026-10-14, on Derek's review of this entry: there is no stationary capture of 2026-10-13. The noise capture has not run, because the sensors are not yet soldered, so no real recording carries the old key; the first one is recorded with the 38-key file and FTS-NP-001's replay runs need no `--config`. Nothing in the repository is a recording either: `logs/` is ignored and regenerated per run, and no `captures/` exists. The general gap this item stood in front of is the last bullet below.)
 - The key's removal is Derek's to confirm or reverse before the v0.1.0 tag; nothing else in this entry depends on it except the key count. (Closed 2026-10-14: confirmed by Derek on review of this entry, the key stays removed as built; 38 keys is the configuration of record and `Plan - YAML Configuration`'s key is superseded.)
