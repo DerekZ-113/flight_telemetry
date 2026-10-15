@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -63,7 +63,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Scope:** The browser page in `dashboard/`: the feed hook (the socket, arrival time, the rate, staleness, reconnection) and the view (the mode label, the state badge, each validity rendered by name).
 - **Framework:** Vitest with jsdom and React Testing Library.
 - **Isolation:** The hook takes the `WebSocket` constructor and the clock as options, so a test injects a fake socket that delivers scripted messages and fake timers that advance by fiat: no bridge, no network, no real time.
-- **Location:** `dashboard/src/*.test.ts` and `*.test.tsx`, run as `cd dashboard && npm test -- --run`.
+- **Location:** `dashboard/src/**/*.test.ts` and `*.test.tsx`, run as `cd dashboard && npm test -- --run`.
 - **Executed:** Every commit, locally and in CI (the workflow's `page` job).
 
 ---
@@ -783,6 +783,124 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, or an ended stream shown as stale fails.
 
+### TC-023: The Instruments Under Each Validity, Status and Feed State
+
+- **Requirement:** REQ-DISP-001, REQ-DISP-002, REQ-DISP-004 (also exercises REQ-DISP-003 and REQ-DISP-006)
+- **Level:** Page (`dashboard/src/pfd/instrumentState.test.ts`, the six instrument test files under `dashboard/src/pfd/`, `dashboard/src/pfd/Pfd.test.tsx`; Vitest with jsdom)
+- **Objective:** Verify that one rule decides what every instrument shows (the value, dashes, or a flag naming the instrument); that the rule follows each computed field's validity and each raw instrument's channel status with the precedence FTS-DS-001 §2.1 states; that the feed's state overrides every field; that no instrument ever shows a removed value struck through or dimmed; that the strip names the mode and the cause; and that the instruments are labelled TRK and GS, never heading or airspeed.
+- **Preconditions:** Frames built by `testMessages.frame()` with any value and validity; the feed's state built directly for `instrumentState`, and through the hook with the fake socket and fake clock for the rendered panel.
+- **Steps:**
+  1. Call `instrumentState` for one computed field under each validity, NORMAL, NO_COMPUTED_DATA, FAILURE_WARNING and NOT_JUDGED, with the feed running.
+  2. Call it for one raw field under each channel status, NOMINAL, NO_DATA and DEGRADED.
+  3. Call it for two fields together: NORMAL with FAILURE_WARNING; NORMAL with NOT_JUDGED; NOT_JUDGED with NO_COMPUTED_DATA.
+  4. Call it for a NORMAL field with the feed stale; ended; lagging beyond the threshold; the socket closed after frames were seen; with no frame yet; and with several of these at once.
+  5. Render each of the six instruments under steps 1, 2 and 4; read its text, its geometry element and its flag.
+  6. Render the panel with no status; with SIM; with REPLAY; with LIVE; then under each feed state of step 4; then with a NOT_JUDGED field.
+  7. Search the panel's text for "HDG", "heading", "airspeed" and "IAS".
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | NORMAL: `value`; NO_COMPUTED_DATA: `dashes`; FAILURE_WARNING: `flag` with the cause `fail`; NOT_JUDGED: `dashes` with `pipeline` set |
+  | 2 | NOMINAL: `value`; NO_DATA: `dashes`; DEGRADED: `flag`, cause `fail` |
+  | 3 | `flag`; `dashes` with `pipeline`; `dashes` with `pipeline` |
+  | 4 | stale: `flag` `stale`; ended: `flag` `ended`; lag: `flag` `lag`; closed: `flag` `link`; no frame: `dashes`; together, the precedence link, ended, stale, lag |
+  | 5 | `value`: the number's text and the geometry element present and no flag; `dashes`: `---` and no geometry; `flag`: a box with the instrument's name (ATT, ALT, VS, GS, TRK, POS), no number, red for every cause but `ended` and grey for `ended`; no element inside the panel carries a line-through or the `stale` class |
+  | 6 | MODE UNKNOWN in amber; SIM and REPLAY each in an amber box with "LIVE" absent from the panel; LIVE plain; the state text WAITING, RUNNING, STALE with the age, ENDED, LAG with the lag, BRIDGE DISCONNECTED as FTS-DS-001 §5 lists; PIPELINE shown only with the NOT_JUDGED field |
+  | 7 | nothing found |
+
+- **Pass/fail:** Exact as listed. A value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
+
+### TC-024: The Attitude Indicator's Signs, the Tapes and the Display Units
+
+- **Requirement:** REQ-DISP-002 (also exercises REQ-DISP-001)
+- **Level:** Page (`dashboard/src/pfd/geometry.test.ts`, `dashboard/src/pfd/units.test.ts`, `AttitudeIndicator.test.tsx`, `AltitudeTape.test.tsx`, `VerticalSpeed.test.tsx`)
+- **Objective:** Verify that a nose-up pitch moves the horizon down and a right roll rotates it counterclockwise, with the translation applied before the rotation; that the altitude tape and the vertical speed indicator place their ticks, pointer and readouts where FTS-DS-001 §4 says; and that units convert at the display only, by exact constants.
+- **Preconditions:** The geometry functions called directly; the instruments rendered from `testMessages.frame()` values; the hook's state read for the units check.
+- **Steps:**
+  1. `horizonTransform(10, 0)`; `horizonTransform(-10, 0)`.
+  2. `horizonTransform(0, 30)`; `horizonTransform(0, -30)`.
+  3. `horizonTransform(10, 30)`.
+  4. Read the pitch ladder's lines and the roll pointer's transform at roll 30.
+  5. Render the tape at 121.92 m (400 ft) and at 2,000 m; read the labels' positions, the ticks' range and the readout.
+  6. Render the vertical speed indicator at +3 m/s, −2 m/s and +15 m/s; read the readout and the pointer's position.
+  7. Convert 1 m and 1 m/s to feet, feet per minute and knots; deliver a frame with `fused_altitude_m` 121.92 and read `feed.lastFrame.frame.fused_altitude_m`.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `rotate(0 400 260) translate(0 40)` (down); `rotate(0 400 260) translate(0 -40)` (up) |
+  | 2 | `rotate(-30 400 260) translate(0 0)` (counterclockwise for a right roll); `rotate(30 400 260) translate(0 0)` |
+  | 3 | `rotate(-30 400 260) translate(0 40)`: the translation first |
+  | 4 | lines at y = 260 − 40, 260 − 80 and 260 − 120 for +10°, +20° and +30°, and their mirrors below for the negative ones, inside the horizon group; the pointer's group `rotate(-30 400 260)` |
+  | 5 | the 400 label at y 260, 300 at y 300, 500 at y 220; ticks every 20 ft from 0 to 800 and none outside; the readout `400`; at 2,000 m the readout `6,560` |
+  | 6 | `+600` with the pointer 35.4 px above the centre; `−400` with the pointer 23.6 px below; `+2,950` with the pointer pinned 120 px above |
+  | 7 | 3.28084, 196.850 and 1.94384 to five places; `121.92`, the metres the message carried |
+
+- **Pass/fail:** Exact as listed, the transforms as strings and the positions within 0.1 px. A horizon that moves up for nose up, rotates clockwise for a right roll, or applies the rotation before the translation fails; a converted value in the feed's state fails.
+
+### TC-025: The Relative Position and the Lag Check
+
+- **Requirement:** REQ-DISP-005, REQ-DISP-006, REQ-DISP-002 (the track's speed threshold)
+- **Level:** Integration (steps 1 through 4: `tests/integration/test_bridge.py`, in-process), Page (steps 5 through 7: `dashboard/src/useTelemetryFeed.test.ts`, `dashboard/src/pfd/GroundTrackPlot.test.tsx`, `dashboard/src/pfd/TrackIndicator.test.tsx`), Manual (step 8, Chrome)
+- **Objective:** Verify that the bridge forwards a position relative to the first NOMINAL fresh fix and never the fix itself, resets the origin as REQ-DISP-006 resets the lag's, and delivers both thresholds in `hello`; that the page measures the lag from elapsed times on each clock, flags it past the threshold, resets its origins, and keeps a trail of fresh fixes; that the plot draws the trail on a grid with a scale bar and never an image; and that the track is withheld below the speed threshold.
+- **Preconditions:** A `QueueSource` and a `websockets` client as TC-022; a frame at latitude 51.234567 and longitude −0.987654 and a second one 1 m north and 1 m east of it by the bridge's own formula (`METERS_PER_DEGREE`, R = 6,371,000 m); the hook driven by the fake socket and clock; for step 8, the demo of TC-026 step 9 replaying to a Chrome tab.
+- **Steps:**
+  1. Start the bridge with no flags and read `hello`; start it with `--track-min-speed 2.5 --lag-ms 250` and read `hello`.
+  2. Feed a frame with `gps_status` NO_DATA; then the first frame with NOMINAL and `gps_read_ok` true; then the frame 1 m north and east; then the same position with `gps_read_ok` false.
+  3. Search each forwarded message's text for "latitude", "longitude", "51.23" and "0.9876".
+  4. Feed a frame whose timestamp precedes its predecessor's, then a fix; feed ENDED, then a fix.
+  5. Deliver frames with timestamps 0, 20 and 40 ms arriving at 0, 20 and 400 ms on the fake clock, with `received_at_ms` 0, 20 and 300; read `lagMs`, `bridgeLagMs` and `lagExceeded` with `hello`'s threshold 500, then with 250; close and reopen the socket, deliver ENDED then a frame, deliver a backwards timestamp, reading the origins each time; deliver 3,700 fresh fixes and read the trail's length.
+  6. Render the plot with three fixes at (0, 0), (1, 0) and (1, 1) m with the track 045° at 2 m/s; then at 0.5 m/s; then with fixes 3 km apart; then under a `fail` state; search the plot for `<image>` elements.
+  7. Render the track indicator with `ground_speed_mps` 0.5 and `heading_deg` 90; then with 1.0.
+  8. Manual, in Chrome: with the demo replaying and the page in a Chrome tab, switch to another tab for two minutes and return; read the lag in the strip, whether LAG flagged and cleared, and the two lag numbers in the diagnostic view.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `track_min_speed_mps` 1.0 and `lag_ms` 500; then 2.5 and 250 |
+  | 2 | `position` null; `{"east_m": 0.0, "north_m": 0.0}`; east and north each 1.00 within 0.01; the same position again |
+  | 3 | nothing found in any message |
+  | 4 | the fix after the backwards timestamp reads (0, 0); the fix after ENDED reads (0, 0) |
+  | 5 | `lagMs` 0, 0, 360; `bridgeLagMs` 0, 0, 260; `lagExceeded` false at 500 and true at 250; the origins re-taken after the reconnect, after ENDED and after the backwards timestamp (the next frame's lag 0); the trail holds 3,600 |
+  | 6 | a `points` string of three pairs scaled into the viewBox; the marker a triangle rotated 45°; a dot at 0.5 m/s; the scale bar `10 m` for the metre-scale trail and `1 km` for the kilometre one; the POS flag with the trail still drawn; no `<image>` |
+  | 7 | `TRK ---` with no rose; `TRK 090°` with the rose rotated by −90 |
+  | 8 | recorded in FTS-VR-001 Entry 17 §17.5 as observed: the lag on return, whether the flag showed and cleared, the bridge-side lag |
+
+- **Pass/fail:** Steps 1 through 7 exact as listed, positions within 1 cm. A coordinate or its digits in any message, an origin that survives ENDED or a backwards timestamp, a lag computed by subtracting one clock from the other, a track shown below the threshold, or an image in the plot fails. Step 8 records; it does not pass or fail.
+
+### TC-026: The Scripted Flight and the Replay Demo
+
+- **Requirement:** REQ-SENS-007 (also exercises REQ-SENS-006, REQ-TIME-004, REQ-LOG-003, REQ-PROC-001 and REQ-PROC-002)
+- **Level:** Unit (steps 1 through 4: `tests/unit/test_altitude.cpp`, `test_motion_profile.cpp`, `test_simulated_data.cpp`), Integration (steps 5 through 8: `tests/integration/test_motion_profile.py`), Manual (step 9)
+- **Objective:** Verify that the profile's readings are the pipeline's inverse, so that the pipeline recovers the script; that a profile run is deterministic and its replay byte-identical; that `--motion` is refused where it has no meaning; and that the stationary default's bytes do not change.
+- **Preconditions:** The built binary; the session fixture (the seed-42 run, TC-004); `ComplementaryFilter` and `pressure_to_altitude` as oracles.
+- **Steps:**
+  1. `altitude_to_pressure` at 0, 2, 122, 1,000 and 2,000 m, each back through `pressure_to_altitude`; 898.76 hPa through `pressure_to_altitude` and back.
+  2. `MotionProfile::named("demo")` at 0 s, 36 s, 77 s and 200 s; `named("nope")`.
+  3. Generate the demo's frames with a 1e-9 noise and feed them to a `ComplementaryFilter` at the frame interval; invert the pressure; read the fix at 60 s.
+  4. Generate the first frame of a generator without a profile; generate 1,500 frames from two profile generators with one seed.
+  5. Run `telemetry --motion demo --cycles 1000` (20 s); read the log's last frame and the exit summary.
+  6. Replay that log unpaced; compare the bytes.
+  7. Run `telemetry --motion demo --replay <log>`, `--motion demo --live` and `--motion nope`.
+  8. The session fixture's log, with and without `--zmq` (the existing checks of TC-004 and TC-021).
+  9. Manual: record the 7,500-frame demo, hash it, replay it paced and compare, then replay it paced through the bridge to the page.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | each altitude back within 1 cm; 1,000 m back to 898.76 hPa within 0.01 hPa |
+  | 2 | 0 s: 2 m, 0°, 0°, 090, 0 m/s; 36 s: 59 m, 8°, 0°, 090, 30 m/s, pitch rate 0; 77 s: 122 m, 2°, 20°, 180, 30 m/s, track rate 6°/s; 200 s: the 150 s state held with zero rates; `nullopt` |
+  | 3 | pitch and roll within 0.2° of the script at 30 s and 80 s; the altitude within 5 cm; the fix at 60 s about 1,500 m east, within 2 m, and within 2 m north of the origin |
+  | 4 | the first frame equals the stationary literals the existing `SimulatedDataTest` pins; the two profile sequences byte-identical |
+  | 5 | pitch within 0.3° of 8, ground speed 30, every validity NORMAL on the last frame, the GPS more than 200 m east of the first fix by the test's own conversion; `Motion:    profile demo` in the summary |
+  | 6 | byte-identical; `Replay:    1000 frames, end of log reached` |
+  | 7 | exit 1 each, the first two naming the rule, the third naming `demo`; nothing built |
+  | 8 | `6d43f343…` (FTS-VR-001 Entry 12 §12.4), unchanged |
+  | 9 | recorded in FTS-VR-001 Entry 17 §17.4: the hash, the paced replay byte-identical, its lateness, the page's phases as FTS-DS-001 §7 lists |
+
+- **Pass/fail:** Steps 1 through 8 exact as listed. Any change to the session fixture's bytes, a profile run whose replay differs, a refused flag that built anything, or a filter output more than 0.3° from the script fails.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -836,3 +954,4 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - The session status message's LIVE mode (TC-021 step 9) and a paced replay's lateness on the Raspberry Pi are recorded on the next hardware day. The end-of-stream signal on `DataSource` is built (REQ-LOG-006, TC-019).
 - GPS fix-quality detection at the detector (FAULT-003b) is deferred until the frame carries a fix-quality byte (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.
+- The display's instruments (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; TC-023 to TC-026) are in work on the display's branch (2026-10-15). TC-025 step 8, a Chrome background tab, is a manual record and not a gate; TC-026 step 9 is the demo's hand measurement; both go to FTS-VR-001 Entry 17.

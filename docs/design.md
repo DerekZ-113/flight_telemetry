@@ -3,7 +3,7 @@
 > **Document ID:** FTS-DD-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 > **Related:** FTS-SRD-001 (requirements), FTS-TM-001 (traceability), FTS-TP-001 (test plan), FTS-FM-001 (fault model)
 
 ## 1. Purpose and Scope
@@ -226,24 +226,26 @@ With format version 2 (Section 7) each lane's frame carries the value, its valid
 
 ### 11.2 Display and validity consumers (REQ-DISP)
 
-Written with the validity topic (2026-10-13), for the Primary Flight Display that consumes the frame next. The frame now carries what these need (Section 7). REQ-DISP-003 entered FTS-SRD-001 with the display's data path (2026-10-14), as drafted, beside two statements written then, REQ-DISP-004 (the mode label) and REQ-DISP-005 (the bridge); REQ-DISP-001 and REQ-DISP-002 enter with the instruments (part 2).
+Written with the validity topic (2026-10-13), for the Primary Flight Display that consumes the frame next. The frame now carries what these need (Section 7). REQ-DISP-003 entered FTS-SRD-001 with the display's data path (2026-10-14), as drafted, beside two statements written then, REQ-DISP-004 (the mode label) and REQ-DISP-005 (the bridge). REQ-DISP-001 and REQ-DISP-002 entered 2026-10-15 with the instruments, 001 as drafted and 002 reworded (the GPS track in place of heading, since there is no magnetometer; no outside air temperature, since the barometer's temperature is the chip's own; no held cue, since the GPS holds between its 1 Hz fixes by design and a hold past the timeout is the detector's DEGRADED), beside a new REQ-DISP-006 for the lag the arrival clock cannot see (Section 12); their specification is FTS-DS-001.
 
 | Draft ID | Intent |
 |---|---|
-| REQ-DISP-001 | Render a computed field only while its validity is NORMAL: NO_COMPUTED_DATA as dashes, FAILURE_WARNING as the value removed under a flag (ALT, VS, ATT), NOT_JUDGED as dashes under a pipeline-fault annunciator. |
-| REQ-DISP-002 | Render a raw instrument (heading, ground speed, outside air temperature, GPS altitude) from its channel's status: NO_DATA as dashes, DEGRADED under a flag, `read_ok` false as a held cue. |
+| REQ-DISP-001 | Entered 2026-10-15 as REQ-DISP-001. Render a computed field only while its validity is NORMAL: NO_COMPUTED_DATA as dashes, FAILURE_WARNING as the value removed under a flag (ALT, VS, ATT), NOT_JUDGED as dashes under a pipeline-fault annunciator. |
+| REQ-DISP-002 | Entered 2026-10-15 as REQ-DISP-002, reworded: the six instruments, the GPS track and ground speed by the channel's status, the track withheld below a speed, units converted at the display only. The draft's heading, outside air temperature, GPS altitude and held cue did not enter (see above). |
 | REQ-DISP-003 | Entered 2026-10-14 as REQ-DISP-003. Derive a link-lost indication at the receiver from arrival time, since no frame carries a sequence number or an age. |
 
 Not carried by the frame, parked for the PFD and voter topics (Section 12): a sequence number and a frame age (`timestamp_ms` is since boot, so a late joiner cannot age a frame against its own clock); an age for a held value (FAILURE_WARNING covers a frozen angle and a coasting altitude alike); the Kalman covariance (`altitude_variance()` exists and never reaches the frame; REQ-RED-003's threshold and a "coasting for N s" cue both want it); GPS fix quality (FAULT-003b; one reserved byte fits it at the next bump, and with it the question of 2D fixes, Section 12); the run mode and the stream's end, which since 2026-10-14 travel beside the frames in the session status of REQ-TRANS-004 (Section 9), not in them.
 
-### 11.3 ADS-B data source (REQ-SENS-007..010)
+### 11.3 ADS-B data source (REQ-SENS-008..011)
 
 | Draft ID | Intent |
 |---|---|
-| REQ-SENS-007 | Provide a `DataSource` that presents real aircraft state from the OpenSky Network as telemetry. |
-| REQ-SENS-008 | Select the nearest airborne aircraft within a configurable bounding box, with hysteresis. |
-| REQ-SENS-009 | Sample-and-hold the last state vector between network updates, stamped with the local clock. |
-| REQ-SENS-010 | Mark the IMU channel permanently DEGRADED in this mode, since ADS-B carries no attitude. |
+| REQ-SENS-008 | Provide a `DataSource` that presents real aircraft state from the OpenSky Network as telemetry. |
+| REQ-SENS-009 | Select the nearest airborne aircraft within a configurable bounding box, with hysteresis. |
+| REQ-SENS-010 | Sample-and-hold the last state vector between network updates, stamped with the local clock. |
+| REQ-SENS-011 | Mark the IMU channel permanently DEGRADED in this mode, since ADS-B carries no attitude. |
+
+Relabelled from 007..010 on 2026-10-15, when REQ-SENS-007 entered FTS-SRD-001 for the simulator's scripted flight: identifiers are assigned in the controlled document they enter (Section 11.1).
 
 ---
 
