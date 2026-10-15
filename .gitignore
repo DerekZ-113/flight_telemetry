@@ -31,5 +31,10 @@ CLAUDE.local.md
 # Python tests
 .pytest_cache/
 
+# The dashboard's installed packages, build and coverage output (recreate with npm ci)
+dashboard/node_modules/
+dashboard/dist/
+dashboard/coverage/
+
 # captures/ is not ignored: a raw sensor capture is committed selectively, like the
 # coverage reports, when it sets constants (docs/noise_profile.md). Other captures stay out.
