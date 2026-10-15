@@ -9,8 +9,11 @@ import type { JSX } from "react";
 
 import { COMPUTED_FIELDS, modeLabel } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
+import { AltitudeTape } from "./AltitudeTape";
+import { AttitudeIndicator } from "./AttitudeIndicator";
 import { COLORS, PANEL, STRIP } from "./geometry";
-import { feedCause, feedStateText, lagLabel } from "./instrumentState";
+import { feedCause, feedStateText, instrumentState, lagLabel } from "./instrumentState";
+import { VerticalSpeed } from "./VerticalSpeed";
 
 function stateColor(cause: ReturnType<typeof feedCause>, feed: FeedState): string {
   switch (cause) {
@@ -33,6 +36,12 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   const pipeline =
     feed.lastFrame !== null && COMPUTED_FIELDS.some((field) => feed.lastFrame?.validity[field] === "NOT_JUDGED");
   const labelWidth = label.length * 11 + 16;
+  // Each instrument's state from its own fields (REQ-DISP-001): the attitude
+  // from both angles, the tape and the vertical speed from the fused fields.
+  const frame = feed.lastFrame;
+  const attitude = instrumentState(frame === null ? [] : [frame.validity.pitch_deg, frame.validity.roll_deg], feed);
+  const altitude = instrumentState(frame === null ? [] : [frame.validity.fused_altitude_m], feed);
+  const verticalSpeed = instrumentState(frame === null ? [] : [frame.validity.vertical_speed_mps], feed);
 
   return (
     <svg
@@ -80,6 +89,9 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
           {`${feed.rate} fps · ${lagLabel(feed.lagMs)}`}
         </text>
       </g>
+      <AttitudeIndicator pitchDeg={frame?.frame.pitch_deg ?? 0} rollDeg={frame?.frame.roll_deg ?? 0} state={attitude} />
+      <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} />
+      <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
     </svg>
   );
 }
