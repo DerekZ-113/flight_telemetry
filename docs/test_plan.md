@@ -585,10 +585,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Preconditions:** The primary oracle for parsing is the set of example sentences printed in the u-blox 6 Receiver Description (GPS.G6-SW-10018) with their printed checksums, recomputed independently before the tests were written: `$GPGGA,092725.00,4717.11399,N,00833.91590,E,1,08,1.01,499.6,M,48.0,M,,*5B`, `$GPRMC,083559.00,A,4717.11437,N,00833.91522,E,0.004,77.52,091202,,,A*57`, `$GPGLL,4717.11364,N,00833.91565,E,092321.00,A,A*60`, `$GPGSA,A,3,23,29,07,08,09,18,26,28,,,,,1.94,1.18,1.54*0D`, `$GPGSV,3,1,10,23,38,230,44,29,71,156,47,07,29,116,41,08,09,081,36*7F`, `$GPVTG,77.52,T,,M,0.004,N,0.008,K,A*06`, `$GPTXT,01,01,02,u-blox ag - www.u-blox.com*50`, and the receiver's no-fix forms `$GPGGA,,,,,,0,00,99.99,,,,,,*48` and `$GPRMC,,V,,,,,,,,,,N*53`; variants (another talker, an altered digit, a shifted time) carry checksums recomputed by the same XOR. The second fixture, pending the Pi session, is the GT-U7's own 30-second output captured there at 9600 baud (`tests/unit/data/gt_u7_capture.nmea`), every position shifted by one constant pair so that the first fix lands on the manual's example and the checksums recomputed; the sentence set, timing, talker IDs and the no-fix to fix transition are the board's. `FakeSerialPort` queues byte chunks and serves one per read; `PosixSerialPort` is exercised on a pseudo-terminal (`posix_openpt`), which exists on the Mac and on the CI runner. The Hardware steps need the Pi with the receiver on its micro-USB port or the header UART, a configuration copy with `sensors.gps.enabled: true` and the device path, and a window.
 - **Steps:**
   1. Verify the checksum of the nine oracle sentences; of one with a hex digit altered; of one without `*`; of one with lower-case hex; of ones whose digits fall outside the hex ranges.
-  2. Parse the oracle GGA and the no-fix GGA.
-  3. Parse the oracle RMC, the no-fix RMC, and an RMC with status `A` and empty speed and course fields.
+  2. Parse the oracle GGA and the no-fix GGA. Then the oracle GGA with its altitude field emptied, at quality 0 and at quality 1.
+  3. Parse the oracle RMC, the no-fix RMC, and an RMC with status `A` and empty speed and course fields. Then the oracle RMC with its status field emptied, and `$GPRMC,,,,,,,,,,,,N*05`.
   4. Convert `4717.11399,N`, `00833.91590,E`, a southern latitude, a western longitude, `4760.00000,N` and `9117.11399,N`.
-  5. Parse a GGA with `12x` in a numeric field, one with too few fields, a sentence whose address has four letters, a `$GNGGA`, and a `$GPVTG`.
+  5. Parse a GGA with `12x` in a numeric field, one with too few fields, a sentence whose address has four letters, a `$GNGGA`, and a `$GPVTG`. Then a GGA and an RMC whose longitude reads `18100.00000,E` beside the oracle latitude, and an RMC whose course field reads `east`.
   6. Open a pseudo-terminal pair, construct `PosixSerialPort` on the slave at 9600 baud, write a sentence to the master, read through the port; read again with nothing written. Write `\r\n`, 0x11, 0x13, 0x03, 0x00 and a letter and read. Construct a port at each of the six rates.
   7. Write a sentence to the master before constructing the port; construct; read.
   8. Construct on a nonexistent path; on `/dev/null`; at 1234 baud; read on a port that is not ok. Construct on a pseudo-terminal's slave, read once, close the master, read twice.
@@ -596,7 +596,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   10. Queue one epoch (the oracle GGA and an RMC with the same time field) on the fake and poll.
   11. Queue the same bytes cut after every byte, then in 7-byte chunks, then with a cut at the `*`; poll until the fix.
   12. Queue junk bytes, half a sentence, a sentence with a wrong checksum, then two complete epochs with a pause between; poll twice. Then a GGA and an RMC that pass the checksum and fail the parser; poll.
-  13. Queue the no-fix pair; poll.
+  13. Queue the no-fix pair; poll. Then the oracle GGA (quality 1) with an RMC of its epoch whose status is `V`; poll; then a valid epoch; poll.
   14. Queue 200 bytes with no newline, then an epoch; poll.
   15. Queue three GGA sentences with three different times and no RMC; poll. Then an RMC followed by the next epoch's GGA and RMC; then an RMC twice and its GGA; then a GGA followed by the next epoch's RMC and GGA.
   16. Queue two complete epochs in one chunk; poll once. Then queue an epoch, an error and another epoch; poll twice; then make every read fail and poll twice.
@@ -613,10 +613,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | Step | Expected |
   |---|---|
   | 1 | accepted; rejected; rejected; accepted |
-  | 2 | 47.2852332 N, 8.5652650 E (within 1e-7°), 499.6 m, quality 1, 8 satellites, time `092725.00`; quality 0, no position, an empty time |
-  | 3 | 0.002058 m/s (within 1e-6), course 77.52, valid, time `083559.00`; invalid, no position; valid with speed 0 and course 0 |
+  | 2 | 47.2852332 N, 8.5652650 E (within 1e-7°), 499.6 m, quality 1, 8 satellites, time `092725.00`; quality 0, no position, an empty time; at quality 0 parsed with no position and altitude 0; at quality 1 malformed, a fix without a position |
+  | 3 | 0.002058 m/s (within 1e-6), course 77.52, valid, time `083559.00`; invalid, no position; valid with speed 0 and course 0; parsed, not valid, with the oracle's position, speed and course; parsed, not valid, no position (an empty status is a null field, no verdict, never malformed: FTS-VR-001 Entry 15) |
   | 4 | 47.2852332; 8.5652650; negative; negative; malformed; malformed |
-  | 5 | malformed; malformed; not a sentence the driver uses; parsed as a GGA; reported unused |
+  | 5 | malformed; malformed; not a sentence the driver uses; parsed as a GGA; reported unused; malformed, both; malformed |
   | 6 | the sentence's bytes, every one, `\r\n` included; then 0 bytes (an empty read is 0 with `VMIN` and `VTIME` zero, not an error); the seven control bytes unaltered; every rate ok |
   | 7 | 0 bytes: the stale sentence was flushed |
   | 8 | not ok, the path in the message, errno ENOENT; not ok, the path in the message, a nonzero errno that is not ENOENT (ENOTTY on Linux, ENODEV on macOS: the terminal check, not the open, refused it); not ok with errno EINVAL, the message naming 1234 and the six rates; no value, errno EBADF; 0 bytes before the master closes and no value with a nonzero errno twice after it (the hang-up seen through `poll`) |
@@ -624,7 +624,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 10 | one fix: 47.2852332 N, 8.5652650 E, 499.6 m, 0.002058 m/s, 77.52°, quality 1, 8 satellites; `sentences 2`, `fixes 1`, every error counter 0 |
   | 11 | the same fix and the same counters all three ways |
   | 12 | two fixes; `bad_checksum 1`, `resyncs` at least 2, `malformed 0`; then no fix, `malformed 2`, `no_fix_epochs 0` |
-  | 13 | no fix; `no_fix_epochs 1`, `sentences 2` |
+  | 13 | no fix; `no_fix_epochs 1`, `sentences 2`; then no fix, `no_fix_epochs 1`, `malformed 0`, `incomplete_epochs 0`; then the oracle fix, `fixes 1`, `incomplete_epochs 0` |
   | 14 | `overlong 1`; the fix delivered |
   | 15 | no fix; `incomplete_epochs 2`, `sentences 3`; then the newer epoch's fix with `incomplete_epochs 1` each time |
   | 16 | the second epoch's fix; `fixes 1`, `fixes_skipped 1`; then the first epoch's fix with `read_errors 1` (the error ended that poll), the second epoch's fix on the next poll, then no fix twice and `read_errors 3` |

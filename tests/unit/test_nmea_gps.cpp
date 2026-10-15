@@ -207,6 +207,31 @@ TEST(NmeaGpsTest, NoFixEpochIsNotAReading) {
     EXPECT_EQ(gps.counters().fixes, 1u);
 }
 
+// Both halves of the receiver's verdict: a GGA with quality 1 paired with
+// an RMC that says V is no fix, counted and dropped, and the next epoch
+// pairs on its own. The three no-fix epochs above have quality 0, so the
+// record showed the RMC's operand of the fix rule never false (FTS-VR-001
+// Entry 13 §13.7).
+TEST(NmeaGpsTest, FixQualityGgaWithStatusVRmcIsNoFix) {
+    FakeSerialPort port;
+    NmeaGps gps(port);
+    port.queue(line(ex::kGga) + line(ex::kRmcStatusVSameEpoch));
+    EXPECT_FALSE(gps.poll().has_value());
+    EXPECT_EQ(gps.counters().sentences, 2u);
+    EXPECT_EQ(gps.counters().used, 2u);
+    EXPECT_EQ(gps.counters().malformed, 0u);
+    EXPECT_EQ(gps.counters().no_fix_epochs, 1u);
+    EXPECT_EQ(gps.counters().incomplete_epochs, 0u);
+    EXPECT_EQ(gps.counters().fixes, 0u);
+    // The pair was consumed: the next epoch pairs on its own.
+    port.queue(first_epoch());
+    const std::optional<GpsFix> fix = gps.poll();
+    ASSERT_TRUE(fix.has_value());
+    expect_manual_fix(*fix);
+    EXPECT_EQ(gps.counters().incomplete_epochs, 0u);
+    EXPECT_EQ(gps.counters().fixes, 1u);
+}
+
 // Step 14: an overlong line.
 TEST(NmeaGpsTest, OverlongLineIsDroppedAndTheNextSentenceStillParses) {
     FakeSerialPort port;

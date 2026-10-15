@@ -56,6 +56,21 @@ constexpr const char* kGgaMinutes60 = "$GPGGA,092725.00,4760.00000,N,00833.91590
 constexpr const char* kGgaBadSatellites = "$GPGGA,092725.00,4717.11399,N,00833.91590,E,1,8x,1.01,499.6,M,48.0,M,,*13";
 constexpr const char* kGgaFixWithoutPosition = "$GPGGA,092725.00,,,,,1,08,1.01,499.6,M,48.0,M,,*6A";
 constexpr const char* kRmcStatusX = "$GPRMC,083559.00,X,4717.11437,N,00833.91522,E,0.004,77.52,091202,,,A*4E";
+// The five outcomes the GCC record of CI run 38668973387 showed no test
+// taking (FTS-VR-001 Entry 13 §13.7), one field changed from the manual's
+// sentence in each: a longitude of 181 degrees beside a good latitude, in
+// a GGA and in an RMC; the altitude field emptied, at quality 1 and at
+// quality 0; the status field emptied, and the no-fix RMC with its status
+// emptied too; a course that is not a number; and the RMC of the example
+// GGA's epoch saying V.
+constexpr const char* kGgaLongitude181 = "$GPGGA,092725.00,4717.11399,N,18100.00000,E,1,08,1.01,499.6,M,48.0,M,,*5F";
+constexpr const char* kRmcLongitude181 = "$GPRMC,083559.00,A,4717.11437,N,18100.00000,E,0.004,77.52,091202,,,A*5A";
+constexpr const char* kGgaNoAltitude = "$GPGGA,092725.00,4717.11399,N,00833.91590,E,1,08,1.01,,M,48.0,M,,*77";
+constexpr const char* kGgaNoAltitudeQuality0 = "$GPGGA,092725.00,4717.11399,N,00833.91590,E,0,08,1.01,,M,48.0,M,,*76";
+constexpr const char* kRmcEmptyStatus = "$GPRMC,083559.00,,4717.11437,N,00833.91522,E,0.004,77.52,091202,,,A*16";
+constexpr const char* kNoFixRmcEmptyStatus = "$GPRMC,,,,,,,,,,,,N*05";
+constexpr const char* kRmcBadCourse = "$GPRMC,083559.00,A,4717.11437,N,00833.91522,E,0.004,east,091202,,,A*7D";
+constexpr const char* kRmcStatusVSameEpoch = "$GPRMC,092725.00,V,4717.11437,N,00833.91522,E,0.004,77.52,091202,,,N*46";
 // A u-blox proprietary sentence: a four-letter address.
 constexpr const char* kPubx = "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,2.1,2.0,0.007,77.52,0.007,,0.92,1.19,0.77,9,0,0*5F";
 

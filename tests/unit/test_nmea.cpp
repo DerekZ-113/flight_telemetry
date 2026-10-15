@@ -129,6 +129,25 @@ TEST(NmeaTest, AnotherTalkerParsesTheSame) {
     EXPECT_EQ(gn->fix_quality, gp->fix_quality);
 }
 
+// A position is latitude, longitude and altitude, because the Kalman
+// filter takes the GGA's altitude: the two angles with an empty altitude
+// field are no position. At quality 0 the sentence parses with
+// has_position false; at quality 1 it is a fix without a position, which
+// is malformed. The GCC record showed the altitude operand of
+// has_position never false with a position present (FTS-VR-001 Entry 13
+// §13.7): the no-fix fixture has neither.
+TEST(NmeaTest, PositionWithoutAltitudeIsNoPosition) {
+    EXPECT_TRUE(nmea::checksum_ok(ex::kGgaNoAltitudeQuality0));
+    const std::optional<nmea::Gga> gga = nmea::parse_gga(nmea::fields(ex::kGgaNoAltitudeQuality0));
+    ASSERT_TRUE(gga.has_value());
+    EXPECT_FALSE(gga->has_position);
+    EXPECT_EQ(gga->altitude_m, 0.0f);
+    EXPECT_EQ(gga->fix_quality, 0);
+    EXPECT_EQ(gga->satellites, 8);
+    EXPECT_TRUE(nmea::checksum_ok(ex::kGgaNoAltitude));
+    EXPECT_FALSE(nmea::parse_gga(nmea::fields(ex::kGgaNoAltitude)).has_value());
+}
+
 // Step 3: RMC.
 
 TEST(NmeaTest, RmcExampleParsesExactly) {
@@ -166,6 +185,29 @@ TEST(NmeaTest, RmcEmptySpeedAndCourseReadZero) {
 TEST(NmeaTest, RmcStatusMustBeAOrV) {
     EXPECT_TRUE(nmea::checksum_ok(ex::kRmcStatusX));
     EXPECT_FALSE(nmea::parse_rmc(nmea::fields(ex::kRmcStatusX)).has_value());
+}
+
+// An empty status field is NMEA 0183's null field, "data not available":
+// the sentence is well formed and the receiver gave no verdict. No verdict
+// is not a fix (valid is true for an explicit A only), and nothing in the
+// sentence is corrupt, so it is not malformed either, the rule nmea.h
+// states for every field; it parses as the no-fix RMC does and pairs into
+// an epoch the driver counts as no fix. The record showed the empty
+// outcome of the status rule never taken: the no-fix fixture says V
+// (Entry 13 §13.7).
+TEST(NmeaTest, RmcEmptyStatusIsNotAFix) {
+    EXPECT_TRUE(nmea::checksum_ok(ex::kRmcEmptyStatus));
+    const std::optional<nmea::Rmc> rmc = nmea::parse_rmc(nmea::fields(ex::kRmcEmptyStatus));
+    ASSERT_TRUE(rmc.has_value());
+    EXPECT_FALSE(rmc->valid);
+    EXPECT_TRUE(rmc->has_position);
+    EXPECT_NEAR(rmc->speed_mps, ex::kRmcSpeedMps, 1e-6);
+    EXPECT_FLOAT_EQ(rmc->course_deg, ex::kRmcCourseDeg);
+    EXPECT_TRUE(nmea::checksum_ok(ex::kNoFixRmcEmptyStatus));
+    const std::optional<nmea::Rmc> no_fix = nmea::parse_rmc(nmea::fields(ex::kNoFixRmcEmptyStatus));
+    ASSERT_TRUE(no_fix.has_value());
+    EXPECT_FALSE(no_fix->valid);
+    EXPECT_FALSE(no_fix->has_position);
 }
 
 // Step 4: degrees and minutes to decimal degrees.
@@ -246,6 +288,26 @@ TEST(NmeaTest, FixWithoutPositionIsMalformed) {
     EXPECT_TRUE(nmea::checksum_ok(ex::kGgaFixWithoutPosition));
     EXPECT_FALSE(nmea::parse_gga(nmea::fields(ex::kGgaFixWithoutPosition)).has_value());
     EXPECT_FALSE(nmea::parse_rmc(nmea::fields("$GPRMC,092725.00,A,,,,,0.004,77.52,091202,,,A*00")).has_value());
+}
+
+// Half a position that converts is still half a position: a longitude
+// that does not convert beside a latitude that does is malformed, in a
+// GGA and in an RMC. The malformed-latitude sentences above take the
+// latitude's refusal; the record showed the longitude's never taken
+// (Entry 13 §13.7).
+TEST(NmeaTest, LongitudeThatDoesNotConvertIsMalformed) {
+    EXPECT_TRUE(nmea::checksum_ok(ex::kGgaLongitude181));
+    EXPECT_FALSE(nmea::parse_gga(nmea::fields(ex::kGgaLongitude181)).has_value());
+    EXPECT_TRUE(nmea::checksum_ok(ex::kRmcLongitude181));
+    EXPECT_FALSE(nmea::parse_rmc(nmea::fields(ex::kRmcLongitude181)).has_value());
+}
+
+// A course that is not a number is malformed, as a speed that is not a
+// number is: UnparsableFieldIsMalformed feeds `fast` as the speed, which
+// the record showed never reaches the course's rule (Entry 13 §13.7).
+TEST(NmeaTest, NonNumericCourseIsMalformed) {
+    EXPECT_TRUE(nmea::checksum_ok(ex::kRmcBadCourse));
+    EXPECT_FALSE(nmea::parse_rmc(nmea::fields(ex::kRmcBadCourse)).has_value());
 }
 
 TEST(NmeaTest, ForeignSentencesPassTheChecksumAndAreNotUsed) {
