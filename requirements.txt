@@ -2,3 +2,4 @@ pyzmq==27.2.0
 numpy==2.5.4
 matplotlib==3.11.2
 pytest==9.1.1
+websockets==17.2

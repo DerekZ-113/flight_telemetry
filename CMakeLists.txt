@@ -39,6 +39,7 @@ add_library(telemetry_core STATIC
     src/processing/fault_detector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
+    src/drivers/motion_profile.cpp
     src/drivers/fault_injecting_source.cpp
     src/drivers/i2c_bus.cpp
     src/drivers/bmp280.cpp
@@ -53,9 +54,11 @@ add_library(telemetry_core STATIC
     src/replay/log_replay_source.cpp
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
+    src/timing/timestamp_pacer.cpp
     src/timing/jitter_log.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
+    src/transport/session_message.cpp
     src/config/telemetry_config.cpp
 )
 

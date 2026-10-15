@@ -32,4 +32,12 @@ public:
     // provides no implementation, and any class that fails to override it
     // is itself abstract and cannot be instantiated.
     virtual TelemetryFrame read_frame() = 0;
+
+    // Whether read_frame() has a frame to give (REQ-LOG-006). The loop asks
+    // before every read and stops at the first false, so no cycle runs past
+    // the end of a log. A sensor and the simulator always have a next frame:
+    // an endless source has no end of stream, which is why the default is
+    // true and only a replay overrides it. A caller that never asks gets the
+    // source's own fallback (a replay: its last frame again).
+    virtual bool has_next() { return true; }
 };

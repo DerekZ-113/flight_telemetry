@@ -21,7 +21,9 @@
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
+#include "timing/timestamp_pacer.h"
 #include "transport/publisher.h"
+#include "transport/session_message.h"
 #include "transport/udp_publisher.h"
 #include "transport/zmq_publisher.h"
 
@@ -29,6 +31,7 @@
 // below create_source() sees DataSource and nothing else.
 #include "drivers/i2c_bus.h"
 #include "drivers/live_sensor_source.h"
+#include "drivers/motion_profile.h"
 #include "drivers/serial_port.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
@@ -41,9 +44,10 @@
 static_assert(FaultDetectorConfig{}.i2c_timeout_ms == TelemetryProcessor::kDefaultImuTimeoutMs,
               "REQ-PROC-002: the processor's re-seed bound must equal the detector's I2C timeout");
 
-// Frames per run without --cycles: a quick smoke run. A run length is a
-// property of the run, not of the system, so it is a flag and not a key
-// of the configuration file (REQ-CFG-001 does not list it).
+// Frames per live or simulated run without --cycles: a quick smoke run. A
+// replay without --cycles runs to the end of its log (REQ-LOG-006). A run
+// length is a property of the run, not of the system, so it is a flag and
+// not a key of the configuration file (REQ-CFG-001 does not list it).
 constexpr int kDefaultCycles = 5;
 
 // Where the configuration of record is read from unless --config says
@@ -85,14 +89,15 @@ void print_frame(const TelemetryFrame& frame) {
 }
 
 // One line per transport at exit: what the publisher accepted and what it
-// could see refused (REQ-TRANS-003). Loss is the receiver's number.
+// could see refused (REQ-TRANS-003), and the session statuses it sent
+// (REQ-TRANS-004). Loss is the receiver's number.
 void print_transport_summary(const PublishStats& stats, const std::string& where) {
     std::cout << "Transport: " << stats.published << " frames published " << where
               << ", send failures = " << stats.send_failures;
     if (stats.send_failures > 0) {
         std::cout << " (last errno " << stats.last_errno << ")";
     }
-    std::cout << std::endl;
+    std::cout << ", status messages = " << stats.status_published << std::endl;
 }
 
 // One line for the receiver at exit (REQ-SENS-005). The detector only
@@ -174,35 +179,45 @@ void print_event(const FaultEvent& event) {
 
 // Command line. The configuration file is the standing configuration
 // (REQ-CFG-001); a flag is a per-run instruction and wins where the two
-// overlap. --live takes no value and swaps the source for the real
-// sensors; the rest take one: --config <file> names the configuration,
+// overlap. --live and --pace take no value: the first swaps the source for
+// the real sensors, the second paces a replay to its log's own timestamps
+// (REQ-TIME-004); the rest take one: --config <file> names the configuration,
 // --replay <file> swaps the source for a log, --zmq <endpoint> and
 // --udp <ipv4>:<port> each enable a publisher for this run and override
 // its address in the file (both may be given), --cycles <n> sets the run
 // length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
-// run). Nothing else on the command line overrides a key.
+// run, and a replay without it runs to the end of its log, REQ-LOG-006),
+// --motion <name> scripts the simulator's flight (REQ-SENS-007: a scenario
+// is a choice of run, not a key). Nothing else on the command line
+// overrides a key.
 struct Options {
     bool live = false;
+    bool pace = false;                            // --replay at the log's recorded cadence (REQ-TIME-004)
+    std::optional<std::string> motion;            // the simulator's scripted flight, by name (REQ-SENS-007)
     std::optional<std::string> config_path;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
     std::optional<std::string> udp_destination;   // as typed, for messages
     std::string udp_host;                         // the two halves, split here
     int udp_port = 0;
-    int cycles = kDefaultCycles;
+    std::optional<int> cycles;                    // absent: kDefaultCycles, or a replay's whole log
     std::string error;   // non-empty: a usage error; main prints it and exits
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
               << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
-              << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
+              << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced, to its end\n"
+              << "  --pace               with --replay: release each frame at its recorded time; lateness to logs/replay_jitter.csv\n"
+              << "  --motion <name>      script the simulator's flight (" << MotionProfile::known_names()
+              << ": 150 s of takeoff, climb, turn and descent); without it the simulator sits still\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
-              << "  --cycles <n>         frames to run (default " << kDefaultCycles << ")" << std::endl;
+              << "  --cycles <n>         frames to run (default " << kDefaultCycles
+              << "; a replay runs to the end of its log, and --cycles caps it)" << std::endl;
 }
 
 // Both levels const: the pointers and the characters are only read.
@@ -248,6 +263,10 @@ Options parse_args(int argc, const char* const argv[]) {
             options.cycles = static_cast<int>(n);
         } else if (flag == "--live") {
             options.live = true;   // a flag without a value
+        } else if (flag == "--pace") {
+            options.pace = true;   // likewise; meaningful only with --replay, checked below
+        } else if (flag == "--motion" && has_value) {
+            options.motion = argv[++i];   // the simulator's script; refused with another source below
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
@@ -255,6 +274,14 @@ Options parse_args(int argc, const char* const argv[]) {
     }
     if (options.live && options.replay_file.has_value()) {
         options.error = "--live and --replay each choose the source; pass one of them";
+    } else if (options.pace && !options.replay_file.has_value()) {
+        options.error = "--pace paces a replay to its log's timestamps; pass --replay <log.bin> with it";
+    } else if (options.motion.has_value() && (options.live || options.replay_file.has_value())) {
+        options.error = std::string("--motion scripts the simulator; ") + (options.live ? "--live" : "--replay") +
+                        " chooses another source; pass one of them";
+    } else if (options.motion.has_value() && !MotionProfile::named(*options.motion).has_value()) {
+        options.error = "--motion: no profile is named '" + *options.motion + "' (known: " +
+                        MotionProfile::known_names() + ")";
     }
     return options;
 }
@@ -319,8 +346,15 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
     // configured seed keeps the run reproducible (REQ-SENS-006).
     // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
     // which comes from feeding logged frames back through the pipeline.
+    // --motion hands it a script (REQ-SENS-007); parse_args refused a name
+    // no profile has, so the lookup cannot fail here.
+    std::optional<MotionProfile> profile;
+    if (options.motion.has_value()) {
+        profile = MotionProfile::named(*options.motion);
+    }
     return std::make_unique<SimulatedSource>(cfg.timing.period_ms, cfg.simulation.seed,
-                                             cfg.simulation.gps_interval_ms, cfg.simulation.noise);
+                                             cfg.simulation.gps_interval_ms, cfg.simulation.noise,
+                                             std::move(profile));
 }
 
 // The processing loop: source -> fault detector -> processor -> output.
@@ -338,20 +372,35 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
 //
-// The scheduler and jitter log are pointers, not references, because each
-// may be absent: a reference cannot be null, a pointer can. Replay passes
-// a null scheduler and runs unpaced; the frames carry their own timestamps
-// and pacing would add nothing to the identity check (REQ-LOG-003).
+// The scheduler, the pacer and the jitter log are pointers, not references,
+// because each may be absent: a reference cannot be null, a pointer can. A
+// live or simulated run has the scheduler; a paced replay has the pacer
+// (REQ-TIME-004), which waits after the read because its deadline is the
+// frame's own timestamp; an unpaced replay has neither, since its frames
+// carry their own timestamps and pacing adds nothing to the identity check
+// (REQ-LOG-003). The statements an unpaced run executes, and their order,
+// are the same with or without the pacer in the loop: pacing decides when a
+// frame goes out, never what is in it.
 //
 // The publishers are base pointers in a vector, empty without --zmq or
 // --udp. The loop publishes to each one it is given and never learns which
 // transport it is: the DataSource rule applied to the output side
 // (REQ-TRANS-001, REQ-TRANS-002).
+//
+// The session status (REQ-TRANS-004) goes to the same publishers: RUNNING
+// with the run's mode before frame 0 and every `status_every_cycles` after
+// it (one second of cycles), so a consumer that joins late learns the mode
+// from the next one; ENDED after the last frame, repeated, because a lost
+// datagram carrying the end has no later message to repair it.
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
-                  FixedRateScheduler* scheduler, JitterLog* jitter, int frame_count) {
+                  FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
+                  std::optional<int> frame_count, RunMode mode, int status_every_cycles) {
     ValidityTally tally;
-    for (int i = 0; i < frame_count; i++) {
+    // The source is asked before every read (REQ-LOG-006): a replay stops
+    // at its log's end, an endless source always answers yes, and
+    // --cycles, when given, caps either.
+    for (int i = 0; (!frame_count.has_value() || i < *frame_count) && source.has_next(); i++) {
         // The wait is the first thing in the cycle, so everything below it
         // starts on the deadline grid and the jitter measured is the
         // lateness of the whole cycle, not of some step inside it.
@@ -362,11 +411,29 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
             }
         }
 
+        // The status precedes the frame it announces, on every transport.
+        if (i % status_every_cycles == 0) {
+            for (Publisher* publisher : publishers) {
+                publisher->publish_status(mode, StreamState::RUNNING);
+            }
+        }
+
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
         // would run LiveSensorSource::read_frame() or LogReplaySource::read_frame()
         // tomorrow, with no change to this code.
         TelemetryFrame raw = source.read_frame();
+
+        // A paced replay waits here, after the read: the deadline is the
+        // frame's recorded timestamp, and the wait changes nothing in the
+        // frame, which is what keeps the paced log byte-identical
+        // (REQ-TIME-004). Its lateness goes to the same jitter log.
+        if (pacer != nullptr) {
+            const CycleTiming timing = pacer->wait_for(raw.timestamp_ms);
+            if (jitter != nullptr) {
+                jitter->record(timing);
+            }
+        }
 
         // Non-virtual calls: one detector, one processor, behavior
         // configured rather than substituted.
@@ -392,13 +459,24 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
         }
         std::cout << std::endl;
     }
+
+    // The end, after the last frame: the one message with no successor to
+    // repair it on a lossy channel, so it goes out kEndedRepeats times and
+    // a receiver treats the repeats as one (REQ-TRANS-004).
+    for (int k = 0; k < kEndedRepeats; k++) {
+        for (Publisher* publisher : publishers) {
+            publisher->publish_status(mode, StreamState::ENDED);
+        }
+    }
     return tally;
 }
 
 // Usage: telemetry                        simulated source, 5 frames, config/telemetry_config.yaml
 //        telemetry --config other.yaml    the same with another configuration file
 //        telemetry --live --cycles 250    real sensors on the configured I2C bus, 5 s paced
-//        telemetry --replay <log.bin>     replay a recorded log with the configuration recorded beside it
+//        telemetry --replay <log.bin>     replay a recorded log with the configuration recorded beside it, to its end
+//        telemetry --replay <log.bin> --pace
+//                                         the same at the log's recorded cadence, lateness to logs/replay_jitter.csv
 //        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
 //                                         publish every processed frame; 10 s at 50 Hz
 //        telemetry --udp 127.0.0.1:5556 --cycles 500
@@ -531,6 +609,10 @@ int main(int argc, char* argv[]) {
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
+    // The run's mode, decided where the source is (REQ-TRANS-004): the one
+    // fact about the frames the wire cannot carry in them.
+    const RunMode mode = options.live ? RunMode::LIVE : (replaying ? RunMode::REPLAY : RunMode::SIMULATED);
+
     std::string source_error;
     std::unique_ptr<DataSource> source = create_source(options, cfg, clock, source_error);
     if (!source) {
@@ -538,10 +620,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     // The composition root built the source and knows which one it built;
-    // nothing below create_source() does. The replay source's counters are
-    // read at exit so a run that outlasted its log says so (REQ-LOG-005):
-    // a replay that ran past its log is a plausible-looking log too.
-    const LogReplaySource* replay = replaying ? static_cast<const LogReplaySource*>(source.get()) : nullptr;
+    // nothing below create_source() does. The replay source is asked at
+    // exit whether its log went on (REQ-LOG-006), so the Replay: line says
+    // which ended the run, the log or --cycles.
+    LogReplaySource* replay = replaying ? static_cast<LogReplaySource*>(source.get()) : nullptr;
     const LiveSensorSource* live = options.live ? static_cast<const LiveSensorSource*>(source.get()) : nullptr;
 
     // The processor lives on the stack: main owns it for the whole run and
@@ -623,15 +705,19 @@ int main(int argc, char* argv[]) {
         publishers.push_back(&udp_publisher.value());
     }
 
-    // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
-    // held to the configured grid and their jitter is logged beside the
-    // log; a replay run is unpaced (see run()). The objects are built
-    // either way so their lifetime covers the loop; only the pointers
-    // decide whether they act.
-    FixedRateScheduler scheduler(clock, cfg.timing.period_ms * 1'000'000);
-    const std::filesystem::path jitter_path = std::filesystem::path(cfg.logging.directory) / "telemetry_jitter.csv";
+    // Pacing (REQ-TIME-001, REQ-TIME-002, REQ-TIME-004). Live and simulated
+    // runs are held to the configured grid; a paced replay to its log's own
+    // timestamps; an unpaced replay to nothing (see run()). Each paced run's
+    // lateness goes to a CSV named by the run's prefix, beside the log, so a
+    // paced replay never overwrites a live run's timing evidence. The objects
+    // are built either way so their lifetime covers the loop; only the
+    // pointers decide whether they act.
+    const uint64_t period_ns = cfg.timing.period_ms * 1'000'000ull;
+    FixedRateScheduler scheduler(clock, period_ns);
+    TimestampPacer pacer(clock, period_ns);
+    const std::filesystem::path jitter_path = std::filesystem::path(cfg.logging.directory) / (prefix + "_jitter.csv");
     std::optional<JitterLog> jitter;
-    if (!replaying) {
+    if (!replaying || options.pace) {
         jitter.emplace(jitter_path);
     }
 
@@ -639,22 +725,54 @@ int main(int argc, char* argv[]) {
     // Vert Speed (REQ-PROC-003) and their validity (REQ-PROC-007) are all
     // computed by the processor. Status comes from the detector
     // (REQ-FAULT-004, REQ-FAULT-006); the simulator never faults.
+    // The run length: --cycles when given; otherwise the smoke run's five
+    // frames, or for a replay no cap at all, the log's end ends it
+    // (REQ-LOG-006).
+    std::optional<int> cycles = options.cycles;
+    if (!cycles.has_value() && !replaying) {
+        cycles = kDefaultCycles;
+    }
+    // One RUNNING status per second of cycles (REQ-TRANS-004): the period
+    // is 20 to 1000 ms, so this is 50 cycles down to every cycle, and the
+    // floor keeps the interval at or under a second.
+    const int status_every_cycles = kStatusIntervalMs / cfg.timing.period_ms;
+
     const ValidityTally tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
+                                    options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,
-                                    options.cycles);
+                                    cycles, mode, status_every_cycles);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
     print_validity_summary(tally);
 
-    if (replay != nullptr && replay->exhausted()) {
-        std::cout << "Replay:    exhausted after " << replay->frames_read() << " frames; "
-                  << static_cast<size_t>(options.cycles) - replay->frames_read()
-                  << " cycles repeated the last frame" << std::endl;
+    // Which ended the run, the log or --cycles (REQ-LOG-006). Asking the
+    // source here looks one frame ahead and processes nothing.
+    if (replay != nullptr) {
+        std::cout << "Replay:    " << replay->frames_read() << " frames, "
+                  << (replay->has_next() ? "stopped by --cycles before the end of the log" : "end of log reached")
+                  << std::endl;
     }
 
-    if (jitter.has_value()) {
+    // The script a simulated run followed (REQ-SENS-007): the log's
+    // provenance, beside the run's other facts.
+    if (options.motion.has_value()) {
+        std::cout << "Motion:    profile " << *options.motion << ", "
+                  << MotionProfile::named(*options.motion)->duration_ms() / 1000 << " s scripted flight"
+                  << std::endl;
+    }
+
+    if (jitter.has_value() && options.pace) {
+        // The pacer's lateness, in the scheduler's terms: whole periods late
+        // are its overruns (REQ-TIME-004).
+        const JitterStats& st = jitter->stats();
+        std::cout << "Timing:    " << st.cycles << " frames paced to the log's timestamps"
+                  << ", lateness min/mean/max = " << st.min_ns / 1000.0 << " / "
+                  << st.mean_ns() / 1000.0 << " / " << st.max_ns / 1000.0 << " us"
+                  << ", late by a period or more = " << st.overruns
+                  << "  (" << jitter_path.string() << ")" << std::endl;
+    } else if (jitter.has_value()) {
         const JitterStats& st = jitter->stats();
         std::cout << "Timing:    " << st.cycles << " cycles at " << cfg.timing.period_ms << " ms"
                   << ", jitter min/mean/max = " << st.min_ns / 1000.0 << " / "

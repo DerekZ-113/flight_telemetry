@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1172,3 +1172,208 @@ Reserved for the first CI run with this commit: GCC's count on the five lines ag
 - §15.4.
 - The comment at `nmea.cpp:258` (§15.5), Derek's call. (Closed 2026-10-14: added on review.)
 - Everything in Entry 13 §13.9 but its second item: §13.8, the capture fixture and step 17, the marked lines, the design §12 items, FAULT-003b.
+
+## Entry 16 — 2026-10-14, the display's data path: a replay that ends and paces, the session status on the wire, the bridge and the page (macOS preview)
+
+Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in ten commits: the seventh closed the topic, the eighth adds `dashboard/src/badge.ts`, which the page's commit left out, the ninth reads an unpaced replay's burst over UDP in one status test, which the runner's ZeroMQ join lost (§16.5), and the tenth records the STALE flip's measurement and two notes for part 2; the branch stays off `main` until after the v0.1.0 tag, and the CI run on its head, on the draft pull request (number 1), is the measurement of record (§16.7).
+
+### 16.1 What was built
+
+- `src/data_source.h`: `virtual bool has_next()`, true by default; `src/replay/log_replay_source.h/.cpp`: the one-frame look-ahead (`has_next`) and `read_frame` consuming it, `exhausted` unchanged in meaning; `src/drivers/fault_injecting_source.*`: the forward. `src/main.cpp`: the loop asks the source before every read, `--cycles` is `std::optional<int>` (5 for a live or simulated run, no cap for a replay), the `Replay:` line names which ended the run (REQ-LOG-006).
+- `src/transport/session_message.h/.cpp`: `RunMode`, `StreamState`, `session_message` (eight bytes: `FTSS`, version 1, mode, state, reserved), `mode_name`, `state_name`, `kStatusIntervalMs` 1000, `kEndedRepeats` 3; `src/transport/publisher.h`: `publish_status`, `PublishStats::status_published`; both publishers: `publish_status` through a shared `send_bytes`; `src/main.cpp`: the mode chosen with the source, RUNNING before frame 0 and every `1000 / period_ms` cycles, ENDED three times after the loop, `status messages = N` on the transport line (REQ-TRANS-004). `pipeline/frame_format.py`: `SESSION`, `SessionStatus`, `parse_session`, `parse_message` dispatching on the magic; `pipeline/receiver.py`: `session`, `ended`, the iteration ending on ENDED, `format_session`, main ending on ENDED and the exit line's session.
+- `src/timing/timestamp_pacer.h/.cpp`: `TimestampPacer::wait_for`, the origin from the first frame, the signed deadline `origin + (t − t0)` clamped at the epoch, `sleep_until_ns` through the `Clock` seam, lateness in `CycleTiming` with whole periods late in `missed_cycles`; `src/main.cpp`: `--pace` (refused without `--replay`), the pacer after the read in `run`, the jitter log for a paced replay, the CSV named by the run's prefix (`<prefix>_jitter.csv`, which the matrix's REQ-TIME-002 note had described since the UDP topic while the code wrote `telemetry_jitter.csv`), the paced `Timing:` line (REQ-TIME-004). `config/telemetry_config.yaml`: the flag comment names `--pace` (no key, no value).
+- `pipeline/bridge.py`: `Bridge` (a reader thread on `FrameReceiver.recv()`, `call_soon_threadsafe` to the loop, `websockets.asyncio.server.serve`, `broadcast`), `frame_message` without `WITHHELD_FIELDS`, `session_message`, `hello`, `DEFAULT_HOST` 127.0.0.1, `--listen`, `--period-ms`, `--stale-ms`; SIGINT and SIGTERM end it with a summary (REQ-DISP-005). `requirements.txt`: `websockets==17.2`.
+- `dashboard/`: `package.json` (pinned, §16.6) and its lockfile, `tsconfig.json`, `vite.config.ts` (jsdom, coverage), `index.html`, `src/main.tsx` (`?bridge=` for a bridge elsewhere), `src/feed.ts` (the JSON contract typed field for field, `parseMessage`, `modeLabel`, `SocketLike`), `src/useTelemetryFeed.ts` (the hook: the socket, arrival time, the rate over the trailing second, `judge`, the ticker, the reconnect), `src/badge.ts` (`badgeFor`), `src/App.tsx` and `App.css` (the view), `src/fakeSocket.ts` and `src/testMessages.ts` (test support), `src/useTelemetryFeed.test.ts` (8), `src/App.test.tsx` (9), `README.md` (REQ-DISP-003, REQ-DISP-004).
+- `.github/workflows/ci.yml`: the `page` job (Node 22, `npm ci`, the tests with coverage, the build) in parallel with the C++ job; the Python step's comment. `.gitignore`: `dashboard/node_modules/`, `dist/`, `coverage/`, `.claude/launch.json`.
+- Tests: `tests/unit/test_replay.cpp` (+6, the thesis loop driven by `has_next`), `test_session_message.cpp` (4), `test_zmq_publisher.cpp` (+2, the shut-down context also refusing a status), `test_udp_publisher.cpp` (+2, the kernel's report also refusing a status), `test_timestamp_pacer.cpp` (6); `tests/integration/test_replay_pacing.py` (8), `test_session_status.py` (10), `test_bridge.py` (6), `test_validity.py` (the end-of-log line; its past-the-end test moved), `conftest.py` (the third record kind; the receiver closed on every exit path), `test_transport.py` (statuses on the UDP socket filtered).
+- Documents: SRD 0.10.0 (the six statements and rationale, the Display section, REQ-CFG-001's flag rule); FTS-TM-001 (six rows Verified, the `main.cpp`, seam, replay, injector, publisher, Python and page reverse traces, TEST-001 and TEST-002, 34/9/0 of 43); FTS-TP-001 (TC-019 to TC-022, §2.2, §2.5, §3, §6.3, §7, TC-017 step 13); FTS-DD-001 (§3, §9: end of stream, the session status, the bridge, the page; §10: pacing, the CSV by prefix; §11.2; §12: real-time replay and end-of-stream decided, the sequence number's trigger moved to the voter, the rotated replay's number); README; CLAUDE.md; this entry.
+
+### 16.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 314 of 314 (294 before), 3.2 s; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 108 of 108 (85 before) in about 100 s on the plain build; 108 on the instrumented build too, once the paced lateness bound was amended (§16.5) |
+| Page (Vitest 4.1.11, jsdom) | 17 of 17; statements 98.2%, branches 98.9%, lines 100%, functions 92.9% (the two real defaults, a `WebSocket` and `performance.now`, run in no test; one defensive `?? 0` in `badge.ts`) |
+| `npm run build` | the TypeScript check and the bundle, clean (224 kB, 70 kB gzipped) |
+| cppcheck 2.21.0 | 0 findings, CI's flags, 29 files |
+| The hand run (plan §7) | the page in the built-in browser: SIM, RUNNING, 50 to 51 frames a second (the trailing-second window keeps its boundary frame, so a 50 Hz feed reads 50 or 51), every field NORMAL, the GPS held between fixes; ENDED at the run's end; REPLAY at the same rate through a paced replay of that run's 1500-frame log, then ENDED; STALE after the binary was killed mid-run (1,012 ms after the last frame by the measurement in §16.5; the 3.1 s and 3.7 s first read were the age when the page was looked at), the rate 0, every number struck through and legible; BRIDGE DISCONNECTED when the bridge was stopped, reconnected within a second of its restart (MODE UNKNOWN and STALE, the restarted bridge having seen no status) |
+
+Red first throughout: the unit files were watched failing on the missing members and headers, the pytest files on the missing module or flag, the page tests on the missing modules; the end-to-end bridge test and the status tests then passed on their first run against the code, and the page's two rate tests failed on a boundary (§16.5) before passing.
+
+### 16.3 Coverage preview (clang, the Mac recipe of Entry 8, unit and integration tests on the instrumented build)
+
+| Scope | Preview | Entry 15 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 88.9% | 89.3% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 96.4% | 96.4% | 70% |
+| overall | 96.2% | 96.3% | 80% |
+
+The new and changed files: `timestamp_pacer.cpp` 6 of 6 branches, 30 of 30 lines; `log_replay_source.cpp` 16 of 16, 48 of 48; `fault_injecting_source.cpp` 16 of 16; `zmq_publisher.cpp` 8 of 8; `udp_publisher.cpp` 27 of 30 (the three edges Entry 10 lists, kernel-bound); `session_message.cpp` 5 of 7 before the two `switch` no-match edges were marked as the five sites of Entry 1 are (`LCOV_EXCL_BR_LINE` on the switch, `LCOV_EXCL_LINE` on the trailing return), which is the transport scope's 0.4 point. The page's figures are Vitest's (§16.2); Python coverage is not measured in this project, and the bridge's branches are listed against its tests by hand: the loopback and the explicit bind, `hello` with and without a session, a frame, a status, a client leaving, the end-to-end run; untested by any test, the `FormatError` count in the reader thread, the `dropped` count for a record kind the page has no use for, and `main` (the flags, the signal handlers, the summary), exercised by hand in §16.2's run.
+
+### 16.4 The byte checks
+
+| Check | Result |
+|---|---|
+| The seed-42 500-frame log, after every step | `6d43f343…` (Entry 12 §12.4), with and without `--zmq` |
+| Its replay, capped at 500, uncapped, and capped at 9999 | each byte-identical to the original; `Replay:    500 frames, end of log reached` on all three |
+| Its replay paced, against the unpaced replay and against the original | byte-identical; 500 frames paced in 9.99 s, lateness 0 / 3243 / 11526 us, none a period late |
+| A 5-frame log for 12, 3 and no cycles | 5, 3 and 5 frames; the 12-cycle and the 5-cycle logs byte-identical, no timestamp repeated (TC-019 steps 6 and 7) |
+| The demo run's 1500-frame log, replayed paced over ZeroMQ to the page | byte-identical; lateness 0 / 5477 / 16304 us, none a period late; `status messages = 33` (30 RUNNING, before frames 0, 50, ..., 1450, and 3 ENDED) |
+| The pytest's 150-frame paced replay | byte-identical to the unpaced and to the original's first 150 frames; lateness 0 / 4844 / 14623 us, none a period late |
+
+### 16.5 Decisions taken, and deviations from the plan
+
+- All as recommended in the plan, with the answers to the trust test's flags folded in (three mode labels; no format change; deadlines from the recorded timestamps through the `Clock` seam; a replay to its end with `--cycles` as a cap; the CSV by prefix; REQ-DISP-003 and -004 now, -001 and -002 with part 2; the branch name kept).
+- **The pytest harness closes the receiver on every exit path.** A test that handed `run_published` a directory that did not exist raised before the harness's `try`, the receiver was never closed, and the interpreter hung at exit for ten minutes: a pyzmq `Context` whose socket is still open blocks its termination forever. Fixed in the test (the directory created) and in the harness (`receiver.close()` in a `finally` around the whole run), so no later test can hang the suite that way.
+- **The paced lateness bound.** The plan bounded the maximum under one period. On the instrumented build, under the load of the demo and the dev server, one frame of 150 woke 62 ms late on the Mac's `nanosleep` fallback, and again on a rerun. Never early is the pacer's property and byte identity its proof; how late is the machine's, as REQ-TIME-003's jitter is the Pi's. TC-020 step 7 now bounds the mean under a period and the frames a period or more late at one in twenty, and records the maximum; the `Timing:` line's count must agree.
+- **The rate window keeps its boundary frame.** Fifty frames at 20 ms judged on the grid read 49 with a half-open window; the window is closed on its old side, so the page reads 50, and 51 at times, at 50 Hz.
+- **`badge.ts`.** Vite's Fast Refresh reloads a page whose component module also exports a plain function, and a reload loses the feed's state (seen twice in the hand run: the frame counter back to 0, the ended state recovered from `hello`). `badgeFor` moved to its own module so an edit to the view hot-swaps it and keeps the state.
+- React 19's types have no global `JSX` namespace; `App.tsx` imports the type from React.
+- **The lockfile.** npm 10.9.3's resolver fails on this manifest with `Cannot read properties of null (reading 'edgesOut')` while walking jsdom's optional `canvas` peer, with a fresh cache too; `npm install --legacy-peer-deps` produced the lockfile, and `npm ci` from it installs cleanly (121 packages in 0.8 s), which is what CI runs. Recorded in CLAUDE.md's prerequisites.
+- jsdom 30.1.2 declares Node `^22.22.2 || ^24.15.0 || >=26`; this Mac runs 22.18.0, npm warns, the tests run. CI's `setup-node` '22' resolves to a newer patch.
+- `CycleIndexIncrements` is asserted inside `DeadlinesFollowRecordedTimestamps`; `DeadlineBeforeTheClockEpochIsClampedToZero` was added beyond the plan, because the clamp is a branch and needed a test.
+- Lateness of a whole period or more rides `CycleTiming::missed_cycles` as whole periods, so `JitterLog` and its summary serve the pacer unchanged; the paced `Timing:` line prints it as "late by a period or more".
+- The bridge handles SIGTERM like SIGINT: the demo's bridge, ended by `kill`, printed no summary.
+- The two `switch` no-match edges in `session_message.cpp` are marked as Entry 1's five sites are (seven sites now).
+- **The STALE flip, measured (2026-10-15, on Derek's question).** The hand run's reading of 3.7 s after the kill was the age when the page was looked at, not when it changed: each tool round trip after the kill took seconds. Measured with a `MutationObserver` on the page recording each frame's arrival and every change of the badge, the badge went STALE 1,012 ms after the last frame's arrival, the 1,000 ms threshold plus one 100 ms tick; the binary's exit, the receiver and the bridge add nothing, since the judgment is the page's own clock. In the same two runs all 544 and 2,500 frames arrived, the page's clock within −4 to +33 ms of the frame timestamps and no arrival gap over 60 ms. With the page hidden for 15.8 s of the second run (the pane hid it), the 444 frames of that window arrived at the recorded cadence (maximum gap 28 ms, lag −2 to +9 ms) and ENDED 1 ms after the last; the pane does not throttle a hidden page as Chrome does, so Chrome's background tab is recorded as untested, with the lag measurement part 2 adds for it, in FTS-DD-001 §12.
+- **Found by the final run, a test defect of this topic's making:** `test_no_receiver_counts_and_continues[udp]` asserted `published + send_failures == 50`, which assumed every refusal the kernel reports is a frame's. Since the status rides the same socket, the port-unreachable report can land on a status send instead (`send_failures` counts frames and statuses alike), and the sum read 51 once in three full runs. The invariant is now over every attempt: frames published plus statuses published plus failures equals 50 frames plus the RUNNING status before frame 0 plus three ENDED, 54; the ZeroMQ variant still expects no refusal at all. Five consecutive runs over both transports pass.
+- **The page's commit left out `dashboard/src/badge.ts`.** The commits were handed over as incremental patches taken with `git diff`; `badge.ts` was created after the page's patch, and the patch for its refactor was taken before the new file was marked for adding, so `git diff` did not see it, and the check that the nine patches rebuild the working tree could not either (`git diff --quiet` ignores an untracked file). The first push therefore carried an `App.tsx` that imports a module the branch does not hold; the branch's first CI run fails the `page` job on that import while the C++ job stands. Found when Derek asked for the commits to be checked; the eighth commit adds the file, and its run (38691853458) was the branch's first green one; the record is the run on the head (§16.7).
+- **Found by the branch's first CI run (38691300022, the C++ job):** `test_replay_announces_replay` replayed a 60-frame log unpaced with a ZeroMQ receiver, and on the runner the whole burst, frames and statuses, went out before the subscriber's join landed, so the receiver saw nothing (`run.statuses` empty); on the Mac the join had won the race every time. That is the slow-joiner effect FTS-DD-001 Section 9 describes, and the lesson the pacing work already states: an unpaced replay that publishes is a burst. The test now reads the burst over a bound datagram socket, which has no join, and asserts the positions of the statuses (RUNNING before frames 0 and 50, ENDED three times after frame 59). The other 107 passed on the runner, the paced lateness bound among them; the `page` job's failure on that run was the missing `badge.ts`. The second run (38691853458, on the eighth commit) passed the same test unchanged over ZeroMQ, which is what a race looks like from the outside; the ninth commit removed the race rather than rely on winning it.
+- Not done, by the plan's own order: the CI run of record (§16.7); TC-021 step 9 (the LIVE mode's status) and the paced replay's lateness on the Pi.
+
+### 16.6 Library and toolchain facts this entry rests on
+
+- `websockets` 17.2 (2026-10-03; Python 3.11 or later): the asyncio implementation (`websockets.asyncio.server.serve`, `broadcast`, `ServerConnection.wait_closed`); `broadcast(raise_exceptions=...)` is keyword-only since 17.0; `broadcast` is synchronous and writes without backpressure.
+- pyzmq 27.2: a `Context` whose socket is still open blocks `term()` and therefore the interpreter's exit; `close(linger=0)` then `term()` in the receiver's `close()` is what the harness now guarantees.
+- Node 22.18.0, npm 10.9.3. Pinned (the newest release of each package whose major was at least three months old on the build day; TypeScript 7.0, two months old, and Vitest 5.0, six weeks, skipped): react and react-dom 19.3.1, vite 8.3.4 (8.0 since 2026-03-12), @vitejs/plugin-react 6.1.2 (requires vite ^8), typescript 5.9.3, vitest 4.1.11 (accepts vite ^6 || ^7 || ^8), @vitest/coverage-v8 4.1.11, jsdom 30.1.2, @testing-library/react 16.3.3 with its peer @testing-library/dom 10.4.2, @types/react and @types/react-dom 19.3.0.
+- Vite's Fast Refresh (plugin-react) hot-swaps only modules that export components alone; any other export means a full page reload on edit.
+- jsdom provides `Event`, `MessageEvent` and `CloseEvent`, so the fake socket constructs real events; React Testing Library 16 needs an explicit `afterEach(cleanup)` when Vitest runs without globals.
+- `vi.useFakeTimers()` drives `setInterval` and `setTimeout`; the hook's clock is injected rather than taken from the faked `performance`, so a test advances both together.
+
+### 16.7 Measurement of record
+
+CI run 38695063952 on `aab6772`, the branch's head, on the draft pull request (number 1), 2026-10-15 06:52 to 06:55 UTC: the fourth run on the branch (the first, on `62460db`, failed both jobs as §16.5 records; the second and third, on `0fb47f2` and `ccd1730`, passed). Both jobs green, and the repository's GitGuardian check with them.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 314 of 314 |
+| pytest (Python 3.13, against the instrumented binary) | 108 of 108 in 94.9 s |
+| The paced replay's lateness on the runner (TC-020 step 7, `clock_nanosleep` with `TIMER_ABSTIME`) | min/mean/max 69 / 104 / 156 µs over 150 frames, none a period late; the Mac's `nanosleep` fallback gave 0 / 4,844 / 14,623 µs for the same test (§16.4) |
+| lcov over `src/` | lines 98.6% (1,880 of 1,906), functions 96.2% (200 of 208), branches 95.7% (827 of 864) |
+| cppcheck 2.13.0 (the runner's Ubuntu 24.04 package), 29 files | one style report, below; the Mac's 2.21.0 reports none (§16.2) |
+| `page` job (Node 22, `npm ci`, Vitest 4.1.11 with coverage, `npm run build`) | 17 of 17; statements 98.24% (112 of 114), branches 98.94% (94 of 95), functions 92.85% (26 of 28), lines 100% (107 of 107), the same figures as the Mac; the build clean in 125 ms; 18 s for the whole job |
+| Wall time | the C++ job 3 min 2 s; the workflow 3 min 4 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside the Mac preview of §16.3:
+
+| Scope | Record (GCC) | Preview (clang) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 86.1% | 80% |
+| transport | 88.6% | 88.9% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 92.2% | 96.4% | 70% |
+| overall | 95.7% | 96.2% | 80% |
+
+The files this entry added or changed, from the run's `coverage-html` artifact: `timestamp_pacer.cpp` 26 of 26 lines, 6 of 6 branches, 2 of 2 functions; `session_message.cpp` 17 of 17 lines, 3 of 3 functions and no branch counted at all, its only branches being the two marked `switch` lines (§16.5), so the markers hold on the runner's lcov as on the Mac's; `log_replay_source.cpp` 44 of 44 lines, 14 of 14 branches; `fault_injecting_source.cpp` 67 of 67 lines, 16 of 16 branches; `zmq_publisher.cpp` 40 of 40 lines, 10 of 12 branches (the shut-down context's two edges, Entry 10); `udp_publisher.cpp` 52 of 53 lines, 29 of 32 branches (the kernel-bound edges Entry 10 lists). The record agrees with the preview everywhere the two measure the same thing: every test green on both toolchains, the per-scope figures within the lines the two compilers count differently (GCC counts fewer lines in the pacer, 26 against clang's 30, with the same six branches).
+
+**cppcheck's one report (REQ-TEST-004):** `src/drivers/fault_injecting_source.h:31:10: style: The function 'has_next' overrides a function in a base class but just delegates back to the base class. [uselessOverride]`. The override's body is `return inner_->has_next();` (`fault_injecting_source.cpp:9`): the call goes to the inner source, another object, not to the base class, and the forward is the override's whole purpose, since a replay wrapped by the injector must end when the replay ends (`ReplayTest.FaultInjectorForwardsHasNext`). cppcheck 2.13.0, the runner's package, reads a same-named call as a call to the base; 2.21.0 on the Mac does not report it, so the report is the older checker's. It fails nothing today, because the step reports on every push and gates only on `v*` tags (FTS-TP-001 §4 criterion 4), but the tag gate runs the same level with `--error-exitcode=1` and would exit on it as the runner's package stands. The remedy the workflow already provides is `--inline-suppr`: one `// cppcheck-suppress uselessOverride` line above the declaration, with this reason beside it, the first inline suppression in `src/`. Left open in §16.8 for the decision rather than taken inside a record.
+
+### 16.8 Open
+
+- cppcheck 2.13's `uselessOverride` report on `FaultInjectingSource::has_next` (§16.7): the inline suppression with its reason, or another remedy, before any `v*` tag that carries this branch. Taken in Entry 17's first commit: `// cppcheck-suppress uselessOverride` above the declaration, with the reason beside it; the runner's verdict is §17.7's.
+- On the Pi: TC-021 step 9 (a live run's LIVE status reaching the receiver, the bridge and the page on the Mac), and a paced replay's lateness on `clock_nanosleep`.
+- Parked in FTS-DD-001 §12 with this entry: replay across rotated files (part 2's demo decides), the sequence number (with the voter, on the same bump as the fix-quality byte).
+- Part 2: the instruments (REQ-DISP-001 and -002 entering the SRD), `display_spec.md`, the deterministic replay demo; heading has no direct source on this hardware.
+
+## Entry 17 — 2026-10-15, the Primary Flight Display's instruments: the flag rule, the six instruments, the lag check, the simulator's scripted flight and the replay demo (macOS preview)
+
+Four requirements (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; SRD 0.10.0 → 0.11.0, 43 → 47 statements), four test cards (TC-023 to TC-026), one new controlled document (FTS-DS-001, `docs/display_spec.md`, the eighth), one new C++ module and an inverse function, one bridge class and two flags, twelve page modules. Built from `Plan - PFD Instruments` (plan mode, approved 2026-10-15, the five flags at its top as recommended) on the branch `claude/pfd-data-path-part-1-457f04`, after part 1's ten commits and the Entry 16 §16.7 commit, in seven commits (the twelfth to the eighteenth on the branch); the branch stays off `main` until after the v0.1.0 tag, and the CI run on its head is the measurement of record (§17.7).
+
+### 17.1 What was built
+
+- Documents: SRD 0.11.0 (REQ-DISP-001 and REQ-DISP-002 entered from the FTS-DD-001 §11.2 drafts, 002 reworded for the GPS track, no outside air temperature, no held cue; REQ-DISP-006, the lag; REQ-SENS-007, the scripted flight; the Display preamble; DISP-005's rationale); FTS-DS-001 0.1.0 (the conventions, the layout in viewBox units, one subsection per instrument, the feed's states, the plot, the demo's keyframes, the diagnostic view); FTS-TP-001 (TC-023 to TC-026, §7); FTS-TM-001 (four rows Verified, DISP-005's row, the reverse traces, TEST-001 and TEST-002, 38/9/0 of 47); FTS-DD-001 (§3 the profile seam, §6 the display's sign rule, §9 "At the display: the instruments", §11.2 and §11.3, §12: the scripted flight, `heading_deg`, the track threshold, the receiver's counter, the rotated replay decided, the two part-2 notes closed); README, CLAUDE.md, `dashboard/README.md`; this entry.
+- `src/drivers/motion_profile.h/.cpp`: `MotionState`, `MotionProfile::named`, `state_at` (keyframes linear in between, the segment's slopes as the rates, held after the last), the demo's table; `src/processing/altitude.h/.cpp`: `altitude_to_pressure`; `src/drivers/simulated_data.h/.cpp`: `BaseReadings`, `kStationary`, `scripted_readings` (the pipeline's models inverted; the position integrated from the scripted velocity once per generated frame), `generate` over the base readings with the seven draws in the same order; `src/drivers/simulated_source.h/.cpp`: the profile owned for the generator, copies deleted; `src/main.cpp`: `--motion <name>`, refused with `--live` or `--replay` and for an unknown name, the `Motion:` line; `src/drivers/fault_injecting_source.h`: the inline suppression of Entry 16 §16.8; `CMakeLists.txt` (REQ-SENS-007, REQ-TEST-004).
+- `pipeline/bridge.py`: `RelativeOrigin` (the first NOMINAL fresh fix; metres north and east by the spherical approximation, `METERS_PER_DEGREE`; re-taken after ENDED and on a backwards timestamp), `position` in `frame_message`, `--track-min-speed` and `--lag-ms` in `hello` and on the start line (REQ-DISP-005, REQ-DISP-002, REQ-DISP-006).
+- `dashboard/src/feed.ts` (`Position`, the two thresholds), `useTelemetryFeed.ts` (the lag from elapsed times, `bridgeLagMs`, the origins, the trail), `testMessages.ts` (`runningFeed`), `App.tsx` and `App.css` (the panel and the plot above the diagnostic view, the lag row); `dashboard/src/pfd/`: `units.ts`, `instrumentState.ts` (`instrumentState`, `feedCause`, `trackShown`, `feedStateText`, `lagLabel`), `geometry.ts` (the horizon transform, the ladder, the roll pointer, the tape's ticks and readout, the pointer, the rose and its readout, the plot's scale, points and marker), `Flag.tsx`, `AttitudeIndicator.tsx`, `AltitudeTape.tsx`, `VerticalSpeed.tsx`, `GroundSpeed.tsx`, `TrackIndicator.tsx`, `GroundTrackPlot.tsx`, `Pfd.tsx` (REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-006).
+- Tests: `tests/unit/test_motion_profile.cpp` (5), `test_altitude.cpp` (+1), `test_simulated_data.cpp` (+3); `tests/integration/test_motion_profile.py` (4), `test_bridge.py` (+3, the `hello` test amended for the thresholds); `dashboard/src/pfd/units.test.ts` (2), `instrumentState.test.ts` (5), `geometry.test.ts` (8), `Pfd.test.tsx` (5), `AttitudeIndicator.test.tsx` (4), `AltitudeTape.test.tsx` (3), `VerticalSpeed.test.tsx` (3), `GroundSpeed.test.tsx` (3), `TrackIndicator.test.tsx` (4), `GroundTrackPlot.test.tsx` (5), `useTelemetryFeed.test.ts` (+4), `App.test.tsx` (+3; the bar's queries scoped to the bar, since the panel's strip repeats its words).
+
+### 17.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 323 of 323 (314 before), 0.3 s for the new files; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 115 of 115 in about 110 s (108 before), on the plain build and on the instrumented one |
+| Page (Vitest 4.1.11, jsdom) | 66 of 66 in 12 files (17 before); statements 99.02% (the three uncovered lines in §17.3), branches 98.44%, functions 97.59%, lines 99.65% |
+| `npm run build` | the TypeScript check and the bundle, clean |
+| cppcheck 2.21.0 | 0 findings, CI's flags, 30 files (29 before); the suppression raises no unmatched-suppression report at the workflow's level |
+| The hand run (plan §7), the demo replayed paced through the bridge to the page in the desktop app's browser pane | REPLAY boxed in amber in the strip and the bar; parked: ALT 10 ft, VS settling to 0, GS 0 kt, `TRK ---` with no rose, the plot a dot; the takeoff roll: GS to 58 kt, TRK 090° under the rose, the marker east; the climb: the horizon down 8°, VS +600, ALT rising through 80 to 400 ft, the plot's scale bar growing 50 m, 100 m, 500 m; the turn: TRK 090 → 270; the descent: the horizon up 4°, VS −400, ALT 320 ft; ENDED: every instrument's name in a grey box (ATT, ALT, VS, GS, TRK, POS), the trail kept, east then a half circle through south to west. 7,499 of 7,500 frames reached the page: the first was published before the subscriber's join landed, the slow-joiner effect of FTS-DD-001 §9; the receiver counted no gap, since it saw no frame before the second |
+| The lag check (plan §7 step 7) | a 2 s busy loop on the page's thread, with a `MutationObserver` on the strip's state: LAG 2.0 s 4 ms after the thread returned, RUNNING 11 ms later when the queue had drained, the lag back to −4 ms on the next frames |
+| The kill (plan §7 step 5) | the binary killed 8 s into a second replay: STALE with the age counting, every instrument under a red flag with its name, the trail kept, the diagnostic view struck through below, read at 2.5 and 3.0 s; a third replay: RUNNING, the plot's origin re-taken (a fresh 2 m grid), `TRK ---` while parked |
+| The bridge (plan §7 step 6) | the bridge stopped: BRIDGE DISCONNECTED, red flags, the trail kept; restarted: RUNNING within 5 s, REPLAY from the next status, the plot's origin re-taken |
+
+Red first throughout: the C++ files watched failing on the missing header and function, the pytest on the missing flag and the `hello` dictionary, each page module on its missing import, the page's layout test on the missing bar id; then green against the code, with one amendment, the scale bar's number (§17.5).
+
+### 17.3 Coverage preview (clang, the Mac recipe of Entry 8, unit and integration tests on the instrumented build)
+
+| Scope | Preview | Entry 16 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 92.1% | 88.9% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 95.8% | 96.4% | 70% |
+| overall | 96.1% | 96.2% | 80% |
+
+The new and changed files: `motion_profile.cpp` 40 of 40 lines, 7 of 8 branches (the untaken edge is `wrap_degrees`' negative side: the demo's track never crosses north); `simulated_data.cpp` 81 of 81, 11 of 12 (a scripted frame whose timestamp does not advance, which no caller produces); `simulated_source.cpp` 11 of 11, 3 of 4 (clang's unwind edge on the constructor's initializer); `altitude.cpp` 4 of 4, no branches; `fault_injecting_source.cpp` 70 of 70, 16 of 16, unchanged by the suppression. The page's three uncovered lines: `badge.ts:29` (the defensive `?? 0` of Entry 16), `Pfd.tsx:21` (the strip's colour for a `fail` cause, which `feedCause` never returns), `geometry.ts:110` (a tick outside the window, which the tick range never produces). The bridge's new branches against its tests by hand: the origin taken only on a NOMINAL fresh fix (a NO_DATA frame and a held frame leave it), the reset after ENDED and on a backwards timestamp, the two thresholds by default and by flag; untested by any test, `main`'s two new arguments and the start line, exercised by hand in §17.2's runs.
+
+### 17.4 The byte checks
+
+| Check | Result |
+|---|---|
+| The seed-42 500-frame log, after the simulator's change and at the end | `6d43f343…` (Entry 12 §12.4); its unpaced replay byte-identical, `Replay:    500 frames, end of log reached` |
+| The demo, `--motion demo --cycles 7500` | 7,500 frames in 787,516 bytes, every validity NORMAL from frame 0, `caba9aeb5ad06634771b8ed0646964fbe99351156c6c968afb1a405dfcc62889` on this Mac (libc++; the runner's libstdc++ draws differently, FTS-DD-001 §3), `Motion:    profile demo, 150 s scripted flight`, missed cycles 0 |
+| Its unpaced replay | byte-identical; `Replay:    7500 frames, end of log reached` |
+| Its paced replay over ZeroMQ through the bridge to the page | byte-identical to the recording; lateness min/mean/max = 1 / 5,702 / 9,959 µs, none a period late; `status messages = 153` (150 RUNNING, 3 ENDED) |
+| The pytest's 20 s flight (`--cycles 1000`) | pitch 7.97° on the last frame, 30 m/s, course 090, every validity NORMAL, the 19 s fix 269 m east of the first; its unpaced replay byte-identical |
+
+### 17.5 Decisions taken, and deviations from the plan
+
+- All as recommended in the plan, the five flags answered by the approval: the display's sign rule (roll positive is a right roll, pitch positive is nose up, the bench's signs; FTS-DD-001 §6 and FTS-DS-001 §2.3 record that the driver's mapping, not the display, moves if the bench disagrees); `heading_deg` kept and TRK mapped, the rename parked; REQ-SENS-007 taken and the ADS-B drafts relabelled; REQ-DISP-002 without the draft's outside air temperature, GPS altitude and held cue; Entry 16's commit count and the Day 11 note's three numbers corrected.
+- **The ground track plot's scale bar.** The plan's card expected `10 m` for a metre-scale trail; the quarter-of-half-extent rule gives the 1-2-5 step nearest 2.5 m, which is 2 m. The card follows the rule; the kilometre case is 1 km as planned.
+- **The track indicator's band.** Moved a few viewBox units from the plan (y 448 to 520, the lubber line at 462, the readout at 434) so that the readout box clears the attitude ball; FTS-DS-001 records what was built.
+- **The pytest count is 115.** The plan's estimate of 112 left out the bridge's three new tests.
+- **The lcov filter step needs the capture's ignore set.** The profile's keyframe table is a global with a dynamic initializer, which clang's gcov reports at line 0; the capture ignored the `format` error as the recipe says, the filter step did not, and lcov 2.5 stopped writing at that record and left a truncated `lcov.info` that read as "no files" for most scopes. `format` (with `corrupt,unsupported`) in the filter's `--ignore-errors` fixed it; the preview above is the second run.
+- **Found in the hand run:** the receiver's out-of-order counter counts every frame of a restarted run until its timestamps pass the previous run's (1,488 over two restarts: the first bridge's exit line read `received 8987 frames, gaps 0 frames, out of order 1488`), because its expectation is not reset on a backwards step. Parked in FTS-DD-001 §12 with the receiver; the bridge and the page re-take their origins on that step.
+- **The lag's transient.** React committed one LAG render for the hundred messages the stall had queued, then RUNNING: a transient queue is visible for as long as it lasts and no longer, which is the measurement's meaning; a sustained queue (a throttled tab) would hold it. Chrome's background tab remains TC-025 step 8, a hand step.
+- **The patch snapshots** were taken against a scratch git index (`GIT_INDEX_FILE`) advanced at each step's end, so the real index stayed free for the §16.7 commit and no `git add -N` was needed on it; the check that the seven patches rebuild the working tree is in the closing commands.
+- Not done, by the plan's own order: the CI run of record (§17.7); TC-025 step 8 (Chrome, Derek's); TC-021 step 9 and the paced lateness on the Pi (from Entry 16); the bench's TC-014 step 13.
+
+### 17.6 Library and toolchain facts this entry rests on
+
+- SVG applies the rightmost transform first, and a positive `rotate` is clockwise in its y-down frame; jsdom's SVG elements carry `dataset`, and React renders a numeric attribute as its plain decimal string, so the tests read transforms and positions as strings (`rotate(-30 400 260) translate(0 40)`, a `y` of `260`).
+- Node 22's `toLocaleString("en-US")` gives the thousands separator; the readouts use a typographic minus (U+2212) so that a negative value cannot be mistaken for the dashes.
+- Vitest 4.1 with 3,700 React state updates in one test (the trail's cap) runs in well under a second; the whole page suite in about 3 s.
+- lcov 2.5's `--remove`/`--filter` step aborts on a `format` error it was not told to ignore and leaves a partial output file without a non-zero exit, so a preview must be checked for the scopes it names (§17.5).
+- cppcheck 2.21.0 honours `// cppcheck-suppress uselessOverride` on the line above a declaration without an unmatched-suppression report at `--enable=warning,style,performance,portability`; 2.13.0's reading of the same line is the runner's to show (§17.7).
+
+### 17.7 Measurement of record
+
+Reserved for the CI run on the branch's head: the C++ job's per-scope table on GCC (the profile's eight branches and `simulated_data.cpp`'s twelve on the runner's gcov), the pytest line (115, the scripted flight's 20 s run on the runner), the `page` job's Vitest table (66) and build, and the cppcheck step's report with the suppression in place.
+
+### 17.8 Open
+
+- §17.7.
+- TC-025 step 8: the demo replaying to a Chrome tab, the tab in the background for two minutes, the lag on return and whether LAG flagged and cleared, the bridge's share; Derek's hand step, into §17.5.
+- On the Pi: TC-021 step 9 and a paced replay's lateness on `clock_nanosleep` (Entry 16 §16.8); the bench's TC-014 step 13, which decides the roll sign's mapping in the driver.
+- Parked in FTS-DD-001 §12 with this entry: the `heading_deg` rename (with the fix-quality byte and the sequence number); the track threshold until a fix capture; the receiver's out-of-order counter across runs; the rotated replay, decided for this demo and parked for a longer one.

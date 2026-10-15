@@ -69,9 +69,18 @@ public:
     // frame was not sent; stats() says how often that has happened.
     bool publish(const TelemetryFrame& frame) override;
 
+    // The eight-byte session status (REQ-TRANS-004), through the same
+    // socket, counted apart from frames.
+    bool publish_status(RunMode mode, StreamState state) override;
+
     const PublishStats& stats() const override { return stats_; }
 
 private:
+    // One message of `size` bytes, sent without waiting; false when the
+    // library refused or threw, with the errno kept. Frames and statuses
+    // differ only in the bytes they hand in.
+    bool send_bytes(const uint8_t* data, size_t size);
+
     zmq::socket_t socket_;
     bool ok_ = false;
     std::string error_;

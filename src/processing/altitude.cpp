@@ -21,3 +21,10 @@
 float pressure_to_altitude(float pressure_hpa, float sea_level_hpa) {
     return 44330.0f * (1.0f - std::pow(pressure_hpa / sea_level_hpa, 0.1903f));
 }
+
+// Solved for P: P = P0 * (1 - altitude / 44330) ^ (1 / 0.1903). The same
+// two constants, so the two functions are inverses to float rounding
+// (AltitudeTest.PressureRoundTrips), not to the ISA's own precision.
+float altitude_to_pressure(float altitude_m, float sea_level_hpa) {
+    return sea_level_hpa * std::pow(1.0f - altitude_m / 44330.0f, 1.0f / 0.1903f);
+}
