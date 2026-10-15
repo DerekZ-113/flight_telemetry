@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1175,7 +1175,7 @@ Reserved for the first CI run with this commit: GCC's count on the five lines ag
 
 ## Entry 16 — 2026-10-14, the display's data path: a replay that ends and paces, the session status on the wire, the bridge and the page (macOS preview)
 
-Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in nine commits: the seventh closed the topic, the eighth adds `dashboard/src/badge.ts`, which the page's commit left out, and the ninth reads an unpaced replay's burst over UDP in one status test, which the runner's ZeroMQ join lost (§16.5); the branch stays off `main` until after the v0.1.0 tag, and the first green CI run on its draft pull request (number 1) is the measurement of record (§16.7).
+Six requirements (REQ-TIME-004, REQ-LOG-006, REQ-TRANS-004, REQ-DISP-003, REQ-DISP-004, REQ-DISP-005; SRD 0.9.0 → 0.10.0, 37 → 43 statements), four test cards (TC-019 to TC-022), two new C++ modules, one Python module, a page. Built from `Plan - PFD Data Path` (plan mode, approved 2026-10-14) on the branch `claude/pfd-data-path-part-1-457f04`, cut from `363b02b` (= `main`), in ten commits: the seventh closed the topic, the eighth adds `dashboard/src/badge.ts`, which the page's commit left out, the ninth reads an unpaced replay's burst over UDP in one status test, which the runner's ZeroMQ join lost (§16.5), and the tenth records the STALE flip's measurement and two notes for part 2; the branch stays off `main` until after the v0.1.0 tag, and the CI run on its head, on the draft pull request (number 1), is the measurement of record (§16.7).
 
 ### 16.1 What was built
 
@@ -1243,8 +1243,8 @@ The new and changed files: `timestamp_pacer.cpp` 6 of 6 branches, 30 of 30 lines
 - The two `switch` no-match edges in `session_message.cpp` are marked as Entry 1's five sites are (seven sites now).
 - **The STALE flip, measured (2026-10-15, on Derek's question).** The hand run's reading of 3.7 s after the kill was the age when the page was looked at, not when it changed: each tool round trip after the kill took seconds. Measured with a `MutationObserver` on the page recording each frame's arrival and every change of the badge, the badge went STALE 1,012 ms after the last frame's arrival, the 1,000 ms threshold plus one 100 ms tick; the binary's exit, the receiver and the bridge add nothing, since the judgment is the page's own clock. In the same two runs all 544 and 2,500 frames arrived, the page's clock within −4 to +33 ms of the frame timestamps and no arrival gap over 60 ms. With the page hidden for 15.8 s of the second run (the pane hid it), the 444 frames of that window arrived at the recorded cadence (maximum gap 28 ms, lag −2 to +9 ms) and ENDED 1 ms after the last; the pane does not throttle a hidden page as Chrome does, so Chrome's background tab is recorded as untested, with the lag measurement part 2 adds for it, in FTS-DD-001 §12.
 - **Found by the final run, a test defect of this topic's making:** `test_no_receiver_counts_and_continues[udp]` asserted `published + send_failures == 50`, which assumed every refusal the kernel reports is a frame's. Since the status rides the same socket, the port-unreachable report can land on a status send instead (`send_failures` counts frames and statuses alike), and the sum read 51 once in three full runs. The invariant is now over every attempt: frames published plus statuses published plus failures equals 50 frames plus the RUNNING status before frame 0 plus three ENDED, 54; the ZeroMQ variant still expects no refusal at all. Five consecutive runs over both transports pass.
-- **The page's commit left out `dashboard/src/badge.ts`.** The commits were handed over as incremental patches taken with `git diff`; `badge.ts` was created after the page's patch, and the patch for its refactor was taken before the new file was marked for adding, so `git diff` did not see it, and the check that the nine patches rebuild the working tree could not either (`git diff --quiet` ignores an untracked file). The first push therefore carried an `App.tsx` that imports a module the branch does not hold; the branch's first CI run fails the `page` job on that import while the C++ job stands. Found when Derek asked for the commits to be checked; the eighth commit adds the file, and the run on it is the record.
-- **Found by the branch's first CI run (38691300022, the C++ job):** `test_replay_announces_replay` replayed a 60-frame log unpaced with a ZeroMQ receiver, and on the runner the whole burst, frames and statuses, went out before the subscriber's join landed, so the receiver saw nothing (`run.statuses` empty); on the Mac the join had won the race every time. That is the slow-joiner effect FTS-DD-001 Section 9 describes, and the lesson the pacing work already states: an unpaced replay that publishes is a burst. The test now reads the burst over a bound datagram socket, which has no join, and asserts the positions of the statuses (RUNNING before frames 0 and 50, ENDED three times after frame 59). The other 107 passed on the runner, the paced lateness bound among them; the `page` job's failure on that run was the missing `badge.ts`.
+- **The page's commit left out `dashboard/src/badge.ts`.** The commits were handed over as incremental patches taken with `git diff`; `badge.ts` was created after the page's patch, and the patch for its refactor was taken before the new file was marked for adding, so `git diff` did not see it, and the check that the nine patches rebuild the working tree could not either (`git diff --quiet` ignores an untracked file). The first push therefore carried an `App.tsx` that imports a module the branch does not hold; the branch's first CI run fails the `page` job on that import while the C++ job stands. Found when Derek asked for the commits to be checked; the eighth commit adds the file, and its run (38691853458) was the branch's first green one; the record is the run on the head (§16.7).
+- **Found by the branch's first CI run (38691300022, the C++ job):** `test_replay_announces_replay` replayed a 60-frame log unpaced with a ZeroMQ receiver, and on the runner the whole burst, frames and statuses, went out before the subscriber's join landed, so the receiver saw nothing (`run.statuses` empty); on the Mac the join had won the race every time. That is the slow-joiner effect FTS-DD-001 Section 9 describes, and the lesson the pacing work already states: an unpaced replay that publishes is a burst. The test now reads the burst over a bound datagram socket, which has no join, and asserts the positions of the statuses (RUNNING before frames 0 and 50, ENDED three times after frame 59). The other 107 passed on the runner, the paced lateness bound among them; the `page` job's failure on that run was the missing `badge.ts`. The second run (38691853458, on the eighth commit) passed the same test unchanged over ZeroMQ, which is what a race looks like from the outside; the ninth commit removed the race rather than rely on winning it.
 - Not done, by the plan's own order: the CI run of record (§16.7); TC-021 step 9 (the LIVE mode's status) and the paced replay's lateness on the Pi.
 
 ### 16.6 Library and toolchain facts this entry rests on
@@ -1258,11 +1258,38 @@ The new and changed files: `timestamp_pacer.cpp` 6 of 6 branches, 30 of 30 lines
 
 ### 16.7 Measurement of record
 
-Reserved for the first CI run on the branch's draft pull request: the C++ job's per-scope table on GCC (the session message's two marked lines, the pacer's six branches), the pytest line (108, the paced timings on the runner), the `page` job's Vitest table and build.
+CI run 38695063952 on `aab6772`, the branch's head, on the draft pull request (number 1), 2026-10-15 06:52 to 06:55 UTC: the fourth run on the branch (the first, on `62460db`, failed both jobs as §16.5 records; the second and third, on `0fb47f2` and `ccd1730`, passed). Both jobs green, and the repository's GitGuardian check with them.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 314 of 314 |
+| pytest (Python 3.13, against the instrumented binary) | 108 of 108 in 94.9 s |
+| The paced replay's lateness on the runner (TC-020 step 7, `clock_nanosleep` with `TIMER_ABSTIME`) | min/mean/max 69 / 104 / 156 µs over 150 frames, none a period late; the Mac's `nanosleep` fallback gave 0 / 4,844 / 14,623 µs for the same test (§16.4) |
+| lcov over `src/` | lines 98.6% (1,880 of 1,906), functions 96.2% (200 of 208), branches 95.7% (827 of 864) |
+| cppcheck 2.13.0 (the runner's Ubuntu 24.04 package), 29 files | one style report, below; the Mac's 2.21.0 reports none (§16.2) |
+| `page` job (Node 22, `npm ci`, Vitest 4.1.11 with coverage, `npm run build`) | 17 of 17; statements 98.24% (112 of 114), branches 98.94% (94 of 95), functions 92.85% (26 of 28), lines 100% (107 of 107), the same figures as the Mac; the build clean in 125 ms; 18 s for the whole job |
+| Wall time | the C++ job 3 min 2 s; the workflow 3 min 4 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside the Mac preview of §16.3:
+
+| Scope | Record (GCC) | Preview (clang) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 86.1% | 80% |
+| transport | 88.6% | 88.9% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 92.2% | 96.4% | 70% |
+| overall | 95.7% | 96.2% | 80% |
+
+The files this entry added or changed, from the run's `coverage-html` artifact: `timestamp_pacer.cpp` 26 of 26 lines, 6 of 6 branches, 2 of 2 functions; `session_message.cpp` 17 of 17 lines, 3 of 3 functions and no branch counted at all, its only branches being the two marked `switch` lines (§16.5), so the markers hold on the runner's lcov as on the Mac's; `log_replay_source.cpp` 44 of 44 lines, 14 of 14 branches; `fault_injecting_source.cpp` 67 of 67 lines, 16 of 16 branches; `zmq_publisher.cpp` 40 of 40 lines, 10 of 12 branches (the shut-down context's two edges, Entry 10); `udp_publisher.cpp` 52 of 53 lines, 29 of 32 branches (the kernel-bound edges Entry 10 lists). The record agrees with the preview everywhere the two measure the same thing: every test green on both toolchains, the per-scope figures within the lines the two compilers count differently (GCC counts fewer lines in the pacer, 26 against clang's 30, with the same six branches).
+
+**cppcheck's one report (REQ-TEST-004):** `src/drivers/fault_injecting_source.h:31:10: style: The function 'has_next' overrides a function in a base class but just delegates back to the base class. [uselessOverride]`. The override's body is `return inner_->has_next();` (`fault_injecting_source.cpp:9`): the call goes to the inner source, another object, not to the base class, and the forward is the override's whole purpose, since a replay wrapped by the injector must end when the replay ends (`ReplayTest.FaultInjectorForwardsHasNext`). cppcheck 2.13.0, the runner's package, reads a same-named call as a call to the base; 2.21.0 on the Mac does not report it, so the report is the older checker's. It fails nothing today, because the step reports on every push and gates only on `v*` tags (FTS-TP-001 §4 criterion 4), but the tag gate runs the same level with `--error-exitcode=1` and would exit on it as the runner's package stands. The remedy the workflow already provides is `--inline-suppr`: one `// cppcheck-suppress uselessOverride` line above the declaration, with this reason beside it, the first inline suppression in `src/`. Left open in §16.8 for the decision rather than taken inside a record.
 
 ### 16.8 Open
 
-- §16.7.
+- cppcheck 2.13's `uselessOverride` report on `FaultInjectingSource::has_next` (§16.7): the inline suppression with its reason, or another remedy, before any `v*` tag that carries this branch.
 - On the Pi: TC-021 step 9 (a live run's LIVE status reaching the receiver, the bridge and the page on the Mac), and a paced replay's lateness on `clock_nanosleep`.
 - Parked in FTS-DD-001 §12 with this entry: replay across rotated files (part 2's demo decides), the sequence number (with the voter, on the same bump as the fix-quality byte).
 - Part 2: the instruments (REQ-DISP-001 and -002 entering the SRD), `display_spec.md`, the deterministic replay demo; heading has no direct source on this hardware.
