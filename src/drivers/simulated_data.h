@@ -5,6 +5,7 @@
 
 // Full include, not a forward declaration: generate() returns a
 // TelemetryFrame by value, so every caller needs the complete type anyway.
+#include "drivers/motion_profile.h"
 #include "telemetry_frame.h"
 
 // Generates simulated TelemetryFrames with realistic values and
@@ -17,6 +18,12 @@
 // and between fixes the frame repeats the last fix with gps_read_ok
 // false, exactly as a driver holding stale fields reports it. That is the
 // timing fact the pipeline's freshness gate (REQ-PROC-006) exists for.
+//
+// The scenario is stationary unless a MotionProfile is handed in
+// (REQ-SENS-007, --motion): then the base values under the noise follow the
+// script, as the inverse of the pipeline's own models, and the noise draws
+// stay the same in number and order, which is what keeps the default's
+// bytes what they were before a profile existed.
 //
 // Deterministic within one toolchain: same seed → same noise sequence.
 // std::mt19937 is fully specified by the standard, but the algorithm
@@ -55,9 +62,13 @@ public:
     // noise holds the seven sigmas; a different sigma changes the spread
     // of one channel and nothing else, because every distribution scales
     // the same standard draw.
+    // profile, when not null, is the scripted flight the readings follow
+    // (REQ-SENS-007); the generator keeps the pointer and the caller keeps
+    // the profile alive. Null is the stationary scenario.
     explicit SimulatedDataGenerator(uint32_t seed = 42,
                                     uint64_t gps_interval_ms = kDefaultGpsIntervalMs,
-                                    const SimulationNoise& noise = SimulationNoise{});
+                                    const SimulationNoise& noise = SimulationNoise{},
+                                    const MotionProfile* profile = nullptr);
 
     // Produce one frame stamped with the caller's timestamp. The generator
     // does not track time itself; SimulatedSource owns the clock.
@@ -67,7 +78,41 @@ public:
     // 0.0 for the processing pipeline (see DataSource contract).
     TelemetryFrame generate(uint64_t timestamp_ms);
 
+    // The values the noise is added to: the stationary scenario's literals,
+    // or the script's readings for one frame.
+    struct BaseReadings {
+        float pressure_hpa;
+        float temperature_c;
+        float accel_x;
+        float accel_y;
+        float accel_z;
+        float gyro_x;
+        float gyro_y;
+        float gyro_z;
+        double latitude;
+        double longitude;
+        float gps_altitude_m;
+        float ground_speed_mps;
+        float heading_deg;
+    };
+
+    // A board sitting flat and still in Foster City: pressure a touch below
+    // standard for about 2 m of altitude, gravity on z, no rotation, no
+    // motion. These are the literals generate() always added its noise to;
+    // SimulatedDataTest.NoiseIsConfigurable pins them and the seed-42
+    // session's hash (FTS-VR-001 Entry 12 §12.4) pins the bytes.
+    static constexpr BaseReadings kStationary{1013.00f, 21.0f,
+                                              0.0f, 0.0f, 9.81f,
+                                              0.0f, 0.0f, 0.0f,
+                                              37.5585, -122.2711, 3.0f,
+                                              0.0f, 0.0f};
+
 private:
+    // The script's readings for this frame: the pipeline's models run
+    // backwards from the profile's state, and the position integrated from
+    // the scripted velocity since the previous frame (REQ-SENS-007).
+    BaseReadings scripted_readings(uint64_t timestamp_ms);
+
     std::mt19937 rng_;    // Mersenne Twister random engine
 
     // One distribution per noise profile. Each holds a standard deviation
@@ -91,4 +136,15 @@ private:
     double last_latitude_ = 0.0;
     double last_longitude_ = 0.0;
     float last_gps_altitude_m_ = 0.0f;
+    float last_ground_speed_mps_ = 0.0f;   // a fix's speed and course, held between fixes like the position
+    float last_heading_deg_ = 0.0f;
+
+    // The script, or null; and the scripted aircraft's position relative to
+    // the scenario's spot, east and north in metres, advanced once per
+    // generated frame.
+    const MotionProfile* profile_;
+    bool positioned_ = false;
+    uint64_t last_timestamp_ms_ = 0;
+    double east_m_ = 0.0;
+    double north_m_ = 0.0;
 };

@@ -39,6 +39,7 @@ add_library(telemetry_core STATIC
     src/processing/fault_detector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
+    src/drivers/motion_profile.cpp
     src/drivers/fault_injecting_source.cpp
     src/drivers/i2c_bus.cpp
     src/drivers/bmp280.cpp

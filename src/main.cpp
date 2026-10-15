@@ -31,6 +31,7 @@
 // below create_source() sees DataSource and nothing else.
 #include "drivers/i2c_bus.h"
 #include "drivers/live_sensor_source.h"
+#include "drivers/motion_profile.h"
 #include "drivers/serial_port.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
@@ -185,11 +186,14 @@ void print_event(const FaultEvent& event) {
 // --udp <ipv4>:<port> each enable a publisher for this run and override
 // its address in the file (both may be given), --cycles <n> sets the run
 // length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
-// run, and a replay without it runs to the end of its log, REQ-LOG-006).
-// Nothing else on the command line overrides a key.
+// run, and a replay without it runs to the end of its log, REQ-LOG-006),
+// --motion <name> scripts the simulator's flight (REQ-SENS-007: a scenario
+// is a choice of run, not a key). Nothing else on the command line
+// overrides a key.
 struct Options {
     bool live = false;
     bool pace = false;                            // --replay at the log's recorded cadence (REQ-TIME-004)
+    std::optional<std::string> motion;            // the simulator's scripted flight, by name (REQ-SENS-007)
     std::optional<std::string> config_path;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
@@ -201,13 +205,15 @@ struct Options {
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
               << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced, to its end\n"
               << "  --pace               with --replay: release each frame at its recorded time; lateness to logs/replay_jitter.csv\n"
+              << "  --motion <name>      script the simulator's flight (" << MotionProfile::known_names()
+              << ": 150 s of takeoff, climb, turn and descent); without it the simulator sits still\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles
@@ -259,6 +265,8 @@ Options parse_args(int argc, const char* const argv[]) {
             options.live = true;   // a flag without a value
         } else if (flag == "--pace") {
             options.pace = true;   // likewise; meaningful only with --replay, checked below
+        } else if (flag == "--motion" && has_value) {
+            options.motion = argv[++i];   // the simulator's script; refused with another source below
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
@@ -268,6 +276,12 @@ Options parse_args(int argc, const char* const argv[]) {
         options.error = "--live and --replay each choose the source; pass one of them";
     } else if (options.pace && !options.replay_file.has_value()) {
         options.error = "--pace paces a replay to its log's timestamps; pass --replay <log.bin> with it";
+    } else if (options.motion.has_value() && (options.live || options.replay_file.has_value())) {
+        options.error = std::string("--motion scripts the simulator; ") + (options.live ? "--live" : "--replay") +
+                        " chooses another source; pass one of them";
+    } else if (options.motion.has_value() && !MotionProfile::named(*options.motion).has_value()) {
+        options.error = "--motion: no profile is named '" + *options.motion + "' (known: " +
+                        MotionProfile::known_names() + ")";
     }
     return options;
 }
@@ -332,8 +346,15 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
     // configured seed keeps the run reproducible (REQ-SENS-006).
     // Reproducibility here is separate from deterministic replay (REQ-LOG-003),
     // which comes from feeding logged frames back through the pipeline.
+    // --motion hands it a script (REQ-SENS-007); parse_args refused a name
+    // no profile has, so the lookup cannot fail here.
+    std::optional<MotionProfile> profile;
+    if (options.motion.has_value()) {
+        profile = MotionProfile::named(*options.motion);
+    }
     return std::make_unique<SimulatedSource>(cfg.timing.period_ms, cfg.simulation.seed,
-                                             cfg.simulation.gps_interval_ms, cfg.simulation.noise);
+                                             cfg.simulation.gps_interval_ms, cfg.simulation.noise,
+                                             std::move(profile));
 }
 
 // The processing loop: source -> fault detector -> processor -> output.
@@ -731,6 +752,14 @@ int main(int argc, char* argv[]) {
     if (replay != nullptr) {
         std::cout << "Replay:    " << replay->frames_read() << " frames, "
                   << (replay->has_next() ? "stopped by --cycles before the end of the log" : "end of log reached")
+                  << std::endl;
+    }
+
+    // The script a simulated run followed (REQ-SENS-007): the log's
+    // provenance, beside the run's other facts.
+    if (options.motion.has_value()) {
+        std::cout << "Motion:    profile " << *options.motion << ", "
+                  << MotionProfile::named(*options.motion)->duration_ms() / 1000 << " s scripted flight"
                   << std::endl;
     }
 

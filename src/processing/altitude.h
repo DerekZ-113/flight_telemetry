@@ -21,3 +21,11 @@
 //   produces inf or NaN.
 
 float pressure_to_altitude(float pressure_hpa, float sea_level_hpa = 1013.25f);
+
+// The inverse (REQ-SENS-007): the pressure at which pressure_to_altitude
+// returns altitude_m, from the same two constants, so that a scripted
+// altitude round-trips through the pipeline's own relation (the simulator
+// writes this pressure, the processor reads the altitude back). Altitudes
+// at or above 44330 m have no pressure in this model; the inputs are the
+// simulator's, a few kilometres at most.
+float altitude_to_pressure(float altitude_m, float sea_level_hpa = 1013.25f);
