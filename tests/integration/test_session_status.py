@@ -158,14 +158,19 @@ def test_receiver_iteration_ends_at_ended_not_at_quiet(telemetry_bin, tmp_path):
 
 
 def test_replay_announces_replay(telemetry_bin, tmp_path):
+    # An unpaced replay is a burst: on the CI runner all 60 frames and every status went out
+    # before a ZeroMQ subscriber's join could land (the slow-joiner effect, FTS-DD-001 Section 9),
+    # and the receiver saw nothing. A bound datagram socket has no join, so the burst is read whole.
     source = write_replayable(tmp_path / "log", raw_frames(60))
     cwd = tmp_path / "run"
     cwd.mkdir()
-    receiver, flag = make_receiver("zmq")
+    receiver, flag = make_receiver("udp")
     run = run_published(telemetry_bin, ["--replay", str(source), *flag], cwd, receiver)
     assert run.returncode == 0, run.stdout[-400:]
+    assert len(run.frames) == 60, "the burst must arrive whole on a bound datagram socket"
     assert run.statuses and all(status.mode == "REPLAY" for _, status in run.statuses)
-    assert run.statuses[-1][1].state == "ENDED"
+    assert [n for n, status in run.statuses if status.state == "RUNNING"] == [0, 50]
+    assert [n for n, status in run.statuses if status.state == "ENDED"] == [60] * ENDED_REPEATS
 
 
 # --- step 8: a status is not a frame: the log is unchanged by publishing ----------------------
