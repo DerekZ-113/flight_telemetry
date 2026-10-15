@@ -1289,7 +1289,91 @@ The files this entry added or changed, from the run's `coverage-html` artifact: 
 
 ### 16.8 Open
 
-- cppcheck 2.13's `uselessOverride` report on `FaultInjectingSource::has_next` (§16.7): the inline suppression with its reason, or another remedy, before any `v*` tag that carries this branch.
+- cppcheck 2.13's `uselessOverride` report on `FaultInjectingSource::has_next` (§16.7): the inline suppression with its reason, or another remedy, before any `v*` tag that carries this branch. Taken in Entry 17's first commit: `// cppcheck-suppress uselessOverride` above the declaration, with the reason beside it; the runner's verdict is §17.7's.
 - On the Pi: TC-021 step 9 (a live run's LIVE status reaching the receiver, the bridge and the page on the Mac), and a paced replay's lateness on `clock_nanosleep`.
 - Parked in FTS-DD-001 §12 with this entry: replay across rotated files (part 2's demo decides), the sequence number (with the voter, on the same bump as the fix-quality byte).
 - Part 2: the instruments (REQ-DISP-001 and -002 entering the SRD), `display_spec.md`, the deterministic replay demo; heading has no direct source on this hardware.
+
+## Entry 17 — 2026-10-15, the Primary Flight Display's instruments: the flag rule, the six instruments, the lag check, the simulator's scripted flight and the replay demo (macOS preview)
+
+Four requirements (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; SRD 0.10.0 → 0.11.0, 43 → 47 statements), four test cards (TC-023 to TC-026), one new controlled document (FTS-DS-001, `docs/display_spec.md`, the eighth), one new C++ module and an inverse function, one bridge class and two flags, twelve page modules. Built from `Plan - PFD Instruments` (plan mode, approved 2026-10-15, the five flags at its top as recommended) on the branch `claude/pfd-data-path-part-1-457f04`, after part 1's ten commits and the Entry 16 §16.7 commit, in seven commits (the twelfth to the eighteenth on the branch); the branch stays off `main` until after the v0.1.0 tag, and the CI run on its head is the measurement of record (§17.7).
+
+### 17.1 What was built
+
+- Documents: SRD 0.11.0 (REQ-DISP-001 and REQ-DISP-002 entered from the FTS-DD-001 §11.2 drafts, 002 reworded for the GPS track, no outside air temperature, no held cue; REQ-DISP-006, the lag; REQ-SENS-007, the scripted flight; the Display preamble; DISP-005's rationale); FTS-DS-001 0.1.0 (the conventions, the layout in viewBox units, one subsection per instrument, the feed's states, the plot, the demo's keyframes, the diagnostic view); FTS-TP-001 (TC-023 to TC-026, §7); FTS-TM-001 (four rows Verified, DISP-005's row, the reverse traces, TEST-001 and TEST-002, 38/9/0 of 47); FTS-DD-001 (§3 the profile seam, §6 the display's sign rule, §9 "At the display: the instruments", §11.2 and §11.3, §12: the scripted flight, `heading_deg`, the track threshold, the receiver's counter, the rotated replay decided, the two part-2 notes closed); README, CLAUDE.md, `dashboard/README.md`; this entry.
+- `src/drivers/motion_profile.h/.cpp`: `MotionState`, `MotionProfile::named`, `state_at` (keyframes linear in between, the segment's slopes as the rates, held after the last), the demo's table; `src/processing/altitude.h/.cpp`: `altitude_to_pressure`; `src/drivers/simulated_data.h/.cpp`: `BaseReadings`, `kStationary`, `scripted_readings` (the pipeline's models inverted; the position integrated from the scripted velocity once per generated frame), `generate` over the base readings with the seven draws in the same order; `src/drivers/simulated_source.h/.cpp`: the profile owned for the generator, copies deleted; `src/main.cpp`: `--motion <name>`, refused with `--live` or `--replay` and for an unknown name, the `Motion:` line; `src/drivers/fault_injecting_source.h`: the inline suppression of Entry 16 §16.8; `CMakeLists.txt` (REQ-SENS-007, REQ-TEST-004).
+- `pipeline/bridge.py`: `RelativeOrigin` (the first NOMINAL fresh fix; metres north and east by the spherical approximation, `METERS_PER_DEGREE`; re-taken after ENDED and on a backwards timestamp), `position` in `frame_message`, `--track-min-speed` and `--lag-ms` in `hello` and on the start line (REQ-DISP-005, REQ-DISP-002, REQ-DISP-006).
+- `dashboard/src/feed.ts` (`Position`, the two thresholds), `useTelemetryFeed.ts` (the lag from elapsed times, `bridgeLagMs`, the origins, the trail), `testMessages.ts` (`runningFeed`), `App.tsx` and `App.css` (the panel and the plot above the diagnostic view, the lag row); `dashboard/src/pfd/`: `units.ts`, `instrumentState.ts` (`instrumentState`, `feedCause`, `trackShown`, `feedStateText`, `lagLabel`), `geometry.ts` (the horizon transform, the ladder, the roll pointer, the tape's ticks and readout, the pointer, the rose and its readout, the plot's scale, points and marker), `Flag.tsx`, `AttitudeIndicator.tsx`, `AltitudeTape.tsx`, `VerticalSpeed.tsx`, `GroundSpeed.tsx`, `TrackIndicator.tsx`, `GroundTrackPlot.tsx`, `Pfd.tsx` (REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-006).
+- Tests: `tests/unit/test_motion_profile.cpp` (5), `test_altitude.cpp` (+1), `test_simulated_data.cpp` (+3); `tests/integration/test_motion_profile.py` (4), `test_bridge.py` (+3, the `hello` test amended for the thresholds); `dashboard/src/pfd/units.test.ts` (2), `instrumentState.test.ts` (5), `geometry.test.ts` (8), `Pfd.test.tsx` (5), `AttitudeIndicator.test.tsx` (4), `AltitudeTape.test.tsx` (3), `VerticalSpeed.test.tsx` (3), `GroundSpeed.test.tsx` (3), `TrackIndicator.test.tsx` (4), `GroundTrackPlot.test.tsx` (5), `useTelemetryFeed.test.ts` (+4), `App.test.tsx` (+3; the bar's queries scoped to the bar, since the panel's strip repeats its words).
+
+### 17.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 323 of 323 (314 before), 0.3 s for the new files; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 115 of 115 in about 110 s (108 before), on the plain build and on the instrumented one |
+| Page (Vitest 4.1.11, jsdom) | 66 of 66 in 12 files (17 before); statements 99.02% (the three uncovered lines in §17.3), branches 98.44%, functions 97.59%, lines 99.65% |
+| `npm run build` | the TypeScript check and the bundle, clean |
+| cppcheck 2.21.0 | 0 findings, CI's flags, 30 files (29 before); the suppression raises no unmatched-suppression report at the workflow's level |
+| The hand run (plan §7), the demo replayed paced through the bridge to the page in the desktop app's browser pane | REPLAY boxed in amber in the strip and the bar; parked: ALT 10 ft, VS settling to 0, GS 0 kt, `TRK ---` with no rose, the plot a dot; the takeoff roll: GS to 58 kt, TRK 090° under the rose, the marker east; the climb: the horizon down 8°, VS +600, ALT rising through 80 to 400 ft, the plot's scale bar growing 50 m, 100 m, 500 m; the turn: TRK 090 → 270; the descent: the horizon up 4°, VS −400, ALT 320 ft; ENDED: every instrument's name in a grey box (ATT, ALT, VS, GS, TRK, POS), the trail kept, east then a half circle through south to west. 7,499 of 7,500 frames reached the page: the first was published before the subscriber's join landed, the slow-joiner effect of FTS-DD-001 §9; the receiver counted no gap, since it saw no frame before the second |
+| The lag check (plan §7 step 7) | a 2 s busy loop on the page's thread, with a `MutationObserver` on the strip's state: LAG 2.0 s 4 ms after the thread returned, RUNNING 11 ms later when the queue had drained, the lag back to −4 ms on the next frames |
+| The kill (plan §7 step 5) | the binary killed 8 s into a second replay: STALE with the age counting, every instrument under a red flag with its name, the trail kept, the diagnostic view struck through below, read at 2.5 and 3.0 s; a third replay: RUNNING, the plot's origin re-taken (a fresh 2 m grid), `TRK ---` while parked |
+| The bridge (plan §7 step 6) | the bridge stopped: BRIDGE DISCONNECTED, red flags, the trail kept; restarted: RUNNING within 5 s, REPLAY from the next status, the plot's origin re-taken |
+
+Red first throughout: the C++ files watched failing on the missing header and function, the pytest on the missing flag and the `hello` dictionary, each page module on its missing import, the page's layout test on the missing bar id; then green against the code, with one amendment, the scale bar's number (§17.5).
+
+### 17.3 Coverage preview (clang, the Mac recipe of Entry 8, unit and integration tests on the instrumented build)
+
+| Scope | Preview | Entry 16 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 92.1% | 88.9% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 95.8% | 96.4% | 70% |
+| overall | 96.1% | 96.2% | 80% |
+
+The new and changed files: `motion_profile.cpp` 40 of 40 lines, 7 of 8 branches (the untaken edge is `wrap_degrees`' negative side: the demo's track never crosses north); `simulated_data.cpp` 81 of 81, 11 of 12 (a scripted frame whose timestamp does not advance, which no caller produces); `simulated_source.cpp` 11 of 11, 3 of 4 (clang's unwind edge on the constructor's initializer); `altitude.cpp` 4 of 4, no branches; `fault_injecting_source.cpp` 70 of 70, 16 of 16, unchanged by the suppression. The page's three uncovered lines: `badge.ts:29` (the defensive `?? 0` of Entry 16), `Pfd.tsx:21` (the strip's colour for a `fail` cause, which `feedCause` never returns), `geometry.ts:110` (a tick outside the window, which the tick range never produces). The bridge's new branches against its tests by hand: the origin taken only on a NOMINAL fresh fix (a NO_DATA frame and a held frame leave it), the reset after ENDED and on a backwards timestamp, the two thresholds by default and by flag; untested by any test, `main`'s two new arguments and the start line, exercised by hand in §17.2's runs.
+
+### 17.4 The byte checks
+
+| Check | Result |
+|---|---|
+| The seed-42 500-frame log, after the simulator's change and at the end | `6d43f343…` (Entry 12 §12.4); its unpaced replay byte-identical, `Replay:    500 frames, end of log reached` |
+| The demo, `--motion demo --cycles 7500` | 7,500 frames in 787,516 bytes, every validity NORMAL from frame 0, `caba9aeb5ad06634771b8ed0646964fbe99351156c6c968afb1a405dfcc62889` on this Mac (libc++; the runner's libstdc++ draws differently, FTS-DD-001 §3), `Motion:    profile demo, 150 s scripted flight`, missed cycles 0 |
+| Its unpaced replay | byte-identical; `Replay:    7500 frames, end of log reached` |
+| Its paced replay over ZeroMQ through the bridge to the page | byte-identical to the recording; lateness min/mean/max = 1 / 5,702 / 9,959 µs, none a period late; `status messages = 153` (150 RUNNING, 3 ENDED) |
+| The pytest's 20 s flight (`--cycles 1000`) | pitch 7.97° on the last frame, 30 m/s, course 090, every validity NORMAL, the 19 s fix 269 m east of the first; its unpaced replay byte-identical |
+
+### 17.5 Decisions taken, and deviations from the plan
+
+- All as recommended in the plan, the five flags answered by the approval: the display's sign rule (roll positive is a right roll, pitch positive is nose up, the bench's signs; FTS-DD-001 §6 and FTS-DS-001 §2.3 record that the driver's mapping, not the display, moves if the bench disagrees); `heading_deg` kept and TRK mapped, the rename parked; REQ-SENS-007 taken and the ADS-B drafts relabelled; REQ-DISP-002 without the draft's outside air temperature, GPS altitude and held cue; Entry 16's commit count and the Day 11 note's three numbers corrected.
+- **The ground track plot's scale bar.** The plan's card expected `10 m` for a metre-scale trail; the quarter-of-half-extent rule gives the 1-2-5 step nearest 2.5 m, which is 2 m. The card follows the rule; the kilometre case is 1 km as planned.
+- **The track indicator's band.** Moved a few viewBox units from the plan (y 448 to 520, the lubber line at 462, the readout at 434) so that the readout box clears the attitude ball; FTS-DS-001 records what was built.
+- **The pytest count is 115.** The plan's estimate of 112 left out the bridge's three new tests.
+- **The lcov filter step needs the capture's ignore set.** The profile's keyframe table is a global with a dynamic initializer, which clang's gcov reports at line 0; the capture ignored the `format` error as the recipe says, the filter step did not, and lcov 2.5 stopped writing at that record and left a truncated `lcov.info` that read as "no files" for most scopes. `format` (with `corrupt,unsupported`) in the filter's `--ignore-errors` fixed it; the preview above is the second run.
+- **Found in the hand run:** the receiver's out-of-order counter counts every frame of a restarted run until its timestamps pass the previous run's (1,488 over two restarts: the first bridge's exit line read `received 8987 frames, gaps 0 frames, out of order 1488`), because its expectation is not reset on a backwards step. Parked in FTS-DD-001 §12 with the receiver; the bridge and the page re-take their origins on that step.
+- **The lag's transient.** React committed one LAG render for the hundred messages the stall had queued, then RUNNING: a transient queue is visible for as long as it lasts and no longer, which is the measurement's meaning; a sustained queue (a throttled tab) would hold it. Chrome's background tab remains TC-025 step 8, a hand step.
+- **The patch snapshots** were taken against a scratch git index (`GIT_INDEX_FILE`) advanced at each step's end, so the real index stayed free for the §16.7 commit and no `git add -N` was needed on it; the check that the seven patches rebuild the working tree is in the closing commands.
+- Not done, by the plan's own order: the CI run of record (§17.7); TC-025 step 8 (Chrome, Derek's); TC-021 step 9 and the paced lateness on the Pi (from Entry 16); the bench's TC-014 step 13.
+
+### 17.6 Library and toolchain facts this entry rests on
+
+- SVG applies the rightmost transform first, and a positive `rotate` is clockwise in its y-down frame; jsdom's SVG elements carry `dataset`, and React renders a numeric attribute as its plain decimal string, so the tests read transforms and positions as strings (`rotate(-30 400 260) translate(0 40)`, a `y` of `260`).
+- Node 22's `toLocaleString("en-US")` gives the thousands separator; the readouts use a typographic minus (U+2212) so that a negative value cannot be mistaken for the dashes.
+- Vitest 4.1 with 3,700 React state updates in one test (the trail's cap) runs in well under a second; the whole page suite in about 3 s.
+- lcov 2.5's `--remove`/`--filter` step aborts on a `format` error it was not told to ignore and leaves a partial output file without a non-zero exit, so a preview must be checked for the scopes it names (§17.5).
+- cppcheck 2.21.0 honours `// cppcheck-suppress uselessOverride` on the line above a declaration without an unmatched-suppression report at `--enable=warning,style,performance,portability`; 2.13.0's reading of the same line is the runner's to show (§17.7).
+
+### 17.7 Measurement of record
+
+Reserved for the CI run on the branch's head: the C++ job's per-scope table on GCC (the profile's eight branches and `simulated_data.cpp`'s twelve on the runner's gcov), the pytest line (115, the scripted flight's 20 s run on the runner), the `page` job's Vitest table (66) and build, and the cppcheck step's report with the suppression in place.
+
+### 17.8 Open
+
+- §17.7.
+- TC-025 step 8: the demo replaying to a Chrome tab, the tab in the background for two minutes, the lag on return and whether LAG flagged and cleared, the bridge's share; Derek's hand step, into §17.5.
+- On the Pi: TC-021 step 9 and a paced replay's lateness on `clock_nanosleep` (Entry 16 §16.8); the bench's TC-014 step 13, which decides the roll sign's mapping in the driver.
+- Parked in FTS-DD-001 §12 with this entry: the `heading_deg` rename (with the fix-quality byte and the sequence number); the track threshold until a fix capture; the receiver's out-of-order counter across runs; the rotated replay, decided for this demo and parked for a longer one.
