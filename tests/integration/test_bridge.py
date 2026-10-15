@@ -1,13 +1,17 @@
-"""TC-022 steps 1 through 7 (REQ-DISP-005; also REQ-TRANS-004, REQ-PROC-007, REQ-TEST-002).
+"""TC-022 steps 1 through 7 and TC-025 steps 1 through 4 (REQ-DISP-005; also REQ-DISP-002,
+REQ-DISP-006, REQ-TRANS-004, REQ-PROC-007, REQ-TEST-002).
 
 The bridge is driven in-process: a scripted byte source stands in for the transport, a
-websockets client stands in for the page, and asyncio.run drives each check. Step 7 runs the
-binary as a paced replay through a real ZeroMQ socket and the bridge to a client.
+websockets client stands in for the page, and asyncio.run drives each check. TC-022 step 7 runs
+the binary as a paced replay through a real ZeroMQ socket and the bridge to a client. TC-025
+adds the position relative to the first fix (the fix itself never sent, the origin reset with
+the lag's) and the two display thresholds that ride hello.
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import math
 import queue
 import subprocess
 import time
@@ -84,7 +88,8 @@ def test_client_is_greeted_with_hello():
             async with connect(ws_url(bridge)) as ws:
                 hello = await recv_json(ws)
         assert hello == {"type": "hello", "stale_ms": 1000, "period_ms": PERIOD_MS, "session": None,
-                         "frames_received": 0, "gaps": 0, "out_of_order": 0}
+                         "frames_received": 0, "gaps": 0, "out_of_order": 0,
+                         "track_min_speed_mps": 1.0, "lag_ms": 500}
     asyncio.run(check())
 
 
@@ -217,3 +222,88 @@ def test_paced_replay_reaches_a_client_at_the_recorded_cadence(telemetry_bin, tm
     assert 0.8 * expected < span < 1.3 * expected, f"{len(frames)} frames over {span:.2f} s, not about {expected:.2f}"
     assert ended["mode"] == "REPLAY"
     print(f"{len(frames)} paced frames through the bridge over {span:.2f} s (recorded span {expected:.2f} s)")
+
+
+# --- TC-025 step 1: the display's thresholds ride hello (REQ-DISP-002, REQ-DISP-006) ----------
+
+
+def test_hello_carries_the_display_thresholds():
+    async def check():
+        async with Bridge(QueueSource(), port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                shipped = await recv_json(ws)
+        async with Bridge(QueueSource(), port=0, track_min_speed_mps=2.5, lag_ms=250) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                flagged = await recv_json(ws)
+        return shipped, flagged
+
+    shipped, flagged = asyncio.run(check())
+    assert (shipped["track_min_speed_mps"], shipped["lag_ms"]) == (1.0, 500)
+    assert (flagged["track_min_speed_mps"], flagged["lag_ms"]) == (2.5, 250)
+
+
+# --- TC-025 steps 2 and 3: a position relative to the first fix; the fix itself never sent ------
+
+LATITUDE, LONGITUDE = 51.234567, -0.987654
+METERS_PER_DEGREE = 6_371_000 * math.pi / 180     # the bridge's spherical approximation, and the profile's
+ONE_METRE_NORTH = 1 / METERS_PER_DEGREE
+ONE_METRE_EAST = 1 / (METERS_PER_DEGREE * math.cos(math.radians(LATITUDE)))
+
+
+def fix(index: int, north_m: float = 0.0, east_m: float = 0.0, **overrides) -> bytes:
+    """A NOMINAL fresh fix north_m and east_m of the test's spot, unless overridden."""
+    return frame_bytes(index, latitude=LATITUDE + north_m * ONE_METRE_NORTH,
+                       longitude=LONGITUDE + east_m * ONE_METRE_EAST, **overrides)
+
+
+def test_position_is_relative_to_the_first_fix_and_the_origin_never_leaves():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(fix(0, gps_status=2),                                  # NO_DATA: no fix yet
+                            fix(1),                                                # the first NOMINAL fresh fix
+                            fix(2, north_m=1.0, east_m=1.0),                       # a metre north and east
+                            fix(3, north_m=1.0, east_m=1.0, gps_read_ok=False))    # the same fix, held
+                return [await recv_json(ws) for _ in range(4)]
+
+    messages = asyncio.run(check())
+    positions = [message["position"] for message in messages]
+    assert positions[0] is None
+    assert positions[1] == {"east_m": 0.0, "north_m": 0.0}
+    assert positions[2]["east_m"] == pytest.approx(1.0, abs=0.01)
+    assert positions[2]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert positions[3] == positions[2]
+    for message in messages:
+        text = json.dumps(message)
+        assert "latitude" not in text and "longitude" not in text
+        assert "51.23" not in text and "0.9876" not in text
+
+
+# --- TC-025 step 4: the origin resets as the lag's does (REQ-DISP-006) ------------------------
+
+
+def test_origin_resets_after_a_backwards_timestamp_and_after_ended():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(fix(5), fix(6, north_m=1.0))      # the origin at t=100, then a metre north
+                first = [await recv_json(ws) for _ in range(2)]
+                source.feed(fix(2, north_m=2.0))               # t=40 after t=120: a restarted binary
+                restarted = await recv_json(ws)
+                source.feed(ENDED, fix(3, north_m=3.0))        # an end, then a frame: a new session
+                ended = await recv_json(ws)
+                after_end = await recv_json(ws)
+                return first, restarted, ended, after_end
+
+    first, restarted, ended, after_end = asyncio.run(check())
+    assert first[0]["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert first[1]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert restarted["position"] == {"east_m": 0.0, "north_m": 0.0}, "a backwards timestamp must re-take the origin"
+    assert (ended["type"], ended["state"]) == ("session", "ENDED")
+    assert after_end["position"] == {"east_m": 0.0, "north_m": 0.0}, "a frame after ENDED must re-take the origin"

@@ -1,5 +1,5 @@
 """Bridge from the telemetry stream to a browser page (REQ-DISP-005; the consumer side of
-REQ-TRANS-004, and the feed REQ-DISP-003 and REQ-DISP-004 judge).
+REQ-TRANS-004, and the feed REQ-DISP-003, REQ-DISP-004 and REQ-DISP-006 judge).
 
     .venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555
     .venv/bin/python -m pipeline.bridge --udp 127.0.0.1:5556 --listen 127.0.0.1:8765
@@ -19,10 +19,19 @@ every interface is reachable by every host on the network, the browser is on the
 and widening the bind is a conscious flag.
 
 It never forwards latitude or longitude: screenshots and the demo video go public, and the one
-place every frame passes is the right place for the rule. Until an instrument needs a position
-none is forwarded; a position relative to the first fix comes with that instrument. Every other
-field goes out by name, with each validity and each channel status by name beside the numbers,
-from the same tables the receiver prints from, so the page and the receiver cannot disagree.
+place every frame passes is the right place for the rule. What the ground track plot gets instead
+is a position relative to the first NOMINAL fresh fix the bridge saw, metres north and east
+(RelativeOrigin); the origin itself never leaves this process, and a displacement reveals a
+shape, not a place. The origin is re-taken after an ENDED and when a timestamp goes backwards (a
+restarted binary that never said ENDED), the same events that re-take the page's lag origin
+(REQ-DISP-006). Every other field goes out by name, with each validity and each channel status by
+name beside the numbers, from the same tables the receiver prints from, so the page and the
+receiver cannot disagree.
+
+Two display thresholds ride `hello` beside the stale threshold, so the page has one source of
+truth for what it judges: the ground speed under which the track is withheld (`--track-min-speed`,
+REQ-DISP-002: a stationary receiver's course is noise) and the lag past which the instruments are
+removed (`--lag-ms`, REQ-DISP-006).
 
 The bridge never ends on its own: a quiet source is a quiet source (the SUB socket reconnects
 by itself when the binary restarts; a bound datagram socket just waits), and the page shows the
@@ -34,6 +43,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import signal
 import sys
 import threading
@@ -50,20 +60,65 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_STALE_MS = 1000     # fifty frames at 50 Hz, and the receiver's own quiet timeout
 DEFAULT_PERIOD_MS = 20
+DEFAULT_TRACK_MIN_SPEED_MPS = 1.0   # above a stationary receiver's Doppler noise, below a walking pace (REQ-DISP-002)
+DEFAULT_LAG_MS = 500                # half the stale threshold, ten times any delay FTS-VR-001 Entry 16 measured (REQ-DISP-006)
+
+# Metres per degree of latitude on a sphere of the mean Earth radius, and per degree of
+# longitude at a latitude, that times its cosine: the twin of kMetersPerDegreeLatitude in
+# src/drivers/motion_profile.h, so the ground track plot's scale is the simulator's script's.
+# Within a few kilometres the approximation is under half a percent.
+METERS_PER_DEGREE = 6_371_000 * math.pi / 180
 
 # The frame fields that never cross the WebSocket (REQ-DISP-005).
 WITHHELD_FIELDS = ("latitude", "longitude")
 
 
-def frame_message(frame: Frame, received_at_ms: float) -> dict[str, Any]:
+class RelativeOrigin:
+    """The first NOMINAL fresh fix since the bridge started, since an ENDED or since a timestamp
+    went backwards, and every later position relative to it in metres (REQ-DISP-005). The origin's
+    coordinates never leave this object."""
+
+    def __init__(self) -> None:
+        self._latitude: float | None = None
+        self._longitude: float | None = None
+        self._metres_per_degree_east = METERS_PER_DEGREE
+
+    @property
+    def taken(self) -> bool:
+        return self._latitude is not None
+
+    def reset(self) -> None:
+        self._latitude = None
+        self._longitude = None
+
+    def take_if_first_fix(self, frame: Frame) -> None:
+        """The origin is a reading the detector judged good and the source marked fresh: a held
+        value is the previous fix again, and NO_DATA has no fix at all."""
+        if self.taken or STATUS_NAMES.get(frame.gps_status) != "NOMINAL" or not frame.gps_read_ok:
+            return
+        self._latitude = frame.latitude
+        self._longitude = frame.longitude
+        self._metres_per_degree_east = METERS_PER_DEGREE * math.cos(math.radians(frame.latitude))
+
+    def relative(self, frame: Frame) -> dict[str, float] | None:
+        """Metres east and north of the origin, or None before one exists."""
+        if self._latitude is None or self._longitude is None:
+            return None
+        return {"east_m": (frame.longitude - self._longitude) * self._metres_per_degree_east,
+                "north_m": (frame.latitude - self._latitude) * METERS_PER_DEGREE}
+
+
+def frame_message(frame: Frame, received_at_ms: float, position: dict[str, float] | None = None) -> dict[str, Any]:
     """One frame as the page sees it: every field but the coordinates, with the validity of
-    each computed field and the status of each channel by name beside the numbers."""
+    each computed field and the status of each channel by name beside the numbers, and the
+    position relative to the first fix (None before one exists)."""
     fields = {name: value for name, value in frame._asdict().items() if name not in WITHHELD_FIELDS}
     validity = {field: VALIDITY_NAMES.get(getattr(frame, byte), str(getattr(frame, byte)))
                 for field, byte in COMPUTED_VALIDITY.items()}
     status = {channel: STATUS_NAMES.get(getattr(frame, f"{channel}_status"), str(getattr(frame, f"{channel}_status")))
               for channel in ("baro", "imu", "gps")}
-    return {"type": "frame", "received_at_ms": received_at_ms, "frame": fields, "validity": validity, "status": status}
+    return {"type": "frame", "received_at_ms": received_at_ms, "frame": fields, "validity": validity, "status": status,
+            "position": position}
 
 
 def session_message(status: SessionStatus, received_at_ms: float) -> dict[str, Any]:
@@ -80,12 +135,18 @@ class Bridge:
     thread that touches the connections. The hand-off is call_soon_threadsafe, nothing else."""
 
     def __init__(self, source: ByteSource, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
-                 period_ms: int = DEFAULT_PERIOD_MS, stale_ms: int = DEFAULT_STALE_MS) -> None:
+                 period_ms: int = DEFAULT_PERIOD_MS, stale_ms: int = DEFAULT_STALE_MS,
+                 track_min_speed_mps: float = DEFAULT_TRACK_MIN_SPEED_MPS, lag_ms: int = DEFAULT_LAG_MS) -> None:
         self.receiver = FrameReceiver(source, period_ms)
         self.host = host
         self.port = port
         self.period_ms = period_ms
         self.stale_ms = stale_ms
+        self.track_min_speed_mps = track_min_speed_mps
+        self.lag_ms = lag_ms
+        self._origin = RelativeOrigin()
+        self._last_timestamp_ms: int | None = None
+        self._ended_seen = False
         self.forwarded = 0          # frames broadcast
         self.statuses = 0           # session statuses broadcast
         self.dropped = 0            # records of a kind the page has no use for (a fault event)
@@ -136,7 +197,8 @@ class Bridge:
         return {"type": "hello", "stale_ms": self.stale_ms, "period_ms": self.period_ms,
                 "session": {"mode": session.mode, "state": session.state} if session is not None else None,
                 "frames_received": self.receiver.received, "gaps": self.receiver.gaps,
-                "out_of_order": self.receiver.out_of_order}
+                "out_of_order": self.receiver.out_of_order,
+                "track_min_speed_mps": self.track_min_speed_mps, "lag_ms": self.lag_ms}
 
     # --- the reader thread --------------------------------------------------------------------
 
@@ -163,9 +225,19 @@ class Bridge:
     def _deliver(self, record: Any, received_at_ms: float) -> None:
         if isinstance(record, Frame):
             self.forwarded += 1
-            message = frame_message(record, received_at_ms)
+            # A new session re-takes the origin (REQ-DISP-005) at the events that re-take the
+            # page's lag origin (REQ-DISP-006): a frame after an ENDED, or a timestamp that goes
+            # backwards, which is a restarted binary that never said ENDED.
+            went_backwards = self._last_timestamp_ms is not None and record.timestamp_ms < self._last_timestamp_ms
+            if self._ended_seen or went_backwards:
+                self._origin.reset()
+                self._ended_seen = False
+            self._last_timestamp_ms = record.timestamp_ms
+            self._origin.take_if_first_fix(record)
+            message = frame_message(record, received_at_ms, self._origin.relative(record))
         elif isinstance(record, SessionStatus):
             self.statuses += 1
+            self._ended_seen = self._ended_seen or record.state == "ENDED"
             message = session_message(record, received_at_ms)
         else:
             self.dropped += 1
@@ -206,6 +278,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--period-ms", type=int, default=DEFAULT_PERIOD_MS, help="frame period, for the gap count")
     parser.add_argument("--stale-ms", type=int, default=DEFAULT_STALE_MS,
                         help="how long without a frame before the page marks the feed stale")
+    parser.add_argument("--track-min-speed", type=float, default=DEFAULT_TRACK_MIN_SPEED_MPS, metavar="M/S",
+                        help="the ground speed under which the page withholds the track (a stationary receiver's "
+                             f"course is noise; default {DEFAULT_TRACK_MIN_SPEED_MPS})")
+    parser.add_argument("--lag-ms", type=int, default=DEFAULT_LAG_MS,
+                        help=f"the lag past which the page removes its instruments (default {DEFAULT_LAG_MS})")
     args = parser.parse_args(argv)
 
     source: ByteSource
@@ -218,9 +295,12 @@ def main(argv: list[str] | None = None) -> int:
 
     async def run() -> None:
         async with Bridge(source, host=listen_host, port=listen_port, period_ms=args.period_ms,
-                          stale_ms=args.stale_ms) as bridge:
+                          stale_ms=args.stale_ms, track_min_speed_mps=args.track_min_speed,
+                          lag_ms=args.lag_ms) as bridge:
             host, port = bridge.address
-            print(f"bridge: reading {source.endpoint}, serving ws://{host}:{port} (Ctrl-C to stop)", flush=True)
+            print(f"bridge: reading {source.endpoint}, serving ws://{host}:{port} "
+                  f"(stale {bridge.stale_ms} ms, lag {bridge.lag_ms} ms, track from {bridge.track_min_speed_mps} m/s; "
+                  "Ctrl-C to stop)", flush=True)
             stop = asyncio.Event()
             for signum in (signal.SIGINT, signal.SIGTERM):   # Ctrl-C, or a plain kill: both end with the summary
                 asyncio.get_running_loop().add_signal_handler(signum, stop.set)
