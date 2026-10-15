@@ -141,8 +141,9 @@ FaultDetector::Observation FaultDetector::observe_gps(const TelemetryFrame& raw,
     Observation obs;
     obs.read_ok = raw.gps_read_ok;
 
-    // FAULT-003a only. Fix-quality (FAULT-003b) needs a field the frame
-    // does not carry yet and lands with the GPS driver. No stuck check:
+    // FAULT-003, the timeout: both of its conditions reach the detector as
+    // one, because the live source withholds a no-fix epoch; the field for
+    // (b)'s own event is parked (design.md section 11.2). No stuck check:
     // no FAULT entry covers GPS, and a stationary receiver legitimately
     // repeats its position.
     float elapsed = 0.0f;

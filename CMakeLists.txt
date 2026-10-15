@@ -44,6 +44,9 @@ add_library(telemetry_core STATIC
     src/drivers/bmp280.cpp
     src/drivers/live_sensor_source.cpp
     src/drivers/mpu6050.cpp
+    src/drivers/nmea.cpp
+    src/drivers/serial_port.cpp
+    src/drivers/nmea_gps.cpp
     src/logging/log_format.cpp
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp

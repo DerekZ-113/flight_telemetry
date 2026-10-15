@@ -60,7 +60,7 @@ static_assert(offsetof(FaultEvent, reserved) == 10 && offsetof(FaultEvent, value
 // baseline, equal to the shipped file by test, never the binary's fallback.
 struct FaultDetectorConfig {
     uint64_t i2c_timeout_ms = 500;         // REQ-FAULT-001; FAULT-001, FAULT-002
-    uint64_t uart_timeout_ms = 2000;       // REQ-FAULT-001; FAULT-003a. Must exceed the 1 Hz NMEA period.
+    uint64_t uart_timeout_ms = 2000;       // REQ-FAULT-001; FAULT-003. Must exceed the receiver's 1 Hz fix period.
     int stuck_count = 10;                  // REQ-FAULT-002, N
     int recovery_count = 5;                // REQ-FAULT-005, M
     float pressure_min_hpa = 300.0f;       // FAULT-008, BMP280 operating range

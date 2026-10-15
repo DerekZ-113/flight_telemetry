@@ -1,7 +1,7 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.7.0
+> **Version:** 0.8.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-13
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
@@ -10,7 +10,7 @@
 
 "Shall" marks a binding requirement. Every shall statement has a row in FTS-TM-001 that traces it to the code that implements it and the test that verifies it. Text after **Rationale:** explains a requirement and is not itself binding.
 
-A *channel* is one sensor's data path: barometer (BMP280), IMU (MPU6050), or GPS (NEO-6M). Each channel is NO_DATA before its first reading and NOMINAL or DEGRADED thereafter (REQ-FAULT-004, REQ-FAULT-006). Each computed field of a frame carries a *validity*: NO_COMPUTED_DATA, FAILURE_WARNING or NORMAL (REQ-PROC-007). A *cycle* is one pass of the processing loop (REQ-TIME-001). A *TelemetryFrame* is the record the system produces once per cycle; its field names and units are defined in `src/telemetry_frame.h`. *Configurable* means set through the configuration file of REQ-CFG-001.
+A *channel* is one sensor's data path: barometer (BMP280), IMU (MPU6050), or GPS (a NEO-6M-class receiver, the GT-U7 board). Each channel is NO_DATA before its first reading and NOMINAL or DEGRADED thereafter (REQ-FAULT-004, REQ-FAULT-006). Each computed field of a frame carries a *validity*: NO_COMPUTED_DATA, FAILURE_WARNING or NORMAL (REQ-PROC-007). A *cycle* is one pass of the processing loop (REQ-TIME-001). A *TelemetryFrame* is the record the system produces once per cycle; its field names and units are defined in `src/telemetry_frame.h`. *Configurable* means set through the configuration file of REQ-CFG-001.
 
 ---
 
@@ -32,7 +32,9 @@ REQ-SENS-004: The system shall read 3-axis gyroscope data from the MPU6050 senso
 
 > **Rationale:** the MPU6050 has a single sample-rate divider for both sensors; accelerometer and gyroscope rates cannot be set independently.
 
-REQ-SENS-005: The system shall read position (latitude, longitude, altitude), ground speed, and course over ground (heading) from the NEO-6M GPS module via UART as NMEA sentences.
+REQ-SENS-005: The system shall read position (latitude, longitude, altitude above mean sea level), ground speed and course over ground from a NEO-6M-class GPS receiver as NMEA 0183 sentences (GGA and RMC) on a configurable serial device at a configurable baud rate, delivering one reading per fix the receiver reports valid and marking every other cycle not fresh (`gps_read_ok` false).
+
+> **Rationale:** the receiver's own rate is 1 Hz and the loop's is 50 Hz, so a fix is one measurement applied once (REQ-PROC-006), not fifty copies. GGA carries position, altitude, fix quality and satellite count; RMC carries speed, course and the receiver's own validity flag; the two sentences of one epoch share a UTC time field, which is how the driver pairs them. The device is a key because the same receiver connects over USB (a serial device to the operating system) or the header UART, and nothing above the device file differs. A fix the receiver reports invalid (GGA quality 0, RMC status V) is not a reading, so a receiver with no sky view delivers nothing and the channel times out: FTS-FM-001 FAULT-003 (b) seen through (a) until the frame carries fix quality (FTS-DD-001 Section 11.2). The receiver's time names the measurement epoch; the frame's timestamp stays the cycle the fix entered the pipeline, up to half a second later at 9600 baud (FTS-DD-001 Section 10).
 
 REQ-SENS-006: The system shall provide a simulated data source that produces TelemetryFrames of raw sensor readings with configurable noise, delivering each channel's readings at a configurable rate and marking the frames between readings as not fresh (`read_ok` false).
 
@@ -50,7 +52,7 @@ REQ-PROC-003: The system shall fuse barometric altitude and GPS altitude using a
 
 REQ-PROC-004: The Kalman filter's measurement noise variances shall be derived from sensor noise measured on stationary sensors and recorded in docs/noise_profile.md (FTS-NP-001), and the initial altitude variance shall equal the barometric measurement variance. The process noise variance and the initial velocity variance shall be recorded in the same document with the rationale for their values.
 
-> **Rationale:** a stationary capture shows a sensor's own noise, which is what a measurement variance is. Process noise describes the vehicle, not a sensor: it is the acceleration the constant-velocity model ignores, which no bench can show and which sets how quickly the filter follows a real climb. The initial velocity variance is an assumption about the vehicle's state at startup. Both are tuning choices, so the document records why they hold the values they do. The GPS variance stays the receiver's datasheet figure until REQ-SENS-005 delivers a GPS to measure. Until 0.5.0 this requirement asked for all five to be measured, which no capture could satisfy.
+> **Rationale:** a stationary capture shows a sensor's own noise, which is what a measurement variance is. Process noise describes the vehicle, not a sensor: it is the acceleration the constant-velocity model ignores, which no bench can show and which sets how quickly the filter follows a real climb. The initial velocity variance is an assumption about the vehicle's state at startup. Both are tuning choices, so the document records why they hold the values they do. The GPS variance stays the receiver's datasheet figure until a capture with the receiver fixing is analysed (REQ-SENS-005 delivers the receiver; the stationary capture runs with it off). Until 0.5.0 this requirement asked for all five to be measured, which no capture could satisfy.
 
 REQ-PROC-005: Once per processing cycle (REQ-TIME-001), the system shall produce a TelemetryFrame containing the raw sensor readings, the computed and fused values, and the status of every channel.
 
@@ -64,7 +66,9 @@ REQ-PROC-007: Every computed field of a TelemetryFrame (barometric altitude, pit
 
 ## Fault Detection
 
-REQ-FAULT-001: The system shall declare a communication fault on an I2C channel when no successful read has occurred within a configurable timeout (500 ms by default), and on the GPS channel when no NMEA sentence has been received within a configurable timeout longer than the module's output period.
+REQ-FAULT-001: The system shall declare a communication fault on an I2C channel when no successful read has occurred within a configurable timeout (500 ms by default), and on the GPS channel when no valid fix has been read within a configurable timeout longer than the receiver's fix period.
+
+> **Rationale:** the detector sees `gps_read_ok`, which the live source sets only for a valid fix; a receiver that talks without a fix and a silent one produce the same frames, and the receiver's sentence counters printed at exit are what tell them apart.
 
 REQ-FAULT-002: The system shall detect a stuck sensor condition: N consecutive identical readings on any channel, or on any single axis of a channel, where N is configurable.
 
@@ -122,7 +126,7 @@ REQ-LOG-005: The log header shall carry the format version. A reader shall accep
 
 ## Configuration
 
-REQ-CFG-001: The following system parameters shall be configurable through a YAML configuration file: sensor sample rates and the processing rate; fault detection timeouts, counts, and limits; filter tuning (Kalman covariances, complementary filter gain, and the sea-level reference pressure); transport addresses and ports; log file paths and maximum file size; and simulated-source noise.
+REQ-CFG-001: The following system parameters shall be configurable through a YAML configuration file: sensor sample rates and the processing rate; the sensors' bus device and addresses, and the GPS receiver's presence, serial device and baud rate; fault detection timeouts, counts, and limits; filter tuning (Kalman covariances, complementary filter gain, and the sea-level reference pressure); transport addresses and ports; log file paths and maximum file size; and simulated-source noise.
 
 > **Rationale:** the file (`config/telemetry_config.yaml`, or the path given by `--config`) is the standing configuration and the only source of the values the binary runs with; there is no built-in fallback, so a missing file is refused at startup. `--live`, `--replay` and `--cycles` choose the run; `--zmq` and `--udp` enable a transport for one run and override its address, the only place a flag and a key overlap. Every key is required, and an unknown or duplicate key is an error, so a misspelled key cannot silently leave a value at some other setting. The defaults compiled into the module structs are the unit tests' baseline, never the binary's fallback; a test holds the shipped file equal to them.
 

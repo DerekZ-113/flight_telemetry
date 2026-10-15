@@ -121,7 +121,7 @@ TEST(FaultDetectionTest, ImuTimeoutDetectedWithinBound) {
     EXPECT_EQ(events[0].channel, Channel::IMU);
 }
 
-// FAULT-003a. GPS uses the longer UART bound because NMEA arrives at 1 Hz;
+// FAULT-003 (a). GPS uses the longer UART bound because NMEA arrives at 1 Hz;
 // a 500 ms bound would false-alarm every second.
 TEST(FaultDetectionTest, GpsTimeoutUsesUartBound) {
     FaultDetector d;

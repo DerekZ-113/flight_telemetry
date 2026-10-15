@@ -1,14 +1,19 @@
 #include "drivers/live_sensor_source.h"
 
 LiveSensorSource::LiveSensorSource(std::unique_ptr<I2cBus> bus, uint8_t baro_address,
-                                   uint8_t imu_address, Clock& clock, int imu_sample_rate_hz)
+                                   uint8_t imu_address, Clock& clock, int imu_sample_rate_hz,
+                                   std::unique_ptr<SerialPort> gps_port)
     // Declaration order: the bus first, so *bus_ is valid when the drivers
-    // take their references to it.
+    // take their references to it; the port before the driver that reads it.
     : bus_(std::move(bus)),
       baro_(*bus_, baro_address),
       imu_(*bus_, imu_address, imu_sample_rate_hz),
-      clock_(clock)
+      clock_(clock),
+      gps_port_(std::move(gps_port))
 {
+    if (gps_port_ != nullptr) {
+        gps_.emplace(*gps_port_);
+    }
     // A chip that is absent or answers with the wrong identity when the
     // process starts is a wiring or configuration error, reported here
     // with the chip named; a chip that fails later is a fault for the
@@ -37,6 +42,24 @@ bool LiveSensorSource::ok() const {
 
 const std::string& LiveSensorSource::error() const {
     return error_;
+}
+
+std::optional<GpsCounters> LiveSensorSource::gps_counters() const {
+    if (!gps_.has_value()) {
+        return std::nullopt;
+    }
+    return gps_->counters();
+}
+
+std::optional<GpsFix> LiveSensorSource::last_gps_fix() const {
+    if (!gps_ever_fixed_) {
+        return std::nullopt;
+    }
+    return last_gps_;
+}
+
+size_t LiveSensorSource::gps_startup_discarded() const {
+    return gps_startup_discarded_;
 }
 
 TelemetryFrame LiveSensorSource::read_frame() {
@@ -79,10 +102,30 @@ TelemetryFrame LiveSensorSource::read_frame() {
     frame.gyro_y = last_imu_.gyro_y;
     frame.gyro_z = last_imu_.gyro_z;
 
-    // GPS: no driver yet (REQ-SENS-005). The fields stay zero and the
-    // channel is never fresh, so the detector marks it DEGRADED after its
-    // UART timeout, which is the truthful report of an absent sensor.
-    frame.gps_read_ok = false;
+    // GPS: the receiver's own rate (REQ-SENS-005). poll() returns a fix
+    // only on the cycle an epoch completed, so the channel is fresh once a
+    // second and the last fix is held, not fresh, on the cycles between
+    // (REQ-PROC-006). Before the first fix, or without a receiver, the
+    // fields are zero and the detector reports the channel (FAULT-003).
+    if (gps_.has_value()) {
+        const std::optional<GpsFix> fix = gps_->poll();
+        if (fix.has_value()) {
+            // The first second is the device's backlog (live_sensor_source.h).
+            const bool backlog = frame.timestamp_ms < kGpsStartupGraceMs;
+            if (backlog) {
+                gps_startup_discarded_++;
+            } else {
+                last_gps_ = *fix;
+                gps_ever_fixed_ = true;
+                frame.gps_read_ok = true;
+            }
+        }
+    }
+    frame.latitude = last_gps_.latitude_deg;
+    frame.longitude = last_gps_.longitude_deg;
+    frame.gps_altitude_m = last_gps_.altitude_m;
+    frame.ground_speed_mps = last_gps_.ground_speed_mps;
+    frame.heading_deg = last_gps_.course_deg;
 
     // Sources report; the detector judges (telemetry_frame.h).
     frame.baro_status = ChannelStatus::NOMINAL;

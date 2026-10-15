@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-13
+> **Last Updated:** 2026-10-14
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -28,7 +28,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.1 Unit Tests
 
-- **Scope:** Individual C++ functions and classes in isolation. Drivers, processing, timing, logging, and transport modules.
+- **Scope:** Individual C++ functions and classes in isolation. Drivers (the NMEA parser on the manual's sentences, the serial port on a pseudo-terminal, the GPS driver over a fake port included), processing, timing, logging, and transport modules.
 - **Framework:** Google Test.
 - **Isolation:** Hardware dependencies are replaced with test doubles. The `DataSource` abstraction is the primary seam: a test-only `FakeSource` returns hand-built frames, so the pipeline can be exercised without sensors or the simulator. Time-dependent logic does not sleep in tests: fixed-rate scheduling takes an injectable `Clock` and tests drive it with a fake that advances time by fiat; fault timeouts read time from frame timestamps. One real-clock smoke test (about 20 ms) exercises the OS boundary with loose bounds.
 - **Location:** `tests/unit/`, one test file per module (`test_altitude.cpp`, `test_fault_detection.cpp`, and so on).
@@ -53,7 +53,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.4 Hardware Tests
 
-- **Scope:** Behavior that only the target can show: real sensors on the bus, the Linux sleep primitive, a pulled wire.
+- **Scope:** Behavior that only the target can show: real sensors on the bus, a receiver with and without a fix, the Linux sleep primitive, a pulled wire.
 - **Method:** Executed by hand on the Raspberry Pi with the live source, following the card's steps. The run's conditions (board, OS, kernel, compiler, date) and the printed output are recorded in FTS-VR-001.
 - **Isolation:** None. This is the level at which the test doubles are removed.
 - **Executed:** On hardware days, never in CI. A card step at this level is marked *Hardware*.
@@ -455,7 +455,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 9 | 0, 20, 40, 80, 80 ms |
   | 10 | `ok()` false; the message names the barometer and 0x55, then the IMU and 0x70, then both chips; frames are still produced, the failed channel stale |
   | 11 | 68 and 76 (or 77) in the grid; 0x58 or 0x60; 0x68 |
-  | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; GPS NO_DATA until the UART timeout and DEGRADED from 2020 ms with one COMM_TIMEOUT event (REQ-FAULT-006); 0 missed cycles |
+  | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; with `sensors.gps.enabled` false, the shipped value: GPS NO_DATA until the UART timeout and DEGRADED from 2020 ms with one COMM_TIMEOUT event (REQ-FAULT-006), and with a receiver enabled TC-018 steps 21 and 22 apply; 0 missed cycles |
   | 13 | nose up: pitch positive; roll right: roll positive |
   | 14 | `cmp` silent |
   | 15 | `received 500 frames`; gaps at or near 0 |
@@ -494,9 +494,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   1. Load the shipped file: no problems; every field equals a default-constructed `TelemetryConfig` (the drift test).
   2. A nonexistent path and a directory path: one problem each, naming the path.
   3. A syntax error (an unterminated flow sequence on line 3): one problem naming line and column; an empty document and a sequence document: "must be a mapping".
-  4. A missing section, a section of the wrong type, a missing key, an unknown key at the top level and nested, a duplicate key: each named once with its dotted path. Then each of the 36 keys removed in turn: `<path>: missing`, except the two whose removal empties their section (`timing.period_ms`, `sensors.barometer.address`), reported as the section "must be a mapping (got nothing)".
-  5. The scalar rules: `0x76` reads 118; `010`, `1.5`, `abc`, an empty scalar and `0x` are refused as integers; `.inf`, `.nan` and `abc` are refused as numbers; `yes`, `on` and `1` are refused as booleans; an empty string is refused where a string is required. Then each of the 36 keys given a sequence, and the text its rule refuses (`abc` for a whole number, `.nan` for a number, `yes` for a switch, an empty string for text): each named under its path by its own rule.
-  6. Every range at both edges: period 20 to 1000; addresses 0x08 to 0x77; IMU rate 4 to 100 and an exact divisor of 1000; timeouts at least 1; stuck count at least 2; recovery count at least 1; pressure and temperature minimum below maximum; accelerometer limit, the four variances and the sea-level pressure positive; alpha 0 to 1 inclusive; maximum file bytes at least 121; UDP host a dotted quad, port 1 to 65535, ZeroMQ endpoint non-empty; seed within 32 bits; GPS interval at least 1; sigmas positive (`std::normal_distribution` requires it). Then every whole-number key one past each of its edges, every positive number at 0, alpha at -0.1 and 1.1: one table over every key, because gcov counts a template's branches per instantiation and one key per rule leaves the other field types' decisions untaken.
+  4. A missing section, a section of the wrong type, a missing key, an unknown key at the top level and nested, a duplicate key: each named once with its dotted path. Then each of the 39 keys removed in turn: `<path>: missing`, except the two whose removal empties their section (`timing.period_ms`, `sensors.barometer.address`), reported as the section "must be a mapping (got nothing)".
+  5. The scalar rules: `0x76` reads 118; `010`, `1.5`, `abc`, an empty scalar and `0x` are refused as integers; `.inf`, `.nan` and `abc` are refused as numbers; `yes`, `on` and `1` are refused as booleans; an empty string is refused where a string is required. Then each of the 39 keys given a sequence, and the text its rule refuses (`abc` for a whole number, `.nan` for a number, `yes` for a switch, an empty string for text): each named under its path by its own rule.
+  6. Every range at both edges: period 20 to 1000; addresses 0x08 to 0x77; IMU rate 4 to 100 and an exact divisor of 1000; timeouts at least 1; stuck count at least 2; recovery count at least 1; pressure and temperature minimum below maximum; accelerometer limit, the four variances and the sea-level pressure positive; alpha 0 to 1 inclusive; maximum file bytes at least 121; UDP host a dotted quad, port 1 to 65535, ZeroMQ endpoint non-empty; seed within 32 bits; GPS interval at least 1; the receiver's baud rate 4800 to 115200 and one of the six termios rates (TC-018 step 19); sigmas positive (`std::normal_distribution` requires it). Then every whole-number key one past each of its edges, every positive number at 0, alpha at -0.1 and 1.1: one table over every key, because gcov counts a template's branches per instantiation and one key per rule leaves the other field types' decisions untaken.
   7. The cross-field rules: the UART timeout must exceed the GPS interval; the IMU rate must be at least the processing rate.
   8. Three problems in one file (period 0, stuck count 1, port 70000): all three reported, in schema order, `ok` false.
   9. `log_prefix` and `recorded_config_path`: `logs/telemetry_007.bin` gives `telemetry` and `logs/telemetry_config.yaml`; `replay_000.bin` gives `replay`; names without `_NNN.bin` give nothing.
@@ -575,6 +575,68 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Any NOT_JUDGED byte on an emitted frame, any flag raised over a value nobody measured, any held angle under a DEGRADED IMU reported NORMAL, any coasting altitude reported NORMAL, any accepted version outside 1 to 2, any refused version inside it, any replay that runs on an unreadable log, or any byte of the reference log differing beyond those listed fails.
 
+### TC-018: NMEA Parsing, the Serial Port Seam, and the GPS Through the Live Source
+
+- **Requirement:** REQ-SENS-005 (also exercises REQ-FAULT-001's `read_ok` contract on the GPS channel, REQ-PROC-006, REQ-CFG-001, REQ-LOG-004)
+- **Level:** Unit (steps 1 through 19: `tests/unit/test_nmea.cpp`, `test_serial_port.cpp`, `test_nmea_gps.cpp`, and the additions to `test_live_sensor_source.cpp` and `test_config.cpp`), Hardware (steps 20 through 24, the Raspberry Pi with the GT-U7)
+- **Objective:** Verify that NMEA 0183 sentences are accepted only with a valid checksum and parsed field by field into position, altitude, fix quality, satellites, speed and course; that the serial port delivers the device's bytes unaltered without blocking; that the driver frames sentences out of a byte stream cut anywhere, pairs a GGA with the RMC of the same epoch, delivers one fix per valid epoch and withholds the rest; that the live source marks `gps_read_ok` true only on the cycle a fix completed and holds the fields between fixes; and that the receiver's three keys are validated like every other.
+- **Preconditions:** The primary oracle for parsing is the set of example sentences printed in the u-blox 6 Receiver Description (GPS.G6-SW-10018) with their printed checksums, recomputed independently before the tests were written: `$GPGGA,092725.00,4717.11399,N,00833.91590,E,1,08,1.01,499.6,M,48.0,M,,*5B`, `$GPRMC,083559.00,A,4717.11437,N,00833.91522,E,0.004,77.52,091202,,,A*57`, `$GPGLL,4717.11364,N,00833.91565,E,092321.00,A,A*60`, `$GPGSA,A,3,23,29,07,08,09,18,26,28,,,,,1.94,1.18,1.54*0D`, `$GPGSV,3,1,10,23,38,230,44,29,71,156,47,07,29,116,41,08,09,081,36*7F`, `$GPVTG,77.52,T,,M,0.004,N,0.008,K,A*06`, `$GPTXT,01,01,02,u-blox ag - www.u-blox.com*50`, and the receiver's no-fix forms `$GPGGA,,,,,,0,00,99.99,,,,,,*48` and `$GPRMC,,V,,,,,,,,,,N*53`; variants (another talker, an altered digit, a shifted time) carry checksums recomputed by the same XOR. The second fixture, pending the Pi session, is the GT-U7's own 30-second output captured there at 9600 baud (`tests/unit/data/gt_u7_capture.nmea`), every position shifted by one constant pair so that the first fix lands on the manual's example and the checksums recomputed; the sentence set, timing, talker IDs and the no-fix to fix transition are the board's. `FakeSerialPort` queues byte chunks and serves one per read; `PosixSerialPort` is exercised on a pseudo-terminal (`posix_openpt`), which exists on the Mac and on the CI runner. The Hardware steps need the Pi with the receiver on its micro-USB port or the header UART, a configuration copy with `sensors.gps.enabled: true` and the device path, and a window.
+- **Steps:**
+  1. Verify the checksum of the nine oracle sentences; of one with a hex digit altered; of one without `*`; of one with lower-case hex; of ones whose digits fall outside the hex ranges.
+  2. Parse the oracle GGA and the no-fix GGA.
+  3. Parse the oracle RMC, the no-fix RMC, and an RMC with status `A` and empty speed and course fields.
+  4. Convert `4717.11399,N`, `00833.91590,E`, a southern latitude, a western longitude, `4760.00000,N` and `9117.11399,N`.
+  5. Parse a GGA with `12x` in a numeric field, one with too few fields, a sentence whose address has four letters, a `$GNGGA`, and a `$GPVTG`.
+  6. Open a pseudo-terminal pair, construct `PosixSerialPort` on the slave at 9600 baud, write a sentence to the master, read through the port; read again with nothing written. Write `\r\n`, 0x11, 0x13, 0x03, 0x00 and a letter and read. Construct a port at each of the six rates.
+  7. Write a sentence to the master before constructing the port; construct; read.
+  8. Construct on a nonexistent path; on `/dev/null`; at 1234 baud; read on a port that is not ok. Construct on a pseudo-terminal's slave, read once, close the master, read twice.
+  9. The copy and move traits of `PosixSerialPort`.
+  10. Queue one epoch (the oracle GGA and an RMC with the same time field) on the fake and poll.
+  11. Queue the same bytes cut after every byte, then in 7-byte chunks, then with a cut at the `*`; poll until the fix.
+  12. Queue junk bytes, half a sentence, a sentence with a wrong checksum, then two complete epochs with a pause between; poll twice. Then a GGA and an RMC that pass the checksum and fail the parser; poll.
+  13. Queue the no-fix pair; poll.
+  14. Queue 200 bytes with no newline, then an epoch; poll.
+  15. Queue three GGA sentences with three different times and no RMC; poll. Then an RMC followed by the next epoch's GGA and RMC; then an RMC twice and its GGA; then a GGA followed by the next epoch's RMC and GGA.
+  16. Queue two complete epochs in one chunk; poll once. Then queue an epoch, an error and another epoch; poll twice; then make every read fail and poll twice.
+  17. Queue 5 KB of sentences; poll once, then again. Stream the capture in 19-byte chunks, in 7-byte chunks and as one chunk, polling after each chunk; compare the three runs.
+  18. Construct the live source over the fake bus and a fake port; read 50 frames with nothing queued (the first second), queue one epoch, read 50 more.
+  19. Construct the live source without a port and read a frame; then with a port that returns an error and read a frame. Queue an epoch before the first frame and on each of the next 49, read 50 frames, then queue one more at 1000 ms and read. Load the shipped configuration with each of the three `sensors.gps` keys removed, set to each kind of invalid value, and `baud_rate` set to 4799, 9601 and 115201.
+  20. *(Hardware)* `stty -F <device> 9600 raw -echo` and `timeout 10 cat <device>` on the receiver's device.
+  21. *(Hardware)* `telemetry --live --config ~/gps.yaml --cycles 250` indoors, no fix; then the same with `device` naming a path that does not exist.
+  22. *(Hardware)* `telemetry --live --config ~/gps.yaml --cycles 500` by a window with a fix; replay the log and `cmp`; `python3 -m pipeline.log_reader logs/`.
+  23. *(Hardware)* During a 1500-cycle run, unplug a USB receiver for ten seconds and replug it; on the header UART, pull the board's TXD lead for ten seconds and reconnect it instead.
+  24. *(Hardware)* With the receiver fixing, pull the barometer's SDA jumper for ten seconds and push it back.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | accepted; rejected; rejected; accepted |
+  | 2 | 47.2852332 N, 8.5652650 E (within 1e-7°), 499.6 m, quality 1, 8 satellites, time `092725.00`; quality 0, no position, an empty time |
+  | 3 | 0.002058 m/s (within 1e-6), course 77.52, valid, time `083559.00`; invalid, no position; valid with speed 0 and course 0 |
+  | 4 | 47.2852332; 8.5652650; negative; negative; malformed; malformed |
+  | 5 | malformed; malformed; not a sentence the driver uses; parsed as a GGA; reported unused |
+  | 6 | the sentence's bytes, every one, `\r\n` included; then 0 bytes (an empty read is 0 with `VMIN` and `VTIME` zero, not an error); the seven control bytes unaltered; every rate ok |
+  | 7 | 0 bytes: the stale sentence was flushed |
+  | 8 | not ok, the path in the message, errno ENOENT; not ok, the path in the message, a nonzero errno that is not ENOENT (ENOTTY on Linux, ENODEV on macOS: the terminal check, not the open, refused it); not ok with errno EINVAL, the message naming 1234 and the six rates; no value, errno EBADF; 0 bytes before the master closes and no value with a nonzero errno twice after it (the hang-up seen through `poll`) |
+  | 9 | not copyable, not movable, not assignable |
+  | 10 | one fix: 47.2852332 N, 8.5652650 E, 499.6 m, 0.002058 m/s, 77.52°, quality 1, 8 satellites; `sentences 2`, `fixes 1`, every error counter 0 |
+  | 11 | the same fix and the same counters all three ways |
+  | 12 | two fixes; `bad_checksum 1`, `resyncs` at least 2, `malformed 0`; then no fix, `malformed 2`, `no_fix_epochs 0` |
+  | 13 | no fix; `no_fix_epochs 1`, `sentences 2` |
+  | 14 | `overlong 1`; the fix delivered |
+  | 15 | no fix; `incomplete_epochs 2`, `sentences 3`; then the newer epoch's fix with `incomplete_epochs 1` each time |
+  | 16 | the second epoch's fix; `fixes 1`, `fixes_skipped 1`; then the first epoch's fix with `read_errors 1` (the error ended that poll), the second epoch's fix on the next poll, then no fix twice and `read_errors 3` |
+  | 17 | sixteen reads of 256 bytes on the first poll and the remainder on the second; the three capture runs (pending the file) agree on every counter and every fix, `bad_checksum 0`, and the first fix is the manual's position |
+  | 18 | `gps_read_ok` true on exactly one frame, the first after the start-up second whose poll completed the epoch; the five fields zero before it and held, unchanged, on every frame after it; every status NOMINAL, every validity NOT_JUDGED, `gps_counters()` present, `last_gps_fix()` empty before the fix and carrying quality 1, 8 satellites and the epoch's time after it |
+  | 19 | no port: `gps_read_ok` false, fields zero, `gps_counters()` empty, the eight existing live-source cases unchanged; the erroring port: `gps_read_ok` false, `read_errors 1`; the backlog: fifty fixes discarded and counted, none fresh, no last fix, and the fix at 1000 ms fresh with the count unchanged; each removed key named `sensors.gps.<key>: missing`, each invalid value refused under its key, 4799 and 115201 "must be 4800 to 115200", 9601 "must be one of 4800, 9600, 19200, 38400, 57600, 115200 (got 9601)", each of the six accepted |
+  | 20 | lines beginning `$GP` or `$GN` about once a second; GGA with `,0,00,` and RMC with `,V,` before a fix |
+  | 21 | `gps=NO_DATA` on the first frames, one `COMM_TIMEOUT` event at 2020 ms, `gps=DEGRADED` after, `GPS: 0, 0` throughout, `missed cycles = 0`, the `GPS:` exit line with about 30 sentences, 0 fixes, about 5 epochs without a fix, 0 bad checksums, `resyncs` 1 or 2 (the tail of the sentence the flush at open cut) and the discarded-in-the-first-second count naming the backlog; the second run exits 1 naming the path and `sensors.gps.device` |
+  | 22 | `gps=1` on about one frame in fifty, a real position and an altitude within tens of metres of the ground's, `gps=NOMINAL` from the first fix if it came inside 2 s and otherwise one `COMM_TIMEOUT` then one `RECOVERY` after the fifth fix, every computed field NORMAL from frame 0, `missed cycles = 0`, the `GPS:` line with about 10 fixes, 0 bad checksums and the last fix's quality, satellites and UTC time; `cmp` silent; `fresh: ... gps 10`. Then, with the port left closed for two minutes before the run: the discarded count is the backlog's depth and the first delivered fix's UTC time is live, not two minutes old |
+  | 23 | over USB: `COMM_TIMEOUT` about 2 s after the unplug, then DEGRADED for the rest of the run with read errors climbing by fifty a second and `bytes` frozen, because the kernel hangs up the open descriptor, which `poll` reports (reopening a device is the faults topic's, FTS-DD-001 Section 3); on the header UART, where the device node outlives the receiver: `COMM_TIMEOUT` about 2 s after the lead is pulled and `RECOVERY` after the fifth fix once reconnected |
+  | 24 | BARO `COMM_TIMEOUT`, the fused altitude walking to the GPS altitude over the next fixes with `fused_altitude_validity` NORMAL throughout; after the push-back, BARO `RECOVERY` and the fused altitude returning toward the barometer's |
+
+- **Pass/fail:** Steps 1 through 19 exact as listed. Any sentence accepted with a wrong or missing checksum, any fix delivered from a no-fix epoch, any `gps_read_ok` true on a frame whose poll completed no epoch, any difference between the three capture runs, or any `-Werror` or cppcheck finding on the new files fails. Steps 20 to 24 fail on a bad-checksum count above zero at 9600 baud, on any event other than those listed, or on a byte difference in the replay.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -591,7 +653,7 @@ The figure is taken after both the Google Test suite and the pytest suite have r
 
 Some branches cannot be reached from automated tests in CI:
 
-- Hardware error paths in the I2C and UART drivers (a failed `ioctl`, a bus that returns garbage) need physical hardware to trigger. They are exercised on the Raspberry Pi manually and documented in verification_results.md, but CI runs on a machine with no sensors.
+- Hardware error paths in the I2C driver (a failed `ioctl`, a bus that returns garbage) need physical hardware to trigger; the serial port's success path runs on a pseudo-terminal in CI, and only `cfsetspeed`, `tcsetattr` and `tcflush` failing on a terminal that opened, and a read that fails, stay hardware-bound. They are exercised on the Raspberry Pi manually and documented in verification_results.md, but CI runs on a machine with no sensors.
 - Defensive branches that guard against conditions the type system already excludes.
 - `main()` argument handling and startup error exits.
 
@@ -619,10 +681,10 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Eight requirements are Partial in FTS-TM-001, the four I2C sensor requirements among them (on-target evidence pending). The Notes column there states what each is missing.
-- TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (REQ-SENS-005).
+- Nine requirements are Partial in FTS-TM-001, the four I2C sensor requirements and the GPS (REQ-SENS-005) among them (on-target evidence pending). The Notes column there states what each is missing.
+- TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (a capture with the receiver fixing, now that REQ-SENS-005 delivers one).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
-- GPS fix-quality detection (FAULT-003b) is deferred until the NEO-6M driver adds a fix-quality field. GPS stuck detection is not covered by any FAULT entry and is not implemented.
+- GPS fix-quality detection at the detector (FAULT-003b) is deferred until the frame carries a fix-quality byte (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.

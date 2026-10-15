@@ -56,10 +56,25 @@ struct ImuConfig {
     int sample_rate_hz = 100;
 };
 
+struct GpsConfig {
+    // REQ-SENS-005. Off in the shipped file: the bench has no receiver
+    // wired by default, and a run with one passes a copy of the file that
+    // names it. When on, --live opens the device at startup and refuses to
+    // start if it cannot, as it does for a missing chip.
+    bool enabled = false;
+    // The serial device: /dev/serial0 on the Pi's header UART, /dev/ttyACM0
+    // or /dev/ttyUSB0 when the board's micro-USB port is used.
+    std::string device = "/dev/serial0";
+    // One of the six rates termios names (PosixSerialPort::supports_baud_rate);
+    // a u-blox receiver ships at 9600. A USB device ignores it, harmlessly.
+    int baud_rate = 9600;
+};
+
 struct SensorConfig {
     std::string i2c_device = "/dev/i2c-1";   // REQ-SENS-001 to REQ-SENS-004, live mode
     BarometerConfig barometer;
     ImuConfig imu;
+    GpsConfig gps;                           // REQ-SENS-005
 };
 
 struct LoggingConfig {

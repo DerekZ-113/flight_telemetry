@@ -97,6 +97,9 @@ TEST(ConfigTest, ShippedFileEqualsDefaults) {
     EXPECT_EQ(c.sensors.barometer.address, d.sensors.barometer.address);
     EXPECT_EQ(c.sensors.imu.address, d.sensors.imu.address);
     EXPECT_EQ(c.sensors.imu.sample_rate_hz, d.sensors.imu.sample_rate_hz);
+    EXPECT_EQ(c.sensors.gps.enabled, d.sensors.gps.enabled);
+    EXPECT_EQ(c.sensors.gps.device, d.sensors.gps.device);
+    EXPECT_EQ(c.sensors.gps.baud_rate, d.sensors.gps.baud_rate);
     EXPECT_EQ(c.fault.i2c_timeout_ms, d.fault.i2c_timeout_ms);
     EXPECT_EQ(c.fault.uart_timeout_ms, d.fault.uart_timeout_ms);
     EXPECT_EQ(c.fault.stuck_count, d.fault.stuck_count);
@@ -215,7 +218,7 @@ TEST(ConfigTest, MissingKeyIsNamed) {
     // text, a number, a positive number, a fraction.
     const std::pair<const char*, const char*> cases[] = {
         {"stuck_count:", "fault.stuck_count: missing"},
-        {"    enabled: false", "transport.zmq.enabled: missing"},
+        {"    enabled: false", "sensors.gps.enabled: missing"},   // the first such line is the receiver's
         {"i2c_device:", "sensors.i2c_device: missing"},
         {"pressure_min_hpa:", "fault.pressure_min_hpa: missing"},
         {"accel_noise_variance:", "processing.accel_noise_variance: missing"},
@@ -238,6 +241,7 @@ TEST(ConfigTest, EverySectionIsRequired) {
         {"\nsensors", "sensors"},
         {"\n  barometer", "sensors.barometer"},
         {"\n  imu", "sensors.imu"},
+        {"\n  gps", "sensors.gps"},
         {"\nfault", "fault"},
         {"\nprocessing", "processing"},
         {"\nlogging", "logging"},
@@ -566,6 +570,10 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
          "must be 0x08 to 0x77 (got 0x78)"},
         {"sample_rate_hz: 100", "100", "sensors.imu.sample_rate_hz", Rule::Whole, "3", "must be 4 to 100 (got 3)", "101",
          "must be 4 to 100 (got 101)"},
+        {"enabled: false\n    device", "false", "sensors.gps.enabled", Rule::Switch},
+        {"device: /dev/serial0", "/dev/serial0", "sensors.gps.device", Rule::Text},
+        {"baud_rate: 9600", "9600", "sensors.gps.baud_rate", Rule::Whole, "4799", "must be 4800 to 115200 (got 4799)",
+         "115201", "must be 4800 to 115200 (got 115201)"},
         {"i2c_timeout_ms: 500", "500", "fault.i2c_timeout_ms", Rule::Whole, "0", "must be at least 1 (got 0)"},
         {"uart_timeout_ms: 2000", "2000", "fault.uart_timeout_ms", Rule::Whole, "0", "must be at least 1 (got 0)"},
         {"stuck_count: 10", "10", "fault.stuck_count", Rule::Whole, "1", "must be at least 2 (got 1)"},
@@ -601,7 +609,7 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"longitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.longitude_sigma_deg", Rule::Positive},
         {"gps_altitude_sigma_m: 2.0", "2.0", "simulation.noise.gps_altitude_sigma_m", Rule::Positive},
     };
-    EXPECT_EQ(std::size(keys), 36u);   // the file's key count, as the documents state it
+    EXPECT_EQ(std::size(keys), 39u);   // the file's key count, as the documents state it
 
     const std::string shipped = shipped_text();
     for (const Key& key : keys) {
@@ -667,6 +675,15 @@ TEST(ConfigTest, UartTimeoutMustExceedGpsInterval) {
     expect_one_problem(load_edited("gps_interval_ms: 1000", "gps_interval_ms: 2000"),
                        "fault.uart_timeout_ms: must exceed simulation.gps_interval_ms (2000 against 2000)");
     expect_accepted(load_edited("gps_interval_ms: 1000", "gps_interval_ms: 1999"));
+}
+
+// TC-018 step 19: the receiver's baud rate is one of the six termios names.
+TEST(ConfigTest, GpsBaudRateMustBeStandard) {
+    expect_one_problem(load_edited("baud_rate: 9600", "baud_rate: 9601"),
+                       "sensors.gps.baud_rate: must be one of 4800, 9600, 19200, 38400, 57600, 115200 (got 9601)");
+    for (const char* rate : {"4800", "9600", "19200", "38400", "57600", "115200"}) {
+        expect_accepted(load_edited("baud_rate: 9600", std::string("baud_rate: ") + rate));
+    }
 }
 
 TEST(ConfigTest, ImuRateMustCoverTheLoopRate) {

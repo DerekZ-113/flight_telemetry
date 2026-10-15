@@ -29,6 +29,7 @@
 // below create_source() sees DataSource and nothing else.
 #include "drivers/i2c_bus.h"
 #include "drivers/live_sensor_source.h"
+#include "drivers/serial_port.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
 
@@ -90,6 +91,31 @@ void print_transport_summary(const PublishStats& stats, const std::string& where
               << ", send failures = " << stats.send_failures;
     if (stats.send_failures > 0) {
         std::cout << " (last errno " << stats.last_errno << ")";
+    }
+    std::cout << std::endl;
+}
+
+// One line for the receiver at exit (REQ-SENS-005). The detector only
+// ever sees whether a fix arrived; these counters are how a silent
+// receiver, one without a fix, and one at the wrong baud rate are told
+// apart (FTS-FM-001 FAULT-003).
+void print_gps_summary(const std::optional<GpsCounters>& counters, const std::optional<GpsFix>& last_fix,
+                       size_t startup_discarded, const GpsConfig& gps) {
+    if (!counters.has_value()) {
+        std::cout << "GPS:       disabled (sensors.gps.enabled)" << std::endl;
+        return;
+    }
+    const GpsCounters& c = *counters;
+    std::cout << "GPS:       " << c.sentences << " sentences (" << c.used << " GGA/RMC) on " << gps.device
+              << " (" << gps.baud_rate << " baud): " << c.fixes << " fixes (" << startup_discarded
+              << " discarded in the first second), "
+              << c.no_fix_epochs << " epochs without a fix, " << c.incomplete_epochs << " incomplete, "
+              << c.fixes_skipped << " skipped, " << c.bad_checksum << " bad checksums, "
+              << c.malformed << " malformed, " << c.overlong << " overlong, " << c.resyncs << " resyncs, "
+              << c.read_errors << " read errors, " << c.bytes << " bytes";
+    if (last_fix.has_value()) {
+        std::cout << "; last fix: quality " << last_fix->fix_quality << ", " << last_fix->satellites
+                  << " satellites, UTC " << last_fix->utc_time;
     }
     std::cout << std::endl;
 }
@@ -171,7 +197,8 @@ void print_usage() {
     std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
-              << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device), paced\n"
+              << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
+              << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
@@ -256,12 +283,25 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
             error = bus->error();
             return nullptr;
         }
+        // The receiver, when the file names one (REQ-SENS-005). A device
+        // that does not open is a configuration error at startup, like a
+        // missing chip; a receiver that stops talking later is the
+        // detector's (FAULT-003).
+        std::unique_ptr<PosixSerialPort> port;
+        if (cfg.sensors.gps.enabled) {
+            port = std::make_unique<PosixSerialPort>(cfg.sensors.gps.device, cfg.sensors.gps.baud_rate);
+            if (!port->ok()) {
+                error = "GPS: " + port->error() +
+                        " (sensors.gps.device; set sensors.gps.enabled to false to run without a receiver)";
+                return nullptr;
+            }
+        }
         // The raw pointer outlives the move below only for the message: the
         // source owns the bus from here on.
         const LinuxI2cBus* const bus_view = bus.get();
         auto live = std::make_unique<LiveSensorSource>(std::move(bus), cfg.sensors.barometer.address,
                                                        cfg.sensors.imu.address, clock,
-                                                       cfg.sensors.imu.sample_rate_hz);
+                                                       cfg.sensors.imu.sample_rate_hz, std::move(port));
         if (!live->ok()) {
             error = live->error();
             if (bus_view->last_errno() != 0) {
@@ -502,6 +542,7 @@ int main(int argc, char* argv[]) {
     // read at exit so a run that outlasted its log says so (REQ-LOG-005):
     // a replay that ran past its log is a plausible-looking log too.
     const LogReplaySource* replay = replaying ? static_cast<const LogReplaySource*>(source.get()) : nullptr;
+    const LiveSensorSource* live = options.live ? static_cast<const LiveSensorSource*>(source.get()) : nullptr;
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
@@ -622,6 +663,11 @@ int main(int argc, char* argv[]) {
                   << "  (" << jitter_path.string() << ")" << std::endl;
     } else {
         std::cout << "Timing:    unpaced (replay)" << std::endl;
+    }
+
+    if (live != nullptr) {
+        print_gps_summary(live->gps_counters(), live->last_gps_fix(), live->gps_startup_discarded(),
+                          cfg.sensors.gps);
     }
 
     if (publisher.has_value()) {

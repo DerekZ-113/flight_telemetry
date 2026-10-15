@@ -3,7 +3,7 @@
 > **Document ID:** FTS-NP-001
 > **Version:** 0.1.0
 > **Status:** Draft (method and acceptance criteria; results pending the capture of 2026-10-13)
-> **Last Updated:** 2026-10-12
+> **Last Updated:** 2026-10-14
 > **Related:** FTS-SRD-001 (REQ-PROC-004, REQ-SENS-006), FTS-DD-001 (Sections 5 and 6), FTS-TP-001 (TC-015), FTS-TM-001, FTS-VR-001 (Entry 9)
 
 This document is the measurement REQ-PROC-004 names. It states, before the data exists, what is measured on a stationary capture of the real sensors, how each number is estimated, what the datasheets lead us to expect, which Kalman constants the capture can set and which it cannot, and the rules that decide the open questions once the numbers are in. Version 0.1.0 is the method; 0.2.0 adds the results. Writing the method first is the test plan's own discipline (a card before its execution) applied to a measurement, so that the analysis cannot drift toward a wanted answer.
@@ -14,7 +14,7 @@ The Kalman filter (FTS-DD-001 Section 5) needs the variance of a barometric alti
 
 **Measured here:** per channel, on fresh samples only, the mean, the population sigma, the Allan deviation over averaging times from one sample up, the lag-1 autocorrelation, the quantization step, and the longest run of identical samples; the gyroscope bias per axis and the tilt it predicts; the accelerometer offsets; the barometric altitude noise in metres two ways; the pipeline's own outputs after a settle window and the startup transient inside it; the scheduler's jitter over the run.
 
-**Not measured here, and why:** scale-factor errors (a stationary board gives the gyro a zero input and the accelerometer one known input, 1 g on one axis; scale needs a known rotation or a flip test); the accelerometer's x and y offsets separately from the board's tilt (the two are the same number on a still board; a six-position tumble separates them); GPS noise (no receiver until REQ-SENS-005); the process noise (Section 3.4); anything about the sensors in motion.
+**Not measured here, and why:** scale-factor errors (a stationary board gives the gyro a zero input and the accelerometer one known input, 1 g on one axis; scale needs a known rotation or a flip test); the accelerometer's x and y offsets separately from the board's tilt (the two are the same number on a still board; a six-position tumble separates them); GPS noise (the receiver exists since 2026-10-14, but this capture runs with it off; a capture with it fixing is its own); the process noise (Section 3.4); anything about the sensors in motion.
 
 ## 2. Method
 
@@ -85,7 +85,7 @@ R is the per-sample scatter the filter sees at each update, which the Kalman gai
 |---|---|---|
 | `kBaroMeasurementVariance` | **measured** | ADEV(τ₀)² of `baro_altitude_m`, in m² |
 | `kInitialAltitudeVariance` | **measured** | equals the barometric variance: the filter is born from one barometric sample |
-| `kGpsMeasurementVariance` | **retained**, 25 m² | no GPS until REQ-SENS-005; the NEO-6M's vertical error is about 5 m |
+| `kGpsMeasurementVariance` | **retained**, 25 m² | no GPS capture analysed yet (the receiver landed 2026-10-14, REQ-SENS-005); the receiver's vertical error is about 5 m |
 | `kAccelNoiseVariance` | **retained**, 1 (m/s²)² | Section 3.4 |
 | `kInitialVelocityVariance` | **chosen by replay** | Section 3.5 |
 
@@ -134,7 +134,7 @@ To be filled from the capture; the machine part comes from `provenance.txt` and 
 | METAR station, sea-level pressure and time, start / end | pending |
 | Command | `./build/telemetry --live --cycles 45000` |
 | Duration, frames, missed cycles | pending |
-| Fault events | pending (one GPS COMM_TIMEOUT near 2020 ms expected) |
+| Fault events | pending (one GPS COMM_TIMEOUT near 2020 ms expected: the capture runs with `sensors.gps.enabled` false, the shipped file) |
 | Files and SHA-256 | pending (`captures/noise-2026-10-13/`) |
 | Analysis command and JSON | pending |
 
@@ -171,4 +171,4 @@ Pending: measured sigma, the simulator's sigma before the change, and the datash
 - Before/after the constants change, on file 000 replayed through the same build: fused altitude sigma, vertical speed sigma, the startup transient's peak and settle time, one row per initial-velocity-variance candidate. Pending.
 - The gyro-bias rule of Section 3.6 applied to the measured value. Pending.
 - The stuck-value margin per channel against the detector's 10. Pending.
-- What this capture cannot measure: the process noise, scale factors, the accelerometer's offsets apart from tilt, the IMU's DLPF correlation in the simulator, GPS.
+- What this capture cannot measure: the process noise, scale factors, the accelerometer's offsets apart from tilt, the IMU's DLPF correlation in the simulator, GPS (off in this capture; a capture with the receiver fixing is its own).

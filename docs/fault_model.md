@@ -1,7 +1,7 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.2.0
+> **Version:** 0.3.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-13
 
@@ -37,15 +37,15 @@ Where a response says a computed field is "marked invalid" or "flagged", the fra
 - **Requirement:** REQ-FAULT-001, REQ-FAULT-004
 - **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.ImuTimeoutDetectedWithinBound`. Driver level: `tests/unit/test_mpu6050.cpp` → `Mpu6050Test.FailedBurstReturnsEmpty` (a failed burst is an empty reading, which the live source reports as `imu_read_ok` false), `FailedIdentityReadRefusesInit`. On hardware: TC-002 step 8.
 
-### FAULT-003: NEO-6M UART timeout or GPS fix loss
+### FAULT-003: GPS timeout or fix loss
 
-- **What:** Two distinct conditions with the same response. (a) The GPS module stops sending NMEA sentences on UART. (b) The module keeps sending sentences but reports no satellite fix (fix quality 0).
-- **Cause:** (a) Loose wire, wrong baud rate, module power issue. (b) Indoor operation, obstructed sky view.
+- **What:** Two distinct conditions with the same response. (a) The GPS receiver stops delivering sentences. (b) The receiver keeps sending sentences but reports no satellite fix (GGA fix quality 0, RMC status V).
+- **Cause:** (a) Loose wire, wrong device path or baud rate, module power issue, the USB lead pulled. (b) Indoor operation, obstructed sky view, the minutes a cold start takes.
 - **Likelihood:** (a) Low. (b) Medium, especially indoors or near windows with partial sky.
-- **Detection:** (a) No NMEA sentence received within the configured UART timeout (`fault.uart_timeout_ms`, 2000 ms). The timeout must exceed the module's 1 Hz default output period, so it is configurable rather than fixed at 500 ms, and the configuration refuses a value at or below the simulated receiver's fix period. (b) Fix quality indicator in the GGA sentence reads 0.
-- **Response:** Mark GPS channel DEGRADED. Log fault event with the condition (timeout or no-fix). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer and stays NORMAL. Position, heading, and ground speed are invalid by the channel's status (DEGRADED here; NO_DATA before the first fix, REQ-FAULT-006), the raw fields carrying no validity byte of their own. On the Pi, where no GPS driver exists yet, the channel is NO_DATA from the first frame and DEGRADED with this event at the UART timeout. Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the UART timeout must exceed the fix period (REQ-PROC-006).
-- **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003. Both: REQ-FAULT-004
-- **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`. (b) Deferred: the frame carries no fix-quality field yet; lands with the NEO-6M driver.
+- **Detection:** Both reach the detector as one condition. The live source delivers a reading (`gps_read_ok` true) only on the cycle a valid fix completes, so a silent receiver and one without a fix both leave the channel without a reading, and the detector declares the fault when no fix has been read within the configured timeout (`fault.uart_timeout_ms`, 2000 ms). The timeout must exceed the receiver's 1 Hz fix period, so it is configurable rather than fixed at 500 ms, and the configuration refuses a value at or below the simulated receiver's fix period. The two causes are told apart at the receiver's exit line (`GPS:` sentences, epochs without a fix, bad checksums, read errors): sentences without fixes is (b); nothing, bad checksums, or read errors climbing (a device the kernel hung up) is (a). A detector-side distinction with its own event waits for the fix-quality byte parked in FTS-DD-001 Section 11.2.
+- **Response:** Mark GPS channel DEGRADED. Log fault event (COMM_TIMEOUT with the elapsed ms). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer and stays NORMAL. Position, heading, and ground speed are invalid by the channel's status (DEGRADED here; NO_DATA before the first fix, REQ-FAULT-006), the raw fields carrying no validity byte of their own. With `sensors.gps.enabled` false, or before the receiver's first fix, the channel is NO_DATA from the first frame and DEGRADED with this event at the timeout; the first fix after that starts the recovery of FAULT-011, five fixes at 1 Hz. Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the timeout must exceed the fix period (REQ-PROC-006).
+- **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003, the fix-quality limit applied at the source. Both: REQ-FAULT-004
+- **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`; `tests/unit/test_live_sensor_source.cpp` → `LiveSensorSourceTest.FixIsFreshOnlyOnTheCycleItCompleted`. (b) `tests/unit/test_nmea_gps.cpp` → `NmeaGpsTest.NoFixEpochIsNotAReading`, at the source; the detector's own event is deferred with the fix-quality byte.
 
 ### FAULT-004: I2C bus failure (both BMP280 and MPU6050 affected)
 

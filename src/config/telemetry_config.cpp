@@ -16,6 +16,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "drivers/mpu6050.h"
+#include "drivers/serial_port.h"
 #include "logging/log_format.h"
 
 // Coverage note. yaml-cpp throws; this file catches at one place, the
@@ -434,6 +435,25 @@ ConfigLoad load_config_text(const std::string& text, const std::string& name) {
                 }
             }
             i.finish();
+        }
+        std::optional<Section> gps = s.section("gps");
+        if (gps.has_value()) {
+            Section& g = *gps;
+            g.read_bool("enabled", c.sensors.gps.enabled);
+            g.read_string("device", c.sensors.gps.device);
+            // REQ-SENS-005: the range first, then the six rates termios
+            // names, which the port would refuse at open anyway; a wrong
+            // rate is a configuration error before it is a port one.
+            const bool in_range = g.read_int("baud_rate", 4800, 115200, c.sensors.gps.baud_rate);
+            if (in_range) {
+                const bool standard = PosixSerialPort::supports_baud_rate(c.sensors.gps.baud_rate);
+                if (!standard) {
+                    const std::string got = std::to_string(c.sensors.gps.baud_rate);
+                    const std::string rates = PosixSerialPort::kSupportedRates;
+                    g.problem("baud_rate", "must be one of " + rates + " (got " + got + ")");
+                }
+            }
+            g.finish();
         }
         s.finish();
     }

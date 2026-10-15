@@ -26,7 +26,7 @@
 timing:
   period_ms: 20
 
-# REQ-SENS-001 through REQ-SENS-004: live mode (--live).
+# REQ-SENS-001 through REQ-SENS-005: live mode (--live).
 sensors:
   i2c_device: /dev/i2c-1
   barometer:
@@ -34,11 +34,18 @@ sensors:
   imu:
     address: 0x68            # AD0 low
     sample_rate_hz: 100      # 4 to 100, an exact divisor of 1000, at least the processing rate
+  # REQ-SENS-005. Off until a receiver is wired; a run with one passes a copy
+  # of this file naming it. The switch line carries no comment: a test marks
+  # it by the line that follows, as it does the transports' switches.
+  gps:
+    enabled: false
+    device: /dev/serial0     # the header UART; /dev/ttyACM0 or /dev/ttyUSB0 over the board's micro-USB port
+    baud_rate: 9600          # one of 4800, 9600, 19200, 38400, 57600, 115200; a u-blox receiver ships at 9600
 
 # REQ-FAULT-001, -002, -003, -005 (FTS-FM-001 FAULT-001 to FAULT-011).
 fault:
   i2c_timeout_ms: 500        # FAULT-001, -002, -004; also the attitude filter's re-seed bound (REQ-PROC-002)
-  uart_timeout_ms: 2000      # FAULT-003a; must exceed the GPS output period (simulation.gps_interval_ms; 1 s on a NEO-6M)
+  uart_timeout_ms: 2000      # FAULT-003; must exceed the GPS fix period (simulation.gps_interval_ms; 1 s on a NEO-6M-class receiver)
   stuck_count: 10            # N of REQ-FAULT-002 (FAULT-005, -006, -007); at least 2
   recovery_count: 5          # M of REQ-FAULT-005 (FAULT-011); at least 1
   pressure_min_hpa: 300      # FAULT-008: the BMP280 operating range
@@ -52,7 +59,7 @@ fault:
 # capture is analyzed.
 processing:
   baro_measurement_variance_m2: 3.0   # m^2; also the initial altitude variance (REQ-PROC-004)
-  gps_measurement_variance_m2: 25.0   # m^2; the datasheet figure until REQ-SENS-005
+  gps_measurement_variance_m2: 25.0   # m^2; the datasheet figure until a capture with the receiver fixing is analysed
   initial_velocity_variance: 1.0      # (m/s)^2
   accel_noise_variance: 1.0           # (m/s^2)^2, the process noise
   complementary_alpha: 0.98           # gyro weight, 0 to 1; at 50 Hz a time constant of about 1 s

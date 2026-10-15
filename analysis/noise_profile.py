@@ -238,7 +238,7 @@ def derive_constants(channels: dict[str, dict[str, Any]]) -> dict[str, Any]:
                           "source": "equals R_baro: the filter is born from one barometric sample",
                           "placeholder": PLACEHOLDERS["P0_alt_m2"]},
             "R_gps_m2": {"value": PLACEHOLDERS["R_gps_m2"], "status": "retained",
-                         "source": "no GPS until REQ-SENS-005; NEO-6M vertical error about 5 m (datasheet)",
+                         "source": "no GPS capture analysed yet (the receiver exists, REQ-SENS-005); NEO-6M vertical error about 5 m (datasheet)",
                          "placeholder": PLACEHOLDERS["R_gps_m2"]},
             "Q_accel_var": {"value": PLACEHOLDERS["Q_accel_var"], "status": "retained",
                             "source": "the vehicle's unmodelled vertical acceleration, sigma 1 m/s^2: a tuning "

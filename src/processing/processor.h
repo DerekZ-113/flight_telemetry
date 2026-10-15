@@ -31,8 +31,8 @@ struct ProcessorConfig {
     // GPS altitude noise. The simulator uses sigma 2 m, but a real NEO-6M
     // is closer to sigma 5 m vertically, so the filter is told 25 m^2:
     // pessimistic about GPS means it nudges the estimate rather than
-    // jerking it. The datasheet figure until REQ-SENS-005 delivers a
-    // receiver to measure.
+    // jerking it. The datasheet figure until a capture with the receiver
+    // fixing is analysed (the stationary capture runs with it off).
     float gps_measurement_variance_m2 = 25.0f;
 
     // Initial vertical velocity uncertainty. The filter starts at 0 m/s

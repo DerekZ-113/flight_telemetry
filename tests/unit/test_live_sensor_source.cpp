@@ -1,8 +1,9 @@
 // Tests for src/drivers/live_sensor_source (REQ-SENS-001 through
-// REQ-SENS-004, REQ-LOG-004). Test card TC-014, steps 5 through 10. Both
-// chips sit on one fake bus, as they do on the real one: the barometer
-// with the datasheet's worked example, the MPU6050 with one g on its z
-// axis.
+// REQ-SENS-005, REQ-LOG-004). Test card TC-014, steps 5 through 10, and
+// TC-018, steps 18 and 19. Both chips sit on one fake bus, as they do on
+// the real one: the barometer with the datasheet's worked example, the
+// MPU6050 with one g on its z axis; the receiver, when a test wants one,
+// on a fake serial port fed the manual's sentences.
 
 #include <gtest/gtest.h>
 
@@ -13,6 +14,8 @@
 #include "drivers/mpu6050.h"
 #include "fake_clock.h"
 #include "fake_i2c_bus.h"
+#include "fake_serial_port.h"
+#include "nmea_examples.h"
 
 namespace {
 
@@ -28,10 +31,13 @@ void load_imu(FakeI2cBus& bus, uint8_t who_am_i = Mpu6050::kWhoAmI) {
 }
 
 // A fake with both chips loaded, handed to the source; the raw pointer
-// stays with the test so it can fail transactions after the move.
+// stays with the test so it can fail transactions after the move. The
+// same for the receiver's port, handed over only by make_with_gps().
 struct Rig {
     std::unique_ptr<FakeI2cBus> owned = std::make_unique<FakeI2cBus>();
     FakeI2cBus* bus = owned.get();
+    std::unique_ptr<FakeSerialPort> gps_owned = std::make_unique<FakeSerialPort>();
+    FakeSerialPort* gps = gps_owned.get();
     FakeClock clock;
 
     Rig() {
@@ -42,7 +48,27 @@ struct Rig {
     LiveSensorSource make(int imu_sample_rate_hz = Mpu6050::kDefaultSampleRateHz) {
         return LiveSensorSource(std::move(owned), kBaro, kImu, clock, imu_sample_rate_hz);
     }
+
+    LiveSensorSource make_with_gps() {
+        return LiveSensorSource(std::move(owned), kBaro, kImu, clock, Mpu6050::kDefaultSampleRateHz,
+                                std::move(gps_owned));
+    }
 };
+
+std::string epoch() {
+    return std::string(nmea_examples::kGga) + "\r\n" + nmea_examples::kRmcSameEpoch + "\r\n";
+}
+
+// The first second after start (frames at 0 to 980 ms), with nothing on
+// the port: the window in which the source discards a fix as the device's
+// backlog. Leaves the clock at 1000 ms for the next frame.
+void run_startup(LiveSensorSource& source, Rig& rig) {
+    for (int i = 0; i < 50; ++i) {
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        rig.clock.advance(20'000'000);
+    }
+}
 
 }  // namespace
 
@@ -241,4 +267,158 @@ TEST(LiveSensorSourceTest, UnreachableImuRateRefusesStartup) {
     LiveSensorSource source = rig.make(30);
     EXPECT_FALSE(source.ok());
     EXPECT_NE(source.error().find("IMU: sample rate 30 Hz"), std::string::npos) << source.error();
+}
+
+// TC-018 step 18. A fix is fresh on the one cycle its epoch completed and
+// on no other: the receiver's 1 Hz measurement, applied once by the
+// processor (REQ-PROC-006); the fields held between fixes and zero before
+// the first; the raw-only contract untouched.
+TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+
+    // The first second with nothing on the port, and no fix to report yet.
+    EXPECT_FALSE(source.last_gps_fix().has_value());
+    run_startup(source, rig);
+    EXPECT_FALSE(source.last_gps_fix().has_value());
+    EXPECT_EQ(source.gps_startup_discarded(), 0u);
+    // The epoch arrives in time for the frame at 1000 ms.
+    rig.gps->queue(epoch());
+    const TelemetryFrame fix = source.read_frame();
+    EXPECT_TRUE(fix.gps_read_ok);
+    EXPECT_NEAR(fix.latitude, nmea_examples::kGgaLatitudeDeg, 1e-7);
+    EXPECT_NEAR(fix.longitude, nmea_examples::kGgaLongitudeDeg, 1e-7);
+    EXPECT_FLOAT_EQ(fix.gps_altitude_m, nmea_examples::kGgaAltitudeM);
+    EXPECT_NEAR(fix.ground_speed_mps, nmea_examples::kRmcSpeedMps, 1e-6);
+    EXPECT_FLOAT_EQ(fix.heading_deg, nmea_examples::kRmcCourseDeg);
+    EXPECT_TRUE(fix.baro_read_ok);   // the chips are read on the same cycle as before
+    EXPECT_TRUE(fix.imu_read_ok);
+    // The raw-only contract: every status NOMINAL, every validity unjudged.
+    EXPECT_EQ(fix.baro_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(fix.imu_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(fix.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(fix.baro_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(fix.pitch_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(fix.roll_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(fix.fused_altitude_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(fix.vertical_speed_validity, Validity::NOT_JUDGED);
+    EXPECT_EQ(fix.timestamp_ms, 1000u);
+    // What the exit line reports about the last fix.
+    const std::optional<GpsFix> last = source.last_gps_fix();
+    ASSERT_TRUE(last.has_value());
+    EXPECT_EQ(last->fix_quality, nmea_examples::kGgaQuality);
+    EXPECT_EQ(last->satellites, nmea_examples::kGgaSatellites);
+    EXPECT_EQ(last->utc_time, "092725.00");
+
+    // The forty-nine after: the fix held, not fresh.
+    for (int i = 0; i < 49; ++i) {
+        rig.clock.advance(20'000'000);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.latitude, fix.latitude) << i;
+        EXPECT_EQ(f.longitude, fix.longitude) << i;
+        EXPECT_EQ(f.gps_altitude_m, fix.gps_altitude_m) << i;
+        EXPECT_EQ(f.ground_speed_mps, fix.ground_speed_mps) << i;
+        EXPECT_EQ(f.heading_deg, fix.heading_deg) << i;
+    }
+    const std::optional<GpsCounters> counters = source.gps_counters();
+    ASSERT_TRUE(counters.has_value());
+    EXPECT_EQ(counters->fixes, 1u);
+    EXPECT_EQ(counters->sentences, 2u);
+}
+
+// A sentence cut across two cycles completes on the second, and the fix is
+// fresh on that cycle alone.
+TEST(LiveSensorSourceTest, EpochSplitAcrossCyclesIsFreshWhenItCompletes) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    run_startup(source, rig);
+    const std::string bytes = epoch();
+    rig.gps->queue(bytes.substr(0, 100));
+    EXPECT_FALSE(source.read_frame().gps_read_ok);
+    rig.gps->queue(bytes.substr(100));
+    EXPECT_TRUE(source.read_frame().gps_read_ok);
+    EXPECT_FALSE(source.read_frame().gps_read_ok);
+}
+
+// The first second after start belongs to the device's backlog: a USB
+// receiver hands over what it buffered while the port was closed, after
+// the flush at open, and those epochs are old. A fix that completes in that
+// second is counted and discarded, never fresh; the first fix delivered is
+// a live one.
+TEST(LiveSensorSourceTest, FixesInTheFirstSecondAreDiscarded) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    rig.gps->queue(epoch());             // the backlog, waiting when the loop starts
+    const TelemetryFrame first = source.read_frame();
+    EXPECT_FALSE(first.gps_read_ok);
+    EXPECT_EQ(first.latitude, 0.0);
+    EXPECT_EQ(source.gps_startup_discarded(), 1u);
+    EXPECT_FALSE(source.last_gps_fix().has_value());
+    for (int i = 1; i < 50; ++i) {
+        rig.clock.advance(20'000'000);
+        rig.gps->queue(epoch());         // a backlog that keeps coming
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.latitude, 0.0) << i;
+    }
+    EXPECT_EQ(source.gps_startup_discarded(), 50u);
+    rig.clock.advance(20'000'000);       // 1000 ms: the grace is over
+    rig.gps->queue(epoch());
+    const TelemetryFrame live = source.read_frame();
+    EXPECT_TRUE(live.gps_read_ok);
+    EXPECT_NEAR(live.latitude, nmea_examples::kGgaLatitudeDeg, 1e-7);
+    EXPECT_EQ(source.gps_startup_discarded(), 50u);
+    ASSERT_TRUE(source.last_gps_fix().has_value());
+}
+
+// TC-018 step 19. Without a port the receiver is absent: never fresh, the
+// fields zero, no counters; the eight cases above hold unchanged.
+TEST(LiveSensorSourceTest, WithoutAPortTheGpsIsAbsent) {
+    Rig rig;
+    LiveSensorSource source = rig.make();
+    ASSERT_TRUE(source.ok()) << source.error();
+    for (int i = 0; i < 3; ++i) {
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok);
+        EXPECT_EQ(f.latitude, 0.0);
+        EXPECT_EQ(f.heading_deg, 0.0f);
+    }
+    EXPECT_FALSE(source.gps_counters().has_value());
+    EXPECT_FALSE(source.last_gps_fix().has_value());
+    EXPECT_EQ(source.gps_startup_discarded(), 0u);
+}
+
+// A port that fails leaves the channel not fresh and counts the error; the
+// detector's timeout is the report (FAULT-003). (An unplugged USB receiver
+// is not this case: Linux hangs the descriptor up and reads return 0, so
+// the channel times out with no error counted.)
+TEST(LiveSensorSourceTest, PortErrorLeavesTheGpsNotFresh) {
+    Rig rig;
+    rig.gps->fail_every_read();
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    const TelemetryFrame f = source.read_frame();
+    EXPECT_FALSE(f.gps_read_ok);
+    EXPECT_EQ(f.latitude, 0.0);
+    const std::optional<GpsCounters> counters = source.gps_counters();
+    ASSERT_TRUE(counters.has_value());
+    EXPECT_EQ(counters->read_errors, 1u);
+}
+
+// A receiver without a fix delivers nothing to the frame: FAULT-003 (b)
+// applied at the source, so the channel times out like a silent one.
+TEST(LiveSensorSourceTest, NoFixEpochLeavesTheGpsNotFresh) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    rig.gps->queue(std::string(nmea_examples::kNoFixGga) + "\r\n" + nmea_examples::kNoFixRmc + "\r\n");
+    const TelemetryFrame f = source.read_frame();
+    EXPECT_FALSE(f.gps_read_ok);
+    EXPECT_EQ(f.latitude, 0.0);
+    EXPECT_EQ(f.gps_altitude_m, 0.0f);
+    EXPECT_EQ(source.gps_counters()->no_fix_epochs, 1u);
 }
