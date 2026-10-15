@@ -11,6 +11,8 @@ import type { JSX } from "react";
 
 import { badgeFor } from "./badge";
 import { CHANNELS, COMPUTED_FIELDS, modeLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
+import { GroundTrackPlot } from "./pfd/GroundTrackPlot";
+import { instrumentState, trackShown } from "./pfd/instrumentState";
 import { Pfd } from "./pfd/Pfd";
 import { useTelemetryFeed, type FeedOptions } from "./useTelemetryFeed";
 
@@ -61,6 +63,13 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
 
       <section className="instruments">
         <Pfd feed={feed} />
+        <GroundTrackPlot
+          trail={feed.trail}
+          position={feed.lastFrame?.position ?? null}
+          trackDeg={feed.lastFrame?.frame.heading_deg ?? 0}
+          trackShown={trackShown(feed)}
+          state={instrumentState(feed.lastFrame === null ? [] : [feed.lastFrame.status.gps], feed)}
+        />
       </section>
 
       <section className="counters">

@@ -64,6 +64,13 @@ describe("the panel's strip", () => {
     expect(screen.getByTestId("pfd-pipeline").textContent).toBe("PIPELINE");
   });
 
+  it("labels the instruments by what they measure, never heading or airspeed (TC-023 step 7)", () => {
+    const { container } = render(<Pfd feed={runningFeed()} />);
+    expect(container.textContent).toContain("TRK");
+    expect(container.textContent).toContain("GS");
+    expect(container.textContent).not.toMatch(/HDG|heading|airspeed|IAS/i);
+  });
+
   it("shows the rate and the lag", () => {
     const { rerender } = render(<Pfd feed={runningFeed({ rate: 50, lagMs: 12.4 })} />);
     expect(screen.getByTestId("pfd-rate").textContent).toBe("50 fps · lag 12 ms");

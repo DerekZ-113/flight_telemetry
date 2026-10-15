@@ -863,7 +863,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | nothing found in any message |
   | 4 | the fix after the backwards timestamp reads (0, 0); the fix after ENDED reads (0, 0) |
   | 5 | `lagMs` 0, 0, 360; `bridgeLagMs` 0, 0, 260; `lagExceeded` false at 500 and true at 250; the origins re-taken after the reconnect, after ENDED and after the backwards timestamp (the next frame's lag 0); the trail holds 3,600 |
-  | 6 | a `points` string of three pairs scaled into the viewBox; the marker a triangle rotated 45°; a dot at 0.5 m/s; the scale bar `10 m` for the metre-scale trail and `1 km` for the kilometre one; the POS flag with the trail still drawn; no `<image>` |
+  | 6 | a `points` string of three pairs scaled into the viewBox; the marker a triangle rotated 45°; a dot at 0.5 m/s; the scale bar `2 m` for the metre-scale trail (the 1-2-5 step nearest a quarter of the 10 m minimum half-extent) and `1 km` for the kilometre one; the POS flag with the trail still drawn; no `<image>` |
   | 7 | `TRK ---` with no rose; `TRK 090°` with the rose rotated by −90 |
   | 8 | recorded in FTS-VR-001 Entry 17 §17.5 as observed: the lag on return, whether the flag showed and cleared, the bridge-side lag |
 

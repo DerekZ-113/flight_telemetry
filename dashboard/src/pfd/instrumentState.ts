@@ -80,6 +80,16 @@ export function instrumentState(verdicts: FieldVerdict[], feed: FeedState): Inst
   }
 }
 
+// The track is shown only while the GPS channel is NOMINAL and the ground
+// speed is at or above the threshold hello named (REQ-DISP-002): a
+// stationary receiver's course is noise, so below the threshold the track
+// indicator reads dashes and draws no rose, with no flag, since nothing
+// failed.
+export function trackShown(feed: FeedState): boolean {
+  const frame = feed.lastFrame;
+  return frame !== null && frame.status.gps === "NOMINAL" && frame.frame.ground_speed_mps >= feed.trackMinSpeedMps;
+}
+
 // The strip's word for the feed, with its cause's measure: the badge's
 // text, except that a running feed past the lag threshold reads LAG with
 // the lag and a stale one reads STALE with the age (FTS-DS-001 §5).

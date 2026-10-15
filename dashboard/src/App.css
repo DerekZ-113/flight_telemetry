@@ -49,6 +49,14 @@ body {
   background: #0f1318;
 }
 
+.plot {
+  display: block;
+  width: 300px;
+  height: 300px;
+  border-radius: 6px;
+  background: #0f1318;
+}
+
 .bar {
   display: flex;
   align-items: baseline;

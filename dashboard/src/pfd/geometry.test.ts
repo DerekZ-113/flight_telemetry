@@ -7,9 +7,15 @@ import { describe, expect, it } from "vitest";
 import {
   horizonTransform,
   pitchLadder,
+  plotPoints,
+  plotScale,
   rollPointerTransform,
+  roseTicks,
+  roseTransform,
+  scaleBarLabel,
   tapeReadout,
   tapeTicks,
+  trackReadout,
   vsPointerY,
   vsReadout,
 } from "./geometry";
@@ -79,5 +85,44 @@ describe("the tapes' geometry", () => {
     expect(vsReadout(-393.7)).toBe("−400");
     expect(vsReadout(2952.8)).toBe("+2,950");
     expect(vsReadout(0)).toBe("0");
+  });
+});
+
+describe("the track indicator's geometry", () => {
+  it("turns the rose so the track sits under the lubber line, labelled every thirty degrees", () => {
+    expect(roseTransform(87)).toBe("rotate(-87 400 640)");
+    expect(roseTransform(0)).toBe("rotate(0 400 640)");
+    expect(roseTicks()).toHaveLength(36);
+    expect(roseTicks().filter((tick) => tick.label !== undefined).map((tick) => tick.label)).toEqual([
+      "N", "3", "6", "E", "12", "15", "S", "21", "24", "W", "30", "33",
+    ]);
+    expect(trackReadout(87.4)).toBe("087°");
+    expect(trackReadout(359.6)).toBe("000°");
+    expect(trackReadout(270)).toBe("270°");
+  });
+});
+
+describe("the ground track plot's geometry", () => {
+  it("scales to the trail with a 1-2-5 grid step and a scale bar in metres or kilometres", () => {
+    const small = plotScale([
+      { east_m: 0, north_m: 0 },
+      { east_m: 1, north_m: 0 },
+      { east_m: 1, north_m: 1 },
+    ]);
+    expect(small.halfExtentM).toBe(10);
+    expect(small.pxPerM).toBe(15);
+    expect(small.stepM).toBe(2);
+    expect(scaleBarLabel(small.stepM)).toBe("2 m");
+    expect(plotPoints([{ east_m: 0, north_m: 0 }, { east_m: 1, north_m: 0 }, { east_m: 1, north_m: 1 }], small)).toBe(
+      "150,150 165,150 165,135",
+    );
+    const far = plotScale([{ east_m: 0, north_m: 0 }, { east_m: 3000, north_m: 0 }]);
+    expect(far.halfExtentM).toBeCloseTo(3600, 6);
+    expect(far.stepM).toBe(1000);
+    expect(scaleBarLabel(far.stepM)).toBe("1 km");
+    expect(scaleBarLabel(200)).toBe("200 m");
+    expect(scaleBarLabel(5000)).toBe("5 km");
+    expect(plotScale([]).halfExtentM).toBe(10);
+    expect(plotScale([{ east_m: -40, north_m: 10 }]).halfExtentM).toBeCloseTo(48, 6);
   });
 });

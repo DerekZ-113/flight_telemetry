@@ -215,6 +215,19 @@ describe("the page", () => {
     expect(screen.getByTestId("pfd-mode").textContent).toBe("MODE UNKNOWN");
   });
 
+  it("draws the ground track plot beside the panel from the bridge's positions", () => {
+    renderPage();
+    openWithHello();
+    expect(screen.getByTestId("ground-track")).toBeTruthy();
+    expect(screen.getByTestId("plot-nofix").textContent).toBe("no fix");
+    deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
+    deliver({ ...frame(50, {}, { ground_speed_mps: 3, heading_deg: 90 }), position: { east_m: 1, north_m: 0 } });
+    expect(screen.getByTestId("plot-trail").getAttribute("points")).toBe("150,150 165,150");
+    expect(screen.getByTestId("plot-marker").getAttribute("transform")).toBe("translate(165 150) rotate(90)");
+    expect(screen.getByTestId("trk-readout").textContent).toBe("TRK 090°");
+    expect(screen.getByTestId("gs-readout").textContent).toBe("6");
+  });
+
   it("shows the lag and the bridge's share of it beside the counters", () => {
     renderPage();
     openWithHello();

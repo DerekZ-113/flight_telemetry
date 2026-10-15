@@ -12,7 +12,9 @@ import type { FeedState } from "../useTelemetryFeed";
 import { AltitudeTape } from "./AltitudeTape";
 import { AttitudeIndicator } from "./AttitudeIndicator";
 import { COLORS, PANEL, STRIP } from "./geometry";
-import { feedCause, feedStateText, instrumentState, lagLabel } from "./instrumentState";
+import { GroundSpeed } from "./GroundSpeed";
+import { feedCause, feedStateText, instrumentState, lagLabel, trackShown } from "./instrumentState";
+import { TrackIndicator } from "./TrackIndicator";
 import { VerticalSpeed } from "./VerticalSpeed";
 
 function stateColor(cause: ReturnType<typeof feedCause>, feed: FeedState): string {
@@ -42,6 +44,10 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   const attitude = instrumentState(frame === null ? [] : [frame.validity.pitch_deg, frame.validity.roll_deg], feed);
   const altitude = instrumentState(frame === null ? [] : [frame.validity.fused_altitude_m], feed);
   const verticalSpeed = instrumentState(frame === null ? [] : [frame.validity.vertical_speed_mps], feed);
+  // The raw instruments follow the GPS channel's status (REQ-DISP-002); the
+  // track is withheld below the speed threshold besides.
+  const gps = instrumentState(frame === null ? [] : [frame.status.gps], feed);
+  const track = trackShown(feed);
 
   return (
     <svg
@@ -92,6 +98,8 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
       <AttitudeIndicator pitchDeg={frame?.frame.pitch_deg ?? 0} rollDeg={frame?.frame.roll_deg ?? 0} state={attitude} />
       <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} />
       <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
+      <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={gps} />
+      <TrackIndicator trackDeg={frame?.frame.heading_deg ?? 0} shown={track} state={gps} />
     </svg>
   );
 }
