@@ -1014,7 +1014,7 @@ Reserved for the Raspberry Pi with the GT-U7: which port the board offers (`/dev
 ### 13.9 Open
 
 - §13.8. (§13.7 written 2026-10-14 from run 38668973387.)
-- Five parser and driver outcomes the record shows untaken (§13.7): a longitude that fails to convert beside a good latitude, a GGA with a position and an empty altitude, an RMC with an empty status field, a course that is not a number, a fix-quality GGA paired with a status-V RMC. Five tests, red first, in their own commit; TC-018's unit rows and the matrix's SENS-005 test list grow with them, and §13.3's sentence on lines 258 and 281 stands corrected by §13.7.
+- Five parser and driver outcomes the record shows untaken (§13.7): a longitude that fails to convert beside a good latitude, a GGA with a position and an empty altitude, an RMC with an empty status field, a course that is not a number, a fix-quality GGA paired with a status-V RMC. Five tests, red first, in their own commit; TC-018's unit rows and the matrix's SENS-005 test list grow with them, and §13.3's sentence on lines 258 and 281 stands corrected by §13.7. (Closed 2026-10-14, Entry 15: the five tests, each proven against its line by breaking that line and watching the test fail, in their own commit; TC-018 steps 2, 3, 5 and 13 and the SENS-005 row carry them.)
 - The capture fixture and TC-018 step 17's test, which land when the file does.
 - The six remaining `LCOV_EXCL_EXCEPTION_BR_LINE` lines and the rule they rest on (Entry 11 §11.8), unchanged by this topic.
 - FTS-DD-001 §12: GPS fix latency (the frame keeps the cycle's time; a fix is up to half a second old at 9600 baud); 2D fixes (quality 1 for 2D and 3D alike; GSA or a satellite count, parked with the fix-quality byte); the Kalman filter born from the barometer only, now decidable once a capture with a fix exists; the GPS variance retained at 25 m² until such a capture is analysed.
@@ -1102,3 +1102,73 @@ The first CI run with this entry's commits (`b9dce78`, the rails; `72edb7f`, thi
 - A recorded configuration older than this change is refused on replay (§14.5); whether the stationary capture of 2026-10-13 has a record beside it decides whether FTS-NP-001's replay runs need `--config`. (Closed 2026-10-14, on Derek's review of this entry: there is no stationary capture of 2026-10-13. The noise capture has not run, because the sensors are not yet soldered, so no real recording carries the old key; the first one is recorded with the 38-key file and FTS-NP-001's replay runs need no `--config`. Nothing in the repository is a recording either: `logs/` is ignored and regenerated per run, and no `captures/` exists. The general gap this item stood in front of is the last bullet below.)
 - The key's removal is Derek's to confirm or reverse before the v0.1.0 tag; nothing else in this entry depends on it except the key count. (Closed 2026-10-14: confirmed by Derek on review of this entry, the key stays removed as built; 38 keys is the configuration of record and `Plan - YAML Configuration`'s key is superseded.)
 - The recorded configuration carries no schema version the way the log carries a format version, so a key change refuses every older record on replay without `--config`: the three `sensors.gps` keys (Entry 13) and this entry's removal each did that. Parked in FTS-DD-001 §12 (2026-10-14), not built; to be decided before a key change would break the replay of a real capture.
+
+---
+
+## Entry 15 — 2026-10-14, the five GPS outcomes the record showed untaken: a test for each, proven against its line (macOS preview)
+
+Five unit tests and no code change: REQ-SENS-005 at unit level, TC-018 steps 2, 3, 5 and 13 extended, the FTS-TM-001 SENS-005 row; closes Entry 13 §13.9's second item. Built from the chat's outline (saved as the Obsidian plan `Plan - GPS Parser Tests`) in the same session and worktree as Entry 14, on `c17bafa`, which is `main` after the three CI sections of 2026-10-14 were committed. The first CI run with this commit is the measurement of record and goes in §15.4.
+
+### 15.1 What was built
+
+- `tests/unit/nmea_examples.h`: eight sentences, one field changed from the manual's in each, checksums recomputed by the same XOR as the other variants after it had matched the printed GGA, RMC and no-fix RMC: `kGgaLongitude181` and `kRmcLongitude181` (`18100.00000,E`), `kGgaNoAltitude` (quality 1) and `kGgaNoAltitudeQuality0`, `kRmcEmptyStatus` and `kNoFixRmcEmptyStatus` (`$GPRMC,,,,,,,,,,,,N*05`), `kRmcBadCourse` (`east`), `kRmcStatusVSameEpoch` (the oracle GGA's epoch, status V, mode N as the two no-fix forms).
+- `tests/unit/test_nmea.cpp`, four tests, each asserting `checksum_ok` on its sentence first so the sentence could have reached the branch through the driver: `PositionWithoutAltitudeIsNoPosition` (step 2: at quality 0 a `Gga` with `has_position` false, altitude 0, quality 0, 8 satellites; at quality 1 refused), `RmcEmptyStatusIsNotAFix` (step 3: parsed, `valid` false, the oracle's position, speed and course; the all-empty form parsed, not valid, no position), `LongitudeThatDoesNotConvertIsMalformed` (step 5: refused as a GGA and as an RMC), `NonNumericCourseIsMalformed` (step 5).
+- `tests/unit/test_nmea_gps.cpp`, one test: `FixQualityGgaWithStatusVRmcIsNoFix` (step 13: the oracle GGA and the V RMC of its epoch pair and no fix is delivered, `sentences 2`, `used 2`, `malformed 0`, `no_fix_epochs 1`, `incomplete_epochs 0`, `fixes 0`; then the oracle epoch delivers its fix with `incomplete_epochs` still 0, so the pending pair was consumed).
+- Documents: FTS-TP-001 TC-018 steps 2, 3, 5 and 13 and their expected rows (the existing steps grew; no new numbers, so the hardware steps stay 20 to 24 in every document that cites them); FTS-TM-001 SENS-005 (`NmeaTest.*` 27, `NmeaGpsTest.*` 17, the note; Partial as before, 28 Verified, 9 Partial, 0 Not started of 37); this entry; Entry 13 §13.9 closed. `src/` untouched: `git diff --stat -- src/` clean after every run below.
+
+### 15.2 The five, and the line each is proven against
+
+A test that pins behaviour the code already has passes on its first run, and all five did. Each was therefore proven the other way round: the line it covers was broken, the test run against it, the line restored, by a script that restores the line whatever happens and ends by checking `src/` clean.
+
+| Test | Line | The break | Against it |
+|---|---|---|---|
+| `LongitudeThatDoesNotConvertIsMalformed` | `nmea.cpp:100`, `latitude.has_value() && longitude.has_value()` | the longitude operand removed | fails: `parse_gga` and `parse_rmc` accept both sentences (`test_nmea.cpp:300`, `:302`) |
+| `PositionWithoutAltitudeIsNoPosition` | `nmea.cpp:239`, `position == Position::PRESENT && altitude_present` | the altitude operand removed | fails: `has_position` true at quality 0, the quality-1 sentence accepted (`:143`, `:148`) |
+| `RmcEmptyStatusIsNotAFix` | `nmea.cpp:258`, `status == "A" \|\| status == "V" \|\| status.empty()` | the empty operand removed | fails: the sentence refused (`:201`) |
+| `NonNumericCourseIsMalformed` | `nmea.cpp:281`, `!ok \|\| course < 0.0 \|\| course > 360.0` | `ok && (course < 0.0 \|\| course > 360.0)`: a parse failure no longer refuses | fails: accepted with course 0 (`:310`) |
+| `FixQualityGgaWithStatusVRmcIsNoFix` | `nmea_gps.cpp:163`, `gga.fix_quality >= 1 && rmc.valid` | the RMC operand removed | fails: a fix delivered, `no_fix_epochs` 0, `fixes` 1 (`test_nmea_gps.cpp:219`, `:223`, `:225`, `:232`) |
+
+The scripted run reported the second break as passing. The Mac's GNU make 3.81 compares timestamps in whole seconds, and the restore of the first break and the write of the second landed in the second the object had been compiled in, so the object was not rebuilt and the test ran against the unbroken parser; rerun by hand after a pause it failed on both assertions. The same artifact left the driver's broken object in `build` after the last break (source and object stamped the same second), which the full suite caught at once: `FixQualityGgaWithStatusVRmcIsNoFix` failed under `ctest` until the two sources were touched and rebuilt. Both are the build's timestamps, not the code's; the instrumented tree, built after every restore, passed all 294 the first time.
+
+**Why an empty RMC status is no fix rather than malformed.** NMEA 0183 calls an empty field a null field, data not available. The parser's rule (`nmea.h`) is that an empty field is absent and never an error, and §13.5 made that rule apply to every field, because a no-fix GGA has empty time, position and altitude. The status is the receiver's verdict and `rmc.valid` is true for an explicit `A` only, so a missing verdict can never make a fix; nothing in such a sentence is corrupt, so `malformed`, the counter the operator reads as a parser refusal, would misreport it. The sentence pairs with its GGA and the driver counts the epoch as what it is, a no-fix epoch (step 13's row). `X` is non-empty text with no meaning, the general malformed rule. The code does not say this; the test's comment and this entry do, and a comment at `nmea.cpp:258` is Derek's to approve (§15.5).
+
+### 15.3 Test results and coverage (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 294 of 294 (289 before), 3.07 s; `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| The five alone, first run | 5 of 5 green, as expected of tests that pin existing behaviour; the proof is §15.2 |
+| cppcheck 2.21.0 | 0 findings on 29 files, CI's flags (`src/` only, so unchanged by construction) |
+| pytest | not rerun: no file the suite drives changed |
+
+| Scope | Preview | Entry 14 | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 97.9% (233 of 238) | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 86.1% | 86.1% | 80% |
+| transport | 89.3% | 89.3% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 96.4% | 96.1% | 70% |
+| overall | 96.3% (788 of 818) | 96.2% | 80% |
+
+One edge more in the preview, five expected on the record. `nmea.cpp` 138 of 144 (137 before): the one is line 281's `!ok`, the only gap of the five that clang's accounting could see. Lines 100, 239 and `nmea_gps.cpp` 163 read two of two before and after, because clang puts a two-operand `&&` on one decision whose two outcomes other sentences already took, and line 258 keeps two of its eight surplus edges untaken with every outcome now fed, as `||` chains and `string_view` comparisons do here (§13.3). That is §13.7's finding seen from the other side: four of the five gaps are invisible in the preview and visible only on GCC, which counts one decision per operand. The six untaken edges of `nmea.cpp` are lines 204 (two), 205, 258 (two) and 262, all clang's surplus on lines whose every outcome is tested; `nmea_gps.cpp` 56 of 56, 140 of 140 lines. Prediction for §15.4: `nmea.cpp` 158 of 158 (154 on Entry 14's run), `nmea_gps.cpp` 60 of 60 (59), the untaken count 38 to 33 (the I2C device-file paths, the port's four hardware-bound calls, the `connect` failure), drivers 379 of 411 (92.2%, from 374 of 411), overall 801 of 834 (96.0%), unit tests 294.
+
+### 15.4 Measurement of record
+
+Reserved for the first CI run with this commit: GCC's count on the five lines against the prediction above, the per-scope table, the unit count.
+
+### 15.5 Decisions taken, and deviations from the outline
+
+- No change to `nmea.cpp` or `nmea_gps.cpp`, as the outline required. The empty status is explained in the test's comment and §15.2 rather than in the code; a one-line comment at `nmea.cpp:258` (an empty field is a null field: no verdict, not a fix, not an error) is proposed, Derek's to approve.
+- The tests sit in their TC-018 step sections (2, 3, 5 and 13) and the card's existing steps grew rather than gaining numbers, so the hardware steps keep theirs.
+- The quality-1 twin of the no-altitude sentence is in the step-2 test although it is refused rather than parsed: it shows what `has_position` false costs a fix-quality sentence, the rule at `nmea.cpp:242`, through the same operand.
+- The V-status RMC carries mode `N`, as the two no-fix forms do; the empty-status RMC keeps the manual's `A` with one field changed, as `kRmcStatusX` does. Neither field is parsed.
+- Beyond the outline, flagged and not edited: FTS-FM-001 FAULT-003's Test list names `NoFixEpochIsNotAReading` at the source, and the new driver test is its sibling.
+- Method, for the next proof of this kind on this Mac: touch the source or wait a second between restoring a line and the next build, and rebuild after the last restore before trusting `build` (§15.2).
+
+### 15.6 Open
+
+- §15.4.
+- The comment at `nmea.cpp:258` (§15.5), Derek's call.
+- Everything in Entry 13 §13.9 but its second item: §13.8, the capture fixture and step 17, the marked lines, the design §12 items, FAULT-003b.
