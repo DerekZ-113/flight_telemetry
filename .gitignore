@@ -26,6 +26,7 @@ __pycache__/
 # Private context and local Claude Code state (never committed)
 CLAUDE.local.md
 .claude/settings.local.json
+.claude/launch.json
 .claude/worktrees/
 
 # Python tests

@@ -111,18 +111,18 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
-| REQ-DISP-003 | — | — | TC-022 | Not started | In progress (2026-10-14): the page's stale judgment from arrival time; the threshold a bridge flag delivered in `hello`. |
-| REQ-DISP-004 | — | — | TC-022 | Not started | In progress (2026-10-14): the mode label from the session status; no mode until one arrives. |
+| REQ-DISP-003 | `dashboard/src/useTelemetryFeed.ts` (`judge`, `pruneAndCount`, the ticker, `lastArrivalMs` from the injected clock, `ended`), `dashboard/src/badge.ts` (`badgeFor`: STALE with the age, ENDED never stale), `dashboard/src/App.tsx` (the `stale` class on every value), `pipeline/bridge.py` (`--stale-ms`, delivered in `hello`) | `dashboard/src/useTelemetryFeed.test.ts` (8 tests: stale past the threshold and cleared on the next frame; an ended stream never stale and a new run judged again; the rate over the trailing second; the threshold from `hello`; the reconnect after the backoff; the socket closed on unmount; stray messages ignored), `dashboard/src/App.test.tsx` (steps 11 to 13: STALE with the age counting and every value marked, cleared by the next frame; ENDED never STALE; BRIDGE DISCONNECTED and the new socket) | TC-022 | Verified | Judged from the page's own clock at arrival, re-judged every 100 ms, against the threshold the bridge names (1 s as shipped); the last numbers stay legible under the mark. Vitest with jsdom, fake timers and a fake socket (FTS-TP-001 Section 2.5). |
+| REQ-DISP-004 | `dashboard/src/feed.ts` (`modeLabel`: MODE UNKNOWN, LIVE, SIM, REPLAY), `dashboard/src/App.tsx` (the label from the session), `dashboard/src/useTelemetryFeed.ts` (the session from `hello` and from a session message), `pipeline/bridge.py` (the session carried in `hello`) | `dashboard/src/App.test.tsx` (steps 8 and 9: no mode before a status; SIM and REPLAY labelled as themselves with no LIVE on the page; the mode from `hello` when joining mid-run), `dashboard/src/useTelemetryFeed.test.ts` (the session from `hello`) | TC-022 | Verified | The label comes from the session status of REQ-TRANS-004 and from nowhere else; the LIVE mode's status is recorded on the Pi (TC-021 step 9). |
 | REQ-DISP-005 | `pipeline/bridge.py` (`Bridge`: the reader thread and the loop, `frame_message` with `WITHHELD_FIELDS`, `session_message`, `hello`, `DEFAULT_HOST` 127.0.0.1, `--listen`, `--stale-ms`), `pipeline/receiver.py` (`FrameReceiver`, the sources it reads through) | `tests/integration/test_bridge.py` (6 tests: the loopback bind by default and `0.0.0.0` on request; `hello` first with the threshold, the period, the counts and no session; a frame by name with every field but the coordinates and no coordinate anywhere in the text, validity and status by name; a session status forwarded and carried in a later client's `hello`, ENDED to every client; two clients each receiving every frame and one leaving stopping nothing; a paced replay through a real ZeroMQ socket and the bridge to a client at the recorded cadence, then ENDED) | TC-022 | Verified | Frames and statuses pushed over a WebSocket as JSON by name, with the bridge's arrival time; loopback unless told otherwise; latitude and longitude never cross. REQ-DISP-001 and REQ-DISP-002 remain drafts in FTS-DD-001 Section 11.2. |
 
 ## 10. Coverage Summary
 
 | Status | Count | Requirements |
 |---|---|---|
-| Verified | 32 | SENS-006, PROC-001, PROC-002, PROC-003, PROC-005, PROC-006, PROC-007, FAULT-001, FAULT-002, FAULT-004, FAULT-005, FAULT-006, LOG-001, LOG-002, LOG-003, LOG-004, LOG-005, LOG-006, TIME-001, TIME-002, TIME-004, TRANS-001, TRANS-002, TRANS-003, TRANS-004, DISP-005, CFG-001, CFG-002, CFG-003, TEST-001, TEST-002, TEST-003 |
+| Verified | 34 | SENS-006, PROC-001, PROC-002, PROC-003, PROC-005, PROC-006, PROC-007, FAULT-001, FAULT-002, FAULT-004, FAULT-005, FAULT-006, LOG-001, LOG-002, LOG-003, LOG-004, LOG-005, LOG-006, TIME-001, TIME-002, TIME-004, TRANS-001, TRANS-002, TRANS-003, TRANS-004, DISP-003, DISP-004, DISP-005, CFG-001, CFG-002, CFG-003, TEST-001, TEST-002, TEST-003 |
 | Partial | 9 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, PROC-004, FAULT-003, TIME-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 2 | DISP-003, DISP-004 |
+| Not started | 0 | |
 | **Total** | **43** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
@@ -180,3 +180,16 @@ The Python modules trace the same way. Test files are named in the Test column o
 | `analysis/noise_profile.py` | REQ-PROC-004, REQ-PROC-007 (output statistics over NORMAL frames only) |
 
 Adding a module under `pipeline/` or `analysis/` without adding it here is the same failure.
+
+The page's modules trace the same way; their tests are named in the rows above and run by Vitest (`dashboard/src/*.test.ts*`, FTS-TP-001 Section 2.5):
+
+| File | Traced by |
+|---|---|
+| `dashboard/src/feed.ts` | REQ-DISP-005 (the bridge's JSON, typed field for field), REQ-DISP-004 (`modeLabel`), REQ-PROC-007 (the validity and status names) |
+| `dashboard/src/useTelemetryFeed.ts` | REQ-DISP-003 (staleness from arrival time, the rate, the reconnect), REQ-DISP-004 (the session) |
+| `dashboard/src/badge.ts` | REQ-DISP-003, REQ-DISP-004 (`badgeFor`: the feed's one-word state, ENDED never stale) |
+| `dashboard/src/App.tsx`, `App.css` | REQ-DISP-003 (the stale mark), REQ-DISP-004 (the label), REQ-PROC-007 (each validity by name beside its number) |
+| `dashboard/src/main.tsx` | REQ-DISP-005 (the bridge's address, the loopback) |
+| `dashboard/src/fakeSocket.ts`, `dashboard/src/testMessages.ts` | test support (FTS-TP-001 Section 2.5) |
+
+Adding a module under `dashboard/src/` without adding it here is the same failure.

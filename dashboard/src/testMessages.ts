@@ -1,0 +1,76 @@
+// Messages the tests deliver, built the way the bridge builds them.
+import type { ComputedField, FrameMessage, HelloMessage, Session, SessionMessage, ValidityName } from "./feed";
+
+export const PERIOD_MS = 20;
+export const STALE_MS = 1000;
+
+const VALIDITY_BYTES: Record<ValidityName, number> = {
+  NOT_JUDGED: 0,
+  NO_COMPUTED_DATA: 1,
+  FAILURE_WARNING: 2,
+  NORMAL: 3,
+};
+
+export function hello(session: Session | null = null, staleMs = STALE_MS): HelloMessage {
+  return { type: "hello", stale_ms: staleMs, period_ms: PERIOD_MS, session, frames_received: 0, gaps: 0, out_of_order: 0 };
+}
+
+export function session(mode: Session["mode"], state: Session["state"] = "RUNNING"): SessionMessage {
+  return { type: "session", mode, state, received_at_ms: 0 };
+}
+
+// A processed frame on the 20 ms grid: every validity NORMAL and every
+// channel NOMINAL and fresh unless overridden, no coordinates anywhere.
+export function frame(
+  index: number,
+  validity: Partial<Record<ComputedField, ValidityName>> = {},
+  values: Partial<FrameMessage["frame"]> = {},
+): FrameMessage {
+  const names: Record<ComputedField, ValidityName> = {
+    baro_altitude_m: "NORMAL",
+    pitch_deg: "NORMAL",
+    roll_deg: "NORMAL",
+    fused_altitude_m: "NORMAL",
+    vertical_speed_mps: "NORMAL",
+    ...validity,
+  };
+  return {
+    type: "frame",
+    received_at_ms: index * PERIOD_MS,
+    frame: {
+      timestamp_ms: index * PERIOD_MS,
+      pressure_hpa: 1013.25,
+      temperature_c: 20,
+      baro_altitude_m: 0,
+      accel_x: 0,
+      accel_y: 0,
+      accel_z: 9.81,
+      gyro_x: 0,
+      gyro_y: 0,
+      gyro_z: 0,
+      pitch_deg: 1.5,
+      roll_deg: -2.25,
+      reserved_a: 0,
+      gps_altitude_m: 3,
+      ground_speed_mps: 0,
+      heading_deg: 0,
+      fused_altitude_m: 12.5,
+      vertical_speed_mps: 0.25,
+      baro_status: 0,
+      imu_status: 0,
+      gps_status: 0,
+      baro_read_ok: true,
+      imu_read_ok: true,
+      gps_read_ok: index % 50 === 0,
+      baro_altitude_validity: VALIDITY_BYTES[names.baro_altitude_m],
+      pitch_validity: VALIDITY_BYTES[names.pitch_deg],
+      roll_validity: VALIDITY_BYTES[names.roll_deg],
+      fused_altitude_validity: VALIDITY_BYTES[names.fused_altitude_m],
+      vertical_speed_validity: VALIDITY_BYTES[names.vertical_speed_mps],
+      reserved_b: 0,
+      ...values,
+    },
+    validity: names,
+    status: { baro: "NOMINAL", imu: "NOMINAL", gps: "NOMINAL" },
+  };
+}
