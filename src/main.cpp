@@ -21,6 +21,7 @@
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
+#include "timing/timestamp_pacer.h"
 #include "transport/publisher.h"
 #include "transport/session_message.h"
 #include "transport/udp_publisher.h"
@@ -177,8 +178,9 @@ void print_event(const FaultEvent& event) {
 
 // Command line. The configuration file is the standing configuration
 // (REQ-CFG-001); a flag is a per-run instruction and wins where the two
-// overlap. --live takes no value and swaps the source for the real
-// sensors; the rest take one: --config <file> names the configuration,
+// overlap. --live and --pace take no value: the first swaps the source for
+// the real sensors, the second paces a replay to its log's own timestamps
+// (REQ-TIME-004); the rest take one: --config <file> names the configuration,
 // --replay <file> swaps the source for a log, --zmq <endpoint> and
 // --udp <ipv4>:<port> each enable a publisher for this run and override
 // its address in the file (both may be given), --cycles <n> sets the run
@@ -187,6 +189,7 @@ void print_event(const FaultEvent& event) {
 // Nothing else on the command line overrides a key.
 struct Options {
     bool live = false;
+    bool pace = false;                            // --replay at the log's recorded cadence (REQ-TIME-004)
     std::optional<std::string> config_path;
     std::optional<std::string> replay_file;
     std::optional<std::string> zmq_endpoint;
@@ -198,12 +201,13 @@ struct Options {
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
               << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced, to its end\n"
+              << "  --pace               with --replay: release each frame at its recorded time; lateness to logs/replay_jitter.csv\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles
@@ -253,6 +257,8 @@ Options parse_args(int argc, const char* const argv[]) {
             options.cycles = static_cast<int>(n);
         } else if (flag == "--live") {
             options.live = true;   // a flag without a value
+        } else if (flag == "--pace") {
+            options.pace = true;   // likewise; meaningful only with --replay, checked below
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
@@ -260,6 +266,8 @@ Options parse_args(int argc, const char* const argv[]) {
     }
     if (options.live && options.replay_file.has_value()) {
         options.error = "--live and --replay each choose the source; pass one of them";
+    } else if (options.pace && !options.replay_file.has_value()) {
+        options.error = "--pace paces a replay to its log's timestamps; pass --replay <log.bin> with it";
     }
     return options;
 }
@@ -343,10 +351,15 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // mutate per-frame state. The same instances must see every frame in
 // order, which is why they are created once outside the loop.
 //
-// The scheduler and jitter log are pointers, not references, because each
-// may be absent: a reference cannot be null, a pointer can. Replay passes
-// a null scheduler and runs unpaced; the frames carry their own timestamps
-// and pacing would add nothing to the identity check (REQ-LOG-003).
+// The scheduler, the pacer and the jitter log are pointers, not references,
+// because each may be absent: a reference cannot be null, a pointer can. A
+// live or simulated run has the scheduler; a paced replay has the pacer
+// (REQ-TIME-004), which waits after the read because its deadline is the
+// frame's own timestamp; an unpaced replay has neither, since its frames
+// carry their own timestamps and pacing adds nothing to the identity check
+// (REQ-LOG-003). The statements an unpaced run executes, and their order,
+// are the same with or without the pacer in the loop: pacing decides when a
+// frame goes out, never what is in it.
 //
 // The publishers are base pointers in a vector, empty without --zmq or
 // --udp. The loop publishes to each one it is given and never learns which
@@ -360,8 +373,8 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // datagram carrying the end has no later message to repair it.
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
-                  FixedRateScheduler* scheduler, JitterLog* jitter, std::optional<int> frame_count,
-                  RunMode mode, int status_every_cycles) {
+                  FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
+                  std::optional<int> frame_count, RunMode mode, int status_every_cycles) {
     ValidityTally tally;
     // The source is asked before every read (REQ-LOG-006): a replay stops
     // at its log's end, an endless source always answers yes, and
@@ -389,6 +402,17 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
         // would run LiveSensorSource::read_frame() or LogReplaySource::read_frame()
         // tomorrow, with no change to this code.
         TelemetryFrame raw = source.read_frame();
+
+        // A paced replay waits here, after the read: the deadline is the
+        // frame's recorded timestamp, and the wait changes nothing in the
+        // frame, which is what keeps the paced log byte-identical
+        // (REQ-TIME-004). Its lateness goes to the same jitter log.
+        if (pacer != nullptr) {
+            const CycleTiming timing = pacer->wait_for(raw.timestamp_ms);
+            if (jitter != nullptr) {
+                jitter->record(timing);
+            }
+        }
 
         // Non-virtual calls: one detector, one processor, behavior
         // configured rather than substituted.
@@ -429,7 +453,9 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
 // Usage: telemetry                        simulated source, 5 frames, config/telemetry_config.yaml
 //        telemetry --config other.yaml    the same with another configuration file
 //        telemetry --live --cycles 250    real sensors on the configured I2C bus, 5 s paced
-//        telemetry --replay <log.bin>     replay a recorded log with the configuration recorded beside it
+//        telemetry --replay <log.bin>     replay a recorded log with the configuration recorded beside it, to its end
+//        telemetry --replay <log.bin> --pace
+//                                         the same at the log's recorded cadence, lateness to logs/replay_jitter.csv
 //        telemetry --zmq tcp://127.0.0.1:5555 --cycles 500
 //                                         publish every processed frame; 10 s at 50 Hz
 //        telemetry --udp 127.0.0.1:5556 --cycles 500
@@ -658,15 +684,19 @@ int main(int argc, char* argv[]) {
         publishers.push_back(&udp_publisher.value());
     }
 
-    // Pacing (REQ-TIME-001, REQ-TIME-002). Live and simulated runs are
-    // held to the configured grid and their jitter is logged beside the
-    // log; a replay run is unpaced (see run()). The objects are built
-    // either way so their lifetime covers the loop; only the pointers
-    // decide whether they act.
-    FixedRateScheduler scheduler(clock, cfg.timing.period_ms * 1'000'000);
-    const std::filesystem::path jitter_path = std::filesystem::path(cfg.logging.directory) / "telemetry_jitter.csv";
+    // Pacing (REQ-TIME-001, REQ-TIME-002, REQ-TIME-004). Live and simulated
+    // runs are held to the configured grid; a paced replay to its log's own
+    // timestamps; an unpaced replay to nothing (see run()). Each paced run's
+    // lateness goes to a CSV named by the run's prefix, beside the log, so a
+    // paced replay never overwrites a live run's timing evidence. The objects
+    // are built either way so their lifetime covers the loop; only the
+    // pointers decide whether they act.
+    const uint64_t period_ns = cfg.timing.period_ms * 1'000'000ull;
+    FixedRateScheduler scheduler(clock, period_ns);
+    TimestampPacer pacer(clock, period_ns);
+    const std::filesystem::path jitter_path = std::filesystem::path(cfg.logging.directory) / (prefix + "_jitter.csv");
     std::optional<JitterLog> jitter;
-    if (!replaying) {
+    if (!replaying || options.pace) {
         jitter.emplace(jitter_path);
     }
 
@@ -688,6 +718,7 @@ int main(int argc, char* argv[]) {
 
     const ValidityTally tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
+                                    options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,
                                     cycles, mode, status_every_cycles);
 
@@ -703,7 +734,16 @@ int main(int argc, char* argv[]) {
                   << std::endl;
     }
 
-    if (jitter.has_value()) {
+    if (jitter.has_value() && options.pace) {
+        // The pacer's lateness, in the scheduler's terms: whole periods late
+        // are its overruns (REQ-TIME-004).
+        const JitterStats& st = jitter->stats();
+        std::cout << "Timing:    " << st.cycles << " frames paced to the log's timestamps"
+                  << ", lateness min/mean/max = " << st.min_ns / 1000.0 << " / "
+                  << st.mean_ns() / 1000.0 << " / " << st.max_ns / 1000.0 << " us"
+                  << ", late by a period or more = " << st.overruns
+                  << "  (" << jitter_path.string() << ")" << std::endl;
+    } else if (jitter.has_value()) {
         const JitterStats& st = jitter->stats();
         std::cout << "Timing:    " << st.cycles << " cycles at " << cfg.timing.period_ms << " ms"
                   << ", jitter min/mean/max = " << st.min_ns / 1000.0 << " / "

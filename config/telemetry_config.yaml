@@ -12,8 +12,9 @@
 # (010 is refused, not read as octal). A number is anything strtod reads in
 # full that is finite (.inf and .nan are refused). A switch is exactly true
 # or false. Text must not be empty. --zmq <endpoint> and --udp <ipv4>:<port>
-# enable a transport for one run and override its address; --live, --replay
-# and --cycles choose the run; nothing else on the command line overrides a key.
+# enable a transport for one run and override its address; --live, --replay,
+# --pace and --cycles choose the run; nothing else on the command line
+# overrides a key.
 #
 # The values here equal the defaults compiled into the module structs, the
 # unit tests' baseline; ConfigTest.ShippedFileEqualsDefaults fails the build

@@ -53,6 +53,7 @@ add_library(telemetry_core STATIC
     src/replay/log_replay_source.cpp
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
+    src/timing/timestamp_pacer.cpp
     src/timing/jitter_log.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
