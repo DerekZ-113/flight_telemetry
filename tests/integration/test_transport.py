@@ -218,7 +218,7 @@ def test_both_transports_at_once(telemetry_bin, tmp_path):
     run = run_published(telemetry_bin, [*zmq_flag, "--udp", f"127.0.0.1:{udp_source.port}", "--cycles", "100"],
                         tmp_path, zmq_receiver)
     udp_receiver = FrameReceiver(udp_source)
-    udp_frames = list(udp_receiver)
+    udp_frames = [record for record in udp_receiver if isinstance(record, Frame)]   # the statuses of TC-021 ride the same socket
     udp_receiver.close()
 
     assert run.returncode == 0, run.stdout[-400:]

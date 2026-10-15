@@ -56,6 +56,7 @@ add_library(telemetry_core STATIC
     src/timing/jitter_log.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
+    src/transport/session_message.cpp
     src/config/telemetry_config.cpp
 )
 

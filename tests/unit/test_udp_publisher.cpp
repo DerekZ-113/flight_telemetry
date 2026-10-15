@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -33,6 +34,7 @@
 
 #include "drivers/simulated_source.h"
 #include "logging/log_format.h"
+#include "transport/session_message.h"
 #include "transport/udp_publisher.h"
 
 namespace {
@@ -253,6 +255,17 @@ TEST(UdpPublisherTest, PortUnreachableIsCountedNotThrown) {
     EXPECT_EQ(publisher.stats().last_errno, ECONNREFUSED);
     EXPECT_EQ(publisher.stats().send_failures, 1u);
     EXPECT_TRUE(publisher.publish(frame));   // the report was consumed; this one goes out
+    // That frame drew another ICMP; a status meets its report through the
+    // same send (REQ-TRANS-004). macOS suppresses repeats for about 50 ms,
+    // so the wait is longer than the first one.
+    refused = false;
+    for (int attempt = 0; attempt < 300 && !refused; attempt++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        refused = !publisher.publish_status(RunMode::SIMULATED, StreamState::RUNNING);
+    }
+    ASSERT_TRUE(refused) << "the kernel never reported the unreachable port to the status send";
+    EXPECT_EQ(publisher.stats().send_failures, 2u);
+    EXPECT_EQ(publisher.stats().last_errno, ECONNREFUSED);
 }
 
 // A receiver that never reads, with a 4 KB buffer: the kernel drops on its
@@ -299,4 +312,32 @@ TEST(UdpPublisherTest, DirectedBroadcastIsRefusedOrRouted) {
     if (!sent) {
         EXPECT_EQ(stats.last_errno, EACCES);
     }
+}
+
+// REQ-TRANS-004, TC-021 step 3: a status is one datagram of eight bytes,
+// counted apart from frames.
+TEST(UdpPublisherTest, StatusDatagramIsEightBytes) {
+    Receiver receiver;
+    UdpPublisher publisher(kLoopback, receiver.port());
+    ASSERT_TRUE(publisher.ok());
+
+    ASSERT_TRUE(publisher.publish_status(RunMode::SIMULATED, StreamState::ENDED));
+
+    std::vector<uint8_t> datagram;
+    ASSERT_EQ(receiver.receive(datagram), static_cast<ssize_t>(kSessionMessageBytes));
+    const std::array<uint8_t, kSessionMessageBytes> expected =
+        session_message(RunMode::SIMULATED, StreamState::ENDED);
+    EXPECT_TRUE(std::equal(datagram.begin(), datagram.end(), expected.begin()));
+    EXPECT_EQ(publisher.stats().status_published, 1u);
+    EXPECT_EQ(publisher.stats().published, 0u);
+    EXPECT_EQ(publisher.stats().send_failures, 0u);
+}
+
+// TC-021 step 4.
+TEST(UdpPublisherTest, NotOkCountsAStatusFailure) {
+    UdpPublisher publisher("not-an-address", 5556);
+    ASSERT_FALSE(publisher.ok());
+    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::RUNNING));
+    EXPECT_EQ(publisher.stats().send_failures, 1u);
+    EXPECT_EQ(publisher.stats().status_published, 0u);
 }

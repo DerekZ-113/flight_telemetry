@@ -22,6 +22,7 @@
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
 #include "transport/publisher.h"
+#include "transport/session_message.h"
 #include "transport/udp_publisher.h"
 #include "transport/zmq_publisher.h"
 
@@ -86,14 +87,15 @@ void print_frame(const TelemetryFrame& frame) {
 }
 
 // One line per transport at exit: what the publisher accepted and what it
-// could see refused (REQ-TRANS-003). Loss is the receiver's number.
+// could see refused (REQ-TRANS-003), and the session statuses it sent
+// (REQ-TRANS-004). Loss is the receiver's number.
 void print_transport_summary(const PublishStats& stats, const std::string& where) {
     std::cout << "Transport: " << stats.published << " frames published " << where
               << ", send failures = " << stats.send_failures;
     if (stats.send_failures > 0) {
         std::cout << " (last errno " << stats.last_errno << ")";
     }
-    std::cout << std::endl;
+    std::cout << ", status messages = " << stats.status_published << std::endl;
 }
 
 // One line for the receiver at exit (REQ-SENS-005). The detector only
@@ -350,9 +352,16 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // --udp. The loop publishes to each one it is given and never learns which
 // transport it is: the DataSource rule applied to the output side
 // (REQ-TRANS-001, REQ-TRANS-002).
+//
+// The session status (REQ-TRANS-004) goes to the same publishers: RUNNING
+// with the run's mode before frame 0 and every `status_every_cycles` after
+// it (one second of cycles), so a consumer that joins late learns the mode
+// from the next one; ENDED after the last frame, repeated, because a lost
+// datagram carrying the end has no later message to repair it.
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
-                  FixedRateScheduler* scheduler, JitterLog* jitter, std::optional<int> frame_count) {
+                  FixedRateScheduler* scheduler, JitterLog* jitter, std::optional<int> frame_count,
+                  RunMode mode, int status_every_cycles) {
     ValidityTally tally;
     // The source is asked before every read (REQ-LOG-006): a replay stops
     // at its log's end, an endless source always answers yes, and
@@ -365,6 +374,13 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
             const CycleTiming timing = scheduler->wait_for_next_cycle();
             if (jitter != nullptr) {
                 jitter->record(timing);
+            }
+        }
+
+        // The status precedes the frame it announces, on every transport.
+        if (i % status_every_cycles == 0) {
+            for (Publisher* publisher : publishers) {
+                publisher->publish_status(mode, StreamState::RUNNING);
             }
         }
 
@@ -397,6 +413,15 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
             print_event(event);
         }
         std::cout << std::endl;
+    }
+
+    // The end, after the last frame: the one message with no successor to
+    // repair it on a lossy channel, so it goes out kEndedRepeats times and
+    // a receiver treats the repeats as one (REQ-TRANS-004).
+    for (int k = 0; k < kEndedRepeats; k++) {
+        for (Publisher* publisher : publishers) {
+            publisher->publish_status(mode, StreamState::ENDED);
+        }
     }
     return tally;
 }
@@ -537,6 +562,10 @@ int main(int argc, char* argv[]) {
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
+    // The run's mode, decided where the source is (REQ-TRANS-004): the one
+    // fact about the frames the wire cannot carry in them.
+    const RunMode mode = options.live ? RunMode::LIVE : (replaying ? RunMode::REPLAY : RunMode::SIMULATED);
+
     std::string source_error;
     std::unique_ptr<DataSource> source = create_source(options, cfg, clock, source_error);
     if (!source) {
@@ -652,10 +681,15 @@ int main(int argc, char* argv[]) {
     if (!cycles.has_value() && !replaying) {
         cycles = kDefaultCycles;
     }
+    // One RUNNING status per second of cycles (REQ-TRANS-004): the period
+    // is 20 to 1000 ms, so this is 50 cycles down to every cycle, and the
+    // floor keeps the interval at or under a second.
+    const int status_every_cycles = kStatusIntervalMs / cfg.timing.period_ms;
+
     const ValidityTally tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
                                     jitter.has_value() ? &jitter.value() : nullptr,
-                                    cycles);
+                                    cycles, mode, status_every_cycles);
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
