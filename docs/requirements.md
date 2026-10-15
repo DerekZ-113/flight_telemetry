@@ -1,7 +1,7 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.9.0
+> **Version:** 0.10.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-14
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
@@ -96,6 +96,10 @@ REQ-TIME-003: The system shall sustain the configured processing rate, with no m
 
 > **Rationale:** normal operating conditions means the target hardware with the standard configuration and no competing load, as exercised by TC-009 step 7 of FTS-TP-001.
 
+REQ-TIME-004: With `--pace`, replay mode shall release each frame to the pipeline at the wall-clock time that corresponds to its recorded timestamp, measured from the first frame and never before it; shall measure and log each frame's lateness as REQ-TIME-002 does for a live cycle; and shall produce processing outputs and a log identical, bit for bit, to those of the same replay unpaced.
+
+> **Rationale:** pacing changes when a frame goes out, never what is in it: every time-dependent computation reads the frame's own timestamp (REQ-FAULT-001's timeouts, both filters' intervals), so wall time is invisible to the pipeline and the identity of REQ-LOG-003 holds across the two runs. The deadline comes from the recorded timestamps because a live log carries real read times, not a grid (FTS-DD-001 Section 10). A frame whose deadline has passed is released at once and never skipped, since skipping would change the output; its lateness is measured and logged as a live cycle's jitter is, to a file named by the run's prefix, so a paced replay cannot overwrite a live run's timing evidence. Without `--pace` a replay stays unpaced and a replay that publishes does so as a burst.
+
 ## Transport
 
 REQ-TRANS-001: The system shall publish every processed TelemetryFrame over ZeroMQ using the publish/subscribe pattern for local inter-process communication.
@@ -109,6 +113,10 @@ REQ-TRANS-002: The system shall publish every processed TelemetryFrame over UDP 
 REQ-TRANS-003: A transport failure shall not block the processing loop or cause it to miss a cycle deadline (REQ-TIME-001).
 
 > **Rationale:** a transport failure includes no subscriber connected, a subscriber too slow to keep up, an endpoint that cannot be bound at startup, and a send that returns an error. Each is reported (counted, printed at exit, or refused at startup) and none is waited on inside the loop. For the UDP transport the same rule reads: a destination that cannot be routed or is not a unicast address is refused at startup; a send the kernel refuses, whether its buffer is full or it is reporting the port-unreachable it learned from an earlier datagram, is counted and never retried.
+
+REQ-TRANS-004: On every enabled transport, the system shall publish a session status message naming the run mode (live, simulated, replay) and the stream state (running, ended): once before the first frame, at least once per second while running, and after the last frame. The message shall be distinguishable from a frame message by its first bytes, is not a log record, and is never logged.
+
+> **Rationale:** from the frames alone a consumer cannot tell live, simulated and replayed data apart, nor a publisher that finished from a link that failed (FTS-DD-001 Section 11.2). Pub/sub has no handshake and a datagram no connection, so a consumer that joins late learns the mode from the next periodic message rather than from one sent at start. The end is the one message no later message can repair on a lossy channel, so it is sent three times and a consumer treats repeats as one. The log needs neither fact, its prefix says replay and its end is its end, so the log format and the frame message, a one-record log file, are unchanged: the status is eight bytes under its own magic, and a reader that meets any other first bytes refuses the message as before.
 
 ## Logging and Replay
 
@@ -126,11 +134,31 @@ REQ-LOG-005: The log header shall carry the format version. A reader shall accep
 
 > **Rationale:** logs must replay forever. The raw fields are the record and the pipeline recomputes everything else (REQ-LOG-004), so a version-1 log replays through the version-2 build and the replay is a version-2 log; a log the build cannot read must stop the run at startup by name, not feed zero frames through the pipeline (FTS-VR-001 Entry 11 §11.8). Bit identity (REQ-LOG-003) is claimed within one format version.
 
+REQ-LOG-006: Replay mode shall end at the end of its log: no cycle shall run after the last logged frame has been processed, `--cycles` shall cap a replay and never extend it, and the run shall report the number of frames replayed and whether the end of the log was reached.
+
+> **Rationale:** a replay that ran past its log repeated the last frame once per remaining cycle, and each repeat re-applied that frame's readings as fresh measurements over an interval of zero, which REQ-PROC-006 forbids, into a log that looked plausible (FTS-DD-001 Section 9; FTS-VR-001 Entry 12 §12.4 had only an exit line to show for it). A source now says whether a next frame exists (`DataSource::has_next()`); an endless source answers yes forever, so the live and simulated sources are unchanged, and a replay without `--cycles` runs to its end.
+
+## Display
+
+The Primary Flight Display consumes the frame through the receiver of REQ-TRANS-001 and REQ-TRANS-002. REQ-DISP-001 (a computed field rendered by its validity) and REQ-DISP-002 (a raw instrument rendered by its channel's status) are drafted in FTS-DD-001 Section 11.2 and enter with the instruments. The verdict view built first, each validity by name beside its number, traces to REQ-PROC-007, as the receiver's printed line does.
+
+REQ-DISP-003: A display shall derive a stale indication from frame arrival time at the display: when no frame has arrived within a configurable stale threshold, it shall mark every displayed value stale and show the time since the last frame, clearing the mark when a frame arrives; a stream whose publisher has reported it ended (REQ-TRANS-004) shall be shown as ended, not stale.
+
+> **Rationale:** no frame carries a sequence number or an age; `timestamp_ms` counts from the source's first frame on a clock the display does not share (FTS-DD-001 Section 12). The display's own clock at the moment a frame arrives is the one clock it shares with nothing, so staleness is judged from it. Freezing on the last value is the failure a display exists to prevent: a frozen number is indistinguishable from a current one. The threshold is a setting of the bridge (REQ-DISP-005), 1 s as shipped: fifty frames at the shipped rate, and the receiver's own quiet timeout.
+
+REQ-DISP-004: A display shall state the run mode of the data it shows, LIVE, SIM or REPLAY, from the session status of REQ-TRANS-004; shall show no mode until one has been received; and shall never label simulated or replayed data LIVE.
+
+> **Rationale:** live, simulated and replayed frames have one layout. Screenshots and the demo video of this display go public, so a page that defaulted to a mode, or labelled the simulator live, would misrepresent the data.
+
+REQ-DISP-005: A bridge shall forward every received frame and session status to connected browser clients as JSON that names each field, each validity and each channel status by name and carries the bridge's arrival time; shall listen on the loopback interface unless another address is named explicitly; and shall never forward absolute GPS coordinates, only a position relative to the first fix.
+
+> **Rationale:** frames are pushed over a WebSocket the moment they arrive, so the display's arrival time means something; polling would add half a poll of latency and make the arrival time the poll's, not the frame's. Anything bound to every interface is reachable by every host on the network; the browser is on the same machine, and widening the bind is a conscious flag. The coordinate rule lives in the bridge, the one place every frame passes, so no absolute position ever crosses the WebSocket; until an instrument needs a position, none is forwarded.
+
 ## Configuration
 
 REQ-CFG-001: The following system parameters shall be configurable through a YAML configuration file: sensor sample rates and the processing rate; the sensors' bus device and addresses, and the GPS receiver's presence, serial device and baud rate; fault detection timeouts, counts, and limits; filter tuning (Kalman covariances, complementary filter gain, and the sea-level reference pressure); transport addresses and ports; log file paths and maximum file size; and simulated-source noise.
 
-> **Rationale:** the file (`config/telemetry_config.yaml`, or the path given by `--config`) is the standing configuration and the only source of the values the binary runs with; there is no built-in fallback, so a missing file is refused at startup. `--live`, `--replay` and `--cycles` choose the run; `--zmq` and `--udp` enable a transport for one run and override its address, the only place a flag and a key overlap. Every key is required, and an unknown or duplicate key is an error, so a misspelled key cannot silently leave a value at some other setting. The defaults compiled into the module structs are the unit tests' baseline, never the binary's fallback; a test holds the shipped file equal to them.
+> **Rationale:** the file (`config/telemetry_config.yaml`, or the path given by `--config`) is the standing configuration and the only source of the values the binary runs with; there is no built-in fallback, so a missing file is refused at startup. `--live`, `--replay`, `--pace` and `--cycles` choose the run (a replay runs to the end of its log unless `--cycles` caps it); `--zmq` and `--udp` enable a transport for one run and override its address, the only place a flag and a key overlap. Every key is required, and an unknown or duplicate key is an error, so a misspelled key cannot silently leave a value at some other setting. The defaults compiled into the module structs are the unit tests' baseline, never the binary's fallback; a test holds the shipped file equal to them.
 
 REQ-CFG-002: At startup, the system shall validate every configuration value and report an error naming each invalid or out-of-range parameter.
 

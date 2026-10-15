@@ -4,9 +4,9 @@
 > **Version:** 0.1.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-14
-> **Related:** FTS-SRD-001 v0.9.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model), FTS-NP-001 (noise profile)
+> **Related:** FTS-SRD-001 v0.10.0 (requirements), FTS-TP-001 (test plan), FTS-DD-001 (design), FTS-FM-001 (fault model), FTS-NP-001 (noise profile)
 
-This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 9.
+This matrix records, for every requirement in FTS-SRD-001, the code that implements it and the test that verifies it. It is the bidirectional trace DO-178C Table A-7 asks for: reading a row left to right shows that a requirement has code and a test; reading the Implementation column against the source tree shows that no code exists without a requirement. Both directions are checked in Section 10.
 
 Requirement text is not repeated here. It lives in FTS-SRD-001 and is referenced by ID so that one edit updates one place. The Notes column carries what this document adds: what is missing when a row is not fully verified.
 
@@ -66,6 +66,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-TIME-001 | `src/timing/clock.cpp` (`MonotonicClock::sleep_until_ns`), `src/timing/fixed_rate_scheduler.cpp` (`FixedRateScheduler::wait_for_next_cycle`), `src/main.cpp` (`run`) | `test_timing.cpp: TimingTest.DeadlinesAdvanceByExactPeriod`, `WorkWithinPeriodDoesNotShiftPhase`, `LateByLessThanPeriodIsJitterNotAMiss`, `OverrunRephasesAndCountsMissed`, `StartIsImplicitOnFirstWait`, `MonotonicClockNeverWakesEarly`, `MonotonicClockSleepUntilPastReturnsPromptly` | TC-009 | Verified | Linux: `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`, exercised on CI. macOS: `nanosleep` fallback toward the absolute target (FTS-DD-001 §10). The period is `timing.period_ms`. |
 | REQ-TIME-002 | `src/timing/fixed_rate_scheduler.h` (`CycleTiming`), `src/timing/jitter_log.cpp` (`JitterLog`, `JitterStats`), `src/main.cpp` | `test_timing.cpp: TimingTest.JitterIsActualMinusScheduled`, `PunctualClockHasZeroJitterAndNoMisses`, `JitterStatsAggregate`, `JitterLogWritesCsv`, `JitterLogUnwritablePathReportsNotOk` | TC-009 | Verified | Per-cycle CSV in `logs/<prefix>_jitter.csv`, summary printed at end of run. |
 | REQ-TIME-003 | `src/timing/` (measurement in place) | TC-009 step 7 (pending hardware) | TC-009 | Partial | The 1 ms bound is judged on the Pi's `clock_nanosleep` path. macOS preview numbers in FTS-VR-001 do not satisfy it. |
+| REQ-TIME-004 | — | — | TC-020 | Not started | In progress (2026-10-14): `--pace`, a `TimestampPacer` on the `Clock` seam, the lateness CSV named by prefix. |
 
 ## 5. Transport
 
@@ -74,6 +75,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-TRANS-001 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher::publish`), `src/transport/publisher.h` (`Publisher`, the seam), `src/logging/log_format.cpp` (`frame_message`), `src/main.cpp` (`run`, `--zmq`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`FrameReceiver`, `ZmqSource`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindsAndReportsOk`, `MessageIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder`; `test_logging.cpp: LoggingTest.FrameMessageIsHeaderTagAndFrame`; `tests/integration/test_transport.py` (TC-005 over `tcp://`; both transports at once) | TC-005 | Verified | Unit level: round trip over `inproc://`, every message byte-identical to the log record behind its own header. Process level: TC-005 automated by the pytest over `tcp://` with the join index recorded (FTS-VR-001 Entry 10), after the hand run of 2026-10-11 (Entry 6). |
 | REQ-TRANS-002 | `src/transport/udp_publisher.cpp` (`UdpPublisher`), `src/transport/publisher.h`, `src/logging/log_format.cpp` (`frame_message`), `src/main.cpp` (`run`, the destination from the file or `--udp`), `src/config/telemetry_config.cpp` (`transport.udp.host` and `.port`); receiver: `pipeline/frame_format.py`, `pipeline/receiver.py` (`UdpSource`) | `test_udp_publisher.cpp: UdpPublisherTest.ConnectsAndReportsOk`, `DatagramIsHeaderTagAndFrameBytes`, `EveryPublishedFrameArrivesInOrder`; `tests/integration/test_transport.py` (TC-005 over UDP; both transports at once); `tests/integration/test_config.py` (`test_file_enabled_transport_publishes_without_a_flag[udp]`: the destination from the file alone) | TC-005, TC-010, TC-016 | Verified | One datagram per frame, the same one-record log message as ZeroMQ, to one unicast destination from the configuration file, which `--udp <ipv4>:<port>` enables and overrides for a run; verified at unit and process level (FTS-VR-001 Entries 10 and 11). |
 | REQ-TRANS-003 | `src/transport/zmq_publisher.cpp` (`ZmqPublisher` constructor, `publish`, `kDefaultSendHighWaterMark`, `kLingerMs`), `src/transport/udp_publisher.cpp` (`UdpPublisher` constructor: refusals at startup; `publish`: `MSG_DONTWAIT`, every refusal counted), `src/main.cpp` (`run`) | `test_zmq_publisher.cpp: ZmqPublisherTest.BindFailureIsReportedNotThrown`, `InvalidEndpointIsReportedNotThrown`, `NoSubscriberNeverBlocks`, `StalledSubscriberDropsInsteadOfBlocking`, `SendErrorIsCountedNotThrown`; `test_udp_publisher.cpp: UdpPublisherTest.BadAddressOrPortIsRefusedNotThrown`, `NonUnicastAddressIsRefused`, `SocketFailureIsReportedNotThrown`, `NoReceiverNeverBlocks`, `PortUnreachableIsCountedNotThrown`, `StalledReceiverDropsInsteadOfBlocking`, `DirectedBroadcastIsRefusedOrRouted`; `tests/integration/test_transport.py` (TC-010 steps 6 and 7 over both transports; the startup refusals) | TC-010 | Verified | Non-blocking proven at unit level for both publishers and at loop level by the pytest: a receiver stalled for 3 s and no receiver at all, each over both transports, with the loop's missed cycles and the receiver's counts recorded (FTS-VR-001 Entry 10). |
+| REQ-TRANS-004 | — | — | TC-021 | Not started | In progress (2026-10-14): the session status message, eight bytes under its own magic, on both transports; read by the receiver. |
 
 ## 6. Logging and Replay
 
@@ -84,6 +86,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | REQ-LOG-003 | `src/replay/log_replay_source.cpp` (`LogReplaySource`), `src/logging/log_reader.cpp`, `pipeline/log_reader.py` (the Python parse of TC-004 step 3) | `test_replay.cpp: ReplayTest.ReplayReproducesLiveSession` (500 frames, injected faults, `memcmp` on every frame and event); `tests/integration/test_replay_identity.py` (6 tests: 500 simulated frames and their replay parsed in Python, every raw and computed field equal, the two files byte-identical, every frame's bytes equal to its repacking, the timestamps on the simulator's grid) | TC-004 | Verified | Unit, file-level, and Python-parsed identity proven on one toolchain per run, the validity bytes included. Cross-platform identity is not claimed (FTS-DD-001 §8), and identity is claimed within one format version (REQ-LOG-005): a version-1 log replays, as replay, not as identity. |
 | REQ-LOG-004 | `src/data_source.h` (`DataSource`), `src/drivers/simulated_source.cpp`, `src/drivers/live_sensor_source.cpp`, `src/replay/log_replay_source.cpp`, `src/main.cpp` (`create_source`, `run`) | `test_replay.cpp: ReplayTest.ReplayStripsComputedFieldsAndStatus`, `ReplaySpansRotatedFiles`, `ReplayReproducesLiveSession`; `test_live_sensor_source.cpp: LiveSensorSourceTest.FrameCarriesBothChipsRawOnly` (the raw-only contract on the live side) | TC-004, TC-014 (step 14 on hardware) | Verified | Three concrete sources share one pipeline; `main` selects by `--replay` or `--live`. Replay strips computed fields, status and validity so the pipeline must recompute them, which is what lets a version-1 log replay through a version-2 build (REQ-LOG-005). |
 | REQ-LOG-005 | `src/logging/log_format.h` / `.cpp` (`kLogFormatVersion` 2, `kOldestReadableLogFormatVersion` 1, `header_problem`), `src/logging/log_reader.cpp` (the named refusal, `sanitize_version_1`), `src/telemetry_frame.h` (the version-2 layout and its `static_assert`s), `src/processing/fault_detector.h` (`FaultEvent::reserved`), `src/replay/log_replay_source.cpp` (`strip_to_raw`), `src/main.cpp` (the header probe before anything is built, the `Replay input:` line, the exhaustion line); `pipeline/frame_format.py` (`check_header`, the version range) | `test_logging.cpp: LoggingTest.HeaderRoundTrip`, `ReaderRejectsWrongVersion`, `Version1HeaderIsReadAndSanitized`, `ReaderRejectsWrongFrameSize`, `FrameMessageIsHeaderTagAndFrame`; `test_replay.cpp: ReplayTest.Version1LogReplaysAsRawFrames`, `ReplayStripsComputedFieldsAndStatus`; `test_telemetry_frame.cpp: FrameLayoutTest.EveryByteIsANamedField`, `EventReservedSitsBetweenTypeAndValue`; `tests/integration/test_log_reader.py` (the version range, the dtype's offsets); `tests/integration/test_validity.py` (a version-1 log replayed, a version-3 log refused by name, the exhaustion line, the Python reader on a version-1 file) | TC-017 | Verified | Readers accept 1 and 2 and refuse others by name before anything is built; a version-1 frame is read as version 2 with validity NOT_JUDGED and reserved zero, and a version-1 log replays through this build as a version-2 log (`test_validity.py`, `ReplayTest.Version1LogReplaysJudged`). Identity (REQ-LOG-003) is claimed within one version. |
+| REQ-LOG-006 | — | — | TC-019 | Not started | In progress (2026-10-14): `DataSource::has_next()`, the replay source's look-ahead, `--cycles` as a cap, the `Replay:` exit line. |
 
 ## 7. Configuration
 
@@ -104,15 +107,23 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 
 ---
 
-## 9. Coverage Summary
+## 9. Display
+
+| Requirement | Implementation | Test | Test Card | Status | Notes |
+|---|---|---|---|---|---|
+| REQ-DISP-003 | — | — | TC-022 | Not started | In progress (2026-10-14): the page's stale judgment from arrival time; the threshold a bridge flag delivered in `hello`. |
+| REQ-DISP-004 | — | — | TC-022 | Not started | In progress (2026-10-14): the mode label from the session status; no mode until one arrives. |
+| REQ-DISP-005 | — | — | TC-022 | Not started | In progress (2026-10-14): `pipeline/bridge.py`, loopback by default, no absolute coordinates forwarded. REQ-DISP-001 and REQ-DISP-002 remain drafts in FTS-DD-001 Section 11.2. |
+
+## 10. Coverage Summary
 
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 28 | SENS-006, PROC-001, PROC-002, PROC-003, PROC-005, PROC-006, PROC-007, FAULT-001, FAULT-002, FAULT-004, FAULT-005, FAULT-006, LOG-001, LOG-002, LOG-003, LOG-004, LOG-005, TIME-001, TIME-002, TRANS-001, TRANS-002, TRANS-003, CFG-001, CFG-002, CFG-003, TEST-001, TEST-002, TEST-003 |
 | Partial | 9 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, PROC-004, FAULT-003, TIME-003, TEST-004 |
 | Implemented | 0 | |
-| Not started | 0 | |
-| **Total** | **37** | |
+| Not started | 6 | TIME-004, TRANS-004, LOG-006, DISP-003, DISP-004, DISP-005 |
+| **Total** | **43** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
 

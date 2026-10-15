@@ -36,7 +36,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.2 Integration Tests
 
-- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015); the validity bytes, NO_DATA and the format version as the binary, the receiver and the reader present them (TC-017 steps 11 through 15, `test_validity.py`).
+- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015); the validity bytes, NO_DATA and the format version as the binary, the receiver and the reader present them (TC-017 steps 11 through 15, `test_validity.py`); a replay that ends at its log and one paced to its timestamps, through the binary (TC-019, TC-020); the session status over both transports (TC-021); and the bridge from the receiver to a WebSocket, driven in-process with a scripted source and a client, and once end to end from a paced replay (TC-022 steps 1 through 7).
 - **Framework:** pytest, with numpy and matplotlib for the analysis.
 - **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it. Every run of the binary passes `--config` with the shipped `config/telemetry_config.yaml` (the binary reads it relative to the working directory by default, and these runs happen in temporary directories); a test that needs another configuration hands the binary a copy with one line edited, and a later `--config` on the command line wins.
 - **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
@@ -58,6 +58,14 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Isolation:** None. This is the level at which the test doubles are removed.
 - **Executed:** On hardware days, never in CI. A card step at this level is marked *Hardware*.
 
+### 2.5 Page Tests
+
+- **Scope:** The browser page in `dashboard/`: the feed hook (the socket, arrival time, the rate, staleness, reconnection) and the view (the mode label, the state badge, each validity rendered by name).
+- **Framework:** Vitest with jsdom and React Testing Library.
+- **Isolation:** The hook takes the `WebSocket` constructor and the clock as options, so a test injects a fake socket that delivers scripted messages and fake timers that advance by fiat: no bridge, no network, no real time.
+- **Location:** `dashboard/src/*.test.ts` and `*.test.tsx`, run as `cd dashboard && npm test -- --run`.
+- **Executed:** Every commit, locally and in CI (the workflow's `page` job).
+
 ---
 
 ## 3. Test Tools
@@ -69,6 +77,8 @@ The two objectives work in opposite directions. Requirements-based testing start
 | gcov / lcov | Structural coverage | gcov is built into GCC and produces per-line and per-branch execution counts with no source changes. lcov aggregates gcov output into HTML reports and enforces thresholds in CI. Required by REQ-TEST-003. |
 | cppcheck | Static analysis | Detects undefined behavior, uninitialized members, and resource leaks without executing the code. Fast enough to run on every build. Required by REQ-TEST-004. |
 | CTest | Test runner | Ships with CMake. Runs the Google Test binaries and reports results in a form GitHub Actions can consume. |
+| Vitest | Page tests | The test runner of the page's own build tool (Vite), so one configuration serves the build and the tests; jsdom gives it a DOM without a browser, fake timers make the staleness tests instant. |
+| websockets | The bridge's server and its test client | A pure-Python WebSocket implementation on asyncio, no web framework around it; the test client is the same library. |
 
 Compiler warnings (`-Wall -Wextra -Wpedantic`) are treated as a static analysis layer of their own. A warning is a failed build.
 
@@ -550,7 +560,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   10. Detector: frames whose channel never reads; a channel's first reading; a fault on a channel's first-ever reading; a channel dead from power-on.
   11. *(pytest)* The session fixture's log and replay: the header version, every validity byte and status of every frame, the `Validity:` summary line of both runs, the replay's exit lines.
   12. *(pytest)* A synthetic version-1 log of 50 raw frames replayed with `--replay`: exit code, the notice on stdout, the replay log's header, its raw fields against the input's, every validity byte.
-  13. *(pytest)* A synthetic version-3 log replayed: exit code, stderr, the log directory; a 5-frame log replayed with `--cycles 12`: the exhaustion line.
+  13. *(pytest)* A synthetic version-3 log replayed: exit code, stderr, the log directory; a 5-frame log replayed with `--cycles 12`: the end-of-log line (REQ-LOG-006, TC-019).
   14. *(pytest, each transport)* A published run: each receiver line's validity names, and the frames against the log.
   15. *(pytest)* The Python reader: the dtype's offsets at 52, 98 to 103 and the event's 10; `VALIDITY_NAMES` and `STATUS_NAMES`; `invalid_as_nan` on frames with one FAILURE_WARNING field; a version-1 log read with the bytes the file holds; `summary()` on a mixed log.
   16. *(Recorded)* The reference log against the candidate's after commit 1 and after commit 2, by `cmp -l` and by the comparison script, both SHA-256s recorded.
@@ -570,7 +580,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 10 | NO_DATA on every frame before the first reading; NOMINAL on the first reading with no event; DEGRADED with its event on a first-reading fault; NO_DATA on every frame before the timeout and DEGRADED after it |
   | 11 | version 2; every validity NORMAL and every status NOMINAL on all 500 frames of both logs; `Validity:  every computed field NORMAL on 500 of 500 frames (first on frame 0)` in both; no exhaustion line |
   | 12 | exit 0; "format version 1" on stdout; the replay log version 2; raw fields equal; no NOT_JUDGED byte |
-  | 13 | exit 1, stderr names "format version 3" and "reads 1 to 2", no `logs/` written; "replay exhausted after 5 frames; 7 cycles repeated the last frame" |
+  | 13 | exit 1, stderr names "format version 3" and "reads 1 to 2", no `logs/` written; "Replay:    5 frames, end of log reached" and a 5-frame replay log (REQ-LOG-006; until it, "replay exhausted after 5 frames; 7 cycles repeated the last frame" and a 12-frame log) |
   | 14 | the names beside the values on every line; the frames byte-identical to the log |
   | 15 | the offsets; the two dictionaries; NaN in the flagged field only; the file's bytes; the counts |
   | 16 | after commit 1 one differing byte, offset 5; after commit 2 offset 5 and, in every frame, exactly offsets 98 to 102 with the pattern `03 03 03 03 03`; reserved bytes zero; every event identical |
@@ -639,6 +649,140 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Steps 1 through 19 exact as listed. Any sentence accepted with a wrong or missing checksum, any fix delivered from a no-fix epoch, any `gps_read_ok` true on a frame whose poll completed no epoch, any difference between the three capture runs, or any `-Werror` or cppcheck finding on the new files fails. Steps 20 to 24 fail on a bad-checksum count above zero at 9600 baud, on any event other than those listed, or on a byte difference in the replay.
 
+### TC-019: Replay Ends at the End of Its Log
+
+- **Requirement:** REQ-LOG-006 (also exercises REQ-LOG-004 and REQ-PROC-006)
+- **Level:** Unit (steps 1 through 5: `tests/unit/test_replay.cpp`), Integration (steps 6 and 7: `tests/integration/test_replay_pacing.py`)
+- **Objective:** Verify that a source can say whether a next frame exists, that the replay source answers from a one-frame look-ahead without consuming the frame, that the loop stops at the end of the log whatever `--cycles` says, that `--cycles` still caps a replay, and that the run reports both outcomes by name.
+- **Preconditions:** Logs written by `BinaryLogger` in a temporary directory (unit), or by `synthetic_log` with the shipped configuration copied beside them (integration), as TC-017 steps 12 and 13 do.
+- **Steps:**
+  1. Log three frames; call `has_next()` before each `read_frame()` and once after the third; call `has_next()` twice in a row, then read; read once more past the end.
+  2. Construct the source over a list whose first path does not exist and whose second holds one frame; call `has_next()`, then read.
+  3. Construct the source over an empty list; call `has_next()`.
+  4. Wrap a replay source in `FaultInjectingSource` and call `has_next()` through it before and after its frames; wrap a `SimulatedSource` and call it a hundred times.
+  5. Drive the thesis replay of TC-004 (`ReplayReproducesLiveSession`) with `while (source.has_next())` instead of a fixed count.
+  6. *(pytest)* Replay a 5-frame log with `--cycles 12`; with `--cycles 3`; with no `--cycles`.
+  7. *(pytest)* Compare the replay log of step 6's first run with that of a `--cycles 5` run, and list the timestamps of each.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | true, true, true, then false; the double call returns the same frame once and `frames_read()` counts it once; the read past the end returns the last frame and `exhausted()` reports true |
+  | 2 | true; the frame from the second file; the first path skipped |
+  | 3 | false, `exhausted()` true |
+  | 4 | true before and false after, as the inner source answers; the simulator true a hundred times |
+  | 5 | exactly 500 frames, every one bit-identical to the live run's, `exhausted()` true after the loop |
+  | 6 | 5 frames and `Replay:    5 frames, end of log reached`; 3 frames and `Replay:    3 frames, stopped by --cycles before the end of the log`; 5 frames and the end-of-log line |
+  | 7 | byte-identical; no timestamp repeats |
+
+- **Pass/fail:** Exact as listed. Any frame processed, logged or published after the last logged frame, or any replay log longer than its input, fails.
+
+### TC-020: Paced Replay Against the Recorded Timestamps
+
+- **Requirement:** REQ-TIME-004 (also exercises REQ-TIME-002, REQ-LOG-003 and REQ-TRANS-004)
+- **Level:** Unit (steps 1 through 5: `tests/unit/test_timestamp_pacer.cpp` on `FakeClock`), Integration (steps 6 through 9: `tests/integration/test_replay_pacing.py`)
+- **Objective:** Verify that the pacer maps each recorded timestamp to a wall-clock deadline measured from the first frame, sleeps until it through the `Clock` seam, never sleeps on a deadline that has passed, reports lateness without accumulating it, honours gaps as recorded, and that a paced replay's output is byte-identical to the unpaced one while its frames leave at the recorded cadence.
+- **Preconditions:** The fake clock of TC-009 for the unit steps; the session fixture's 500-frame log for the integration steps; for step 9 a receiver listening before the run (TC-005 step 1).
+- **Steps:**
+  1. Call `wait_for` with 0, 20, 40 and 100 ms on a punctual fake clock.
+  2. Make the fake clock wake 3 ms late on every sleep; call `wait_for` with 0, 20, 40 and 60 ms.
+  3. Call `wait_for` with 0, 100, then 50 ms.
+  4. Call `wait_for` with 0, then 1000 ms.
+  5. Call `wait_for` first with 3000 ms on a clock reading T, then with 3020 ms.
+  6. *(pytest)* Replay the session log with `--pace --cycles 150` and, separately, with `--cycles 150`; time both runs.
+  7. *(pytest)* Read `logs/replay_jitter.csv` of the paced run; list the log directory.
+  8. *(pytest)* Run `telemetry --pace` without `--replay`.
+  9. *(pytest)* With a receiver listening, replay the session log with `--pace --cycles 100 --zmq <endpoint>`; record each frame's arrival time.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | sleeps requested at origin + 0, 20, 40 and 100 ms, in that order; `scheduled_ns` equal to them; `jitter_ns` 0 on every call; `cycle` 0, 1, 2, 3; `missed_cycles` 0 |
+  | 2 | `jitter_ns` 3 ms on every call and every `scheduled_ns` still origin-relative (20, 40, 60 ms after the first): lateness does not accumulate |
+  | 3 | the third call sleeps on nothing and returns at once with a positive `jitter_ns` (actual minus the past deadline); the frame is not skipped |
+  | 4 | one sleep, to origin + 1 s |
+  | 5 | the origin is (T, 3000 ms): the first deadline is T, the second T + 20 ms |
+  | 6 | the two replay logs byte-identical, and equal to the original's first 150 frames; the paced run about 3 s (150 frames at 20 ms), the unpaced under 1 s |
+  | 7 | 150 rows, `jitter_ns` never negative, its maximum under one period (20 ms; min, mean and max printed and recorded in FTS-VR-001); `logs/telemetry_jitter.csv` absent |
+  | 8 | exit 1, stderr naming `--pace` and `--replay`; no `logs/` written |
+  | 9 | 100 frames, 0 gaps, each byte-identical to the log, arrivals spanning about 2 s from first to last; then the ENDED status of TC-021 |
+
+- **Pass/fail:** Steps 1 through 5 exact. Step 6 fails on any byte difference. Step 7 fails on a negative lateness or a maximum of one period or more on the Mac or the CI runner (the 1 ms bound of REQ-TIME-003 is a live-run figure on the Pi and is not claimed here). Steps 8 and 9 as listed.
+
+### TC-021: Session Status on the Wire
+
+- **Requirement:** REQ-TRANS-004 (also exercises REQ-TRANS-001, REQ-TRANS-002 and REQ-TRANS-003)
+- **Level:** Unit (steps 1 through 4: `tests/unit/test_session_message.cpp`, `test_zmq_publisher.cpp`, `test_udp_publisher.cpp`), Integration (steps 5 through 8: `tests/integration/test_session_status.py`), Hardware (step 9)
+- **Objective:** Verify that the status message is eight bytes under its own magic that no frame reader accepts, that both transports send it through the same seam and count it apart from frames, that a run announces its mode before the first frame, repeats it about once a second and reports the end after the last frame, that the receiver reads it and ends on it, and that the status messages change no byte of the log.
+- **Preconditions:** The in-process subscriber of TC-005 over `inproc://`; a datagram socket bound on the loopback; the receiver harness of TC-005 for the integration steps.
+- **Steps:**
+  1. Build `session_message(REPLAY, RUNNING)`; copy its eight bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
+  2. Publish a status over `inproc://` to a settled subscriber; read the publisher's counters.
+  3. Publish a status to a bound datagram socket; read it.
+  4. Publish a status through a publisher that is not ok.
+  5. *(pytest, each transport)* Run the simulator for 120 cycles with the receiver listening; record every status with its position among the frames and the receiver's time of exit.
+  6. *(pytest)* Parse the eight bytes with `frame_format.parse_message`; parse seven bytes; parse eight bytes whose mode byte is 9.
+  7. *(pytest)* Replay a log with the receiver listening; read the statuses.
+  8. *(pytest)* Run the simulator for 120 cycles with `--zmq` and without; compare the two logs.
+  9. *(Hardware)* `telemetry --live --zmq <endpoint> --cycles 250` on the Raspberry Pi with the receiver, then the bridge and the page, on the Mac.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `46 54 53 53 01 03 01 00`; "bad magic: not a telemetry log"; LIVE, SIMULATED, REPLAY; RUNNING, ENDED |
+  | 2 | the subscriber receives exactly those eight bytes; `status_published` 1, `published` 0, `send_failures` 0 |
+  | 3 | one datagram of eight bytes |
+  | 4 | false, `send_failures` 1 |
+  | 5 | a RUNNING SIMULATED status before frame 0 (UDP: before any frame; ZeroMQ: before the first frame received, within the join), another before frames 50 and 100, ENDED after frame 119 (three copies over UDP, at least one over ZeroMQ); the receiver exits on ENDED well inside its 1 s quiet timeout, printing `session: mode=SIMULATED state=ENDED`; `status messages = 6` on the transport line |
+  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING")`; `FormatError` naming the length; `FormatError` naming mode 9 |
+  | 7 | mode REPLAY on every status, ENDED last |
+  | 8 | byte-identical |
+  | 9 | mode LIVE before the first frame and ENDED at exit, shown by the receiver and by the page |
+
+- **Pass/fail:** Steps 1 through 8 exact as listed; a status read as a frame, a frame changed by a status, or a receiver that waits out its timeout after ENDED fails. Step 9 is recorded in FTS-VR-001.
+
+### TC-022: The Bridge and the Page
+
+- **Requirement:** REQ-DISP-003, REQ-DISP-004, REQ-DISP-005 (also exercises REQ-PROC-007 and REQ-TRANS-004)
+- **Level:** Integration (steps 1 through 7: `tests/integration/test_bridge.py`, in-process but for step 7, which runs the binary), Page (steps 8 through 14: `dashboard/src/useTelemetryFeed.test.ts` and `dashboard/src/App.test.tsx`, Vitest with jsdom, a fake socket and fake timers)
+- **Objective:** Verify that the bridge listens on the loopback unless told otherwise, greets each client with the threshold and the last session status, forwards every frame and status as JSON by name without absolute coordinates, serves several clients, and carries a paced replay end to end; and that the page shows no mode until a status arrives and never shows SIM or REPLAY as LIVE, renders each validity value by name, marks the feed stale from its own arrival clock and recovers, shows an ended stream as ended, and reports a lost bridge.
+- **Preconditions:** A `ByteSource` fed from a list, as TC-005 step 6's; a `websockets` client; for step 7 the session fixture's log and a free ZeroMQ port; the page tests inject a fake `WebSocket` and a fake clock through the hook's options.
+- **Steps:**
+  1. Start the bridge with no `--listen`; read the bound address. Start it with `--listen 0.0.0.0:0`; read the bound address.
+  2. Connect a client; read its first message.
+  3. Feed one frame with every field set to a distinct value; read the client's next message.
+  4. Feed a RUNNING REPLAY status; read the message; connect a second client and read its first message.
+  5. Feed an ENDED status; read both clients.
+  6. Feed ten frames with two clients connected; disconnect one after five; feed ten more.
+  7. Run `telemetry --replay <session log> --pace --cycles 100 --zmq <endpoint>` with the bridge reading that endpoint and a client connected; record each message's arrival time.
+  8. Render the page with no message received.
+  9. Deliver a session status with mode SIMULATED; then one with mode REPLAY; then one with mode LIVE.
+  10. Deliver frames whose five validity bytes are, in turn, NORMAL, FAILURE_WARNING, NO_COMPUTED_DATA and NOT_JUDGED, and read each field's cell; deliver 50 frames over one simulated second and read the rate and the last frame's timestamp.
+  11. Advance the fake clock past `stale_ms` with no frame; read the badge, the age and every cell; deliver a frame.
+  12. Deliver an ENDED status; advance the clock past `stale_ms`.
+  13. Close the fake socket; advance the clock past the backoff.
+  14. Search the rendered DOM for "latitude", "longitude" and any decimal degree.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | `127.0.0.1`; `0.0.0.0` |
+  | 2 | `{"type":"hello", ...}` with `stale_ms` 1000, `period_ms` 20, `session` null, the three counts 0 |
+  | 3 | `type` frame; `frame` holds every name of `FRAME_FIELDS` but `latitude` and `longitude`, each with its value; `validity` and `status` by name from `frame_format`'s tables; `received_at_ms` present |
+  | 4 | `{"type":"session","mode":"REPLAY","state":"RUNNING",...}`; the second client's `hello` carries that session |
+  | 5 | both clients receive the ENDED session message |
+  | 6 | the remaining client receives all twenty; the bridge keeps running |
+  | 7 | 100 frames in order, arrivals spanning about 2 s, then a session message with state ENDED |
+  | 8 | the label "MODE UNKNOWN", the badge WAITING, no frame data |
+  | 9 | SIM; REPLAY; LIVE; the text "LIVE" absent from the page for the first two |
+  | 10 | NORMAL: the value and the name; FAILURE_WARNING: the value, the name, flagged; NO_COMPUTED_DATA: dashes and the name; NOT_JUDGED: dashes, the name and a pipeline-fault annunciator; each distinguishable by text and by class; the rate about 50 per second and the last timestamp the newest frame's |
+  | 11 | STALE with the age counting, every value cell carrying the stale class with its last number still shown, the rate 0; the next frame clears all of it |
+  | 12 | ENDED with the last frame's time; the badge stays ENDED and never reads STALE |
+  | 13 | BRIDGE DISCONNECTED; a new socket constructed after the backoff |
+  | 14 | nothing found |
+
+- **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, or an ended stream shown as stale fails.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -673,6 +817,8 @@ Chasing these to 100% produces tests that exist to satisfy the metric rather tha
 
 Processing carries the highest target because filters and fault detection are pure logic with no hardware dependency, so every branch is reachable from a unit test; the configuration loader shares it, every branch of it reachable from a string. Drivers carry the lowest because their error branches are hardware-bound. The overall figure is a floor, not a goal.
 
+The gate measures `src/` (REQ-TEST-003). The Python modules under `pipeline/` are not under it and never were; the page in `dashboard/` is not either: its line and branch figures from Vitest's coverage run in CI are recorded per entry in FTS-VR-001 beside the C++ scopes, reported and not gated, because the coverage tooling of record is gcov/lcov over the C++ and a second gate with a second tool would need its own exclusion policy.
+
 ### 6.4 MC/DC
 
 Modified Condition/Decision Coverage is the structural coverage criterion DO-178C requires for Level A software. It extends branch coverage to compound conditions: for a decision such as `if (a && b)`, MC/DC requires test cases showing that each of `a` and `b` independently changes the outcome while the other is held fixed. Branch coverage is satisfied by two test cases (true, false). MC/DC needs at least three for two conditions, and N+1 for N conditions.
@@ -688,5 +834,5 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
-- `DataSource` has no end-of-stream signal; `LogReplaySource` repeats its last frame after the log ends and exposes `exhausted()`. See FTS-DD-001 open decisions.
+- The session status message's LIVE mode (TC-021 step 9) and a paced replay's lateness on the Raspberry Pi are recorded on the next hardware day. The end-of-stream signal on `DataSource` is built (REQ-LOG-006, TC-019).
 - GPS fix-quality detection at the detector (FAULT-003b) is deferred until the frame carries a fix-quality byte (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.
