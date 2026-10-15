@@ -255,7 +255,7 @@ std::optional<Rmc> parse_rmc(const std::vector<std::string>& f) {
     // A string_view: its comparisons are noexcept, so these lines carry no
     // exception edge on GCC (the coverage style rule).
     const std::string_view status = f[kRmcStatus];
-    const bool known_status = status == "A" || status == "V" || status.empty();
+    const bool known_status = status == "A" || status == "V" || status.empty();  // an empty field is a null field: no verdict, not a fix, not an error
     if (!known_status) {
         return std::nullopt;
     }
