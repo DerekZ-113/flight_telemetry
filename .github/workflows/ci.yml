@@ -34,9 +34,11 @@ jobs:
       - name: Install tools
         # libzmq3-dev is the ZeroMQ C library the transport links
         # (REQ-TRANS-001); its C++ wrapper is fetched by CMake, pinned.
+        # libcurl4-openssl-dev is the HTTP client the ADS-B source links
+        # (REQ-SENS-008); its JSON parser is fetched by CMake, pinned.
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake lcov cppcheck libzmq3-dev
+          sudo apt-get install -y cmake lcov cppcheck libzmq3-dev libcurl4-openssl-dev
 
       - name: Configure (warnings as errors, coverage on)
         run: >
