@@ -174,7 +174,9 @@ endif()
 FetchContent_Declare(
     json
     URL      https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa   # pinned: the release asset's digest, computed at the first fetch
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa   # pinned: the release asset's digest; the asset's detached signature verified
+                                                                                      # against the maintainer's key (fingerprint 797167AE41C0A6D9232E48457F3CEA63AE251B69,
+                                                                                      # the one the project's README names) on 2026-10-15, FTS-VR-001 Entry 18 §18.6
 )
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 set(JSON_Install OFF CACHE INTERNAL "")
