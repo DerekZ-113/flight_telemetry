@@ -998,11 +998,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Steps:**
   1. Read one frame before any poll; then `poll_once()` with the example response and read the next frame.
   2. Read 100 frames across two polls; inspect the barometer's and the IMU's fields, read flags and statuses on every frame.
-  3. Advance the fake clock by 19.6 ms and 79.6 ms between reads.
+  3. Read a frame; advance the fake clock to 39.6 ms and read; to 79.6 ms and read.
   4. Read the GPS fields of the frames before the first poll.
   5. After a poll, read 250 frames with no further poll.
   6. Poll again with the same position time; poll with a later one; poll with a document in which the kept aircraft is gone and another selected, with an older position time.
-  7. Poll with a transport error; poll twice without reading a frame between.
+  7. Poll with a transport error; poll twice without reading a frame between; then three polls with no frame between, the kept aircraft absent from the last two.
   8. Read `identity()` before any poll, after the first, and after the switch of step 6; read the switch records.
   9. `start()` with the fake scripting 401 on the token request; then with 503 on the token request.
   10. The worker alone: a 1 ms step for two seconds, `stop()`, the count; `stop()` before `start()` and twice; a 10 s delay stopped; the first step's time against the first delay. The source with the real thread at a 10 ms interval: wait for a second report, `stop()`, the fake's record; a source parked on a 429 with `Retry-After: 3600`, destroyed.
@@ -1025,7 +1025,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 4 | 0 and not fresh |
   | 5 | fresh on the first of the 250 and held with the flag false on the other 249, the fields unchanged |
   | 6 | not fresh; fresh once with the new values; fresh once with the new aircraft's values |
-  | 7 | the fields held, `gps_read_ok` false, the transport error counted; the first report replaced, `overwritten` 1 |
+  | 7 | the fields held, `gps_read_ok` false, the transport error counted; the first report replaced, `overwritten` 1; the initial selection and the switch to the next aircraft both recorded on the one frame, in order, each with its own poll |
   | 8 | zero bytes; the first aircraft's address and callsign; the second's; two records, each with the timestamp of the first frame that carried its aircraft |
   | 9 | false, `error()` naming HTTP 401 and the credentials path and no body; true, the token endpoint's failure counted |
   | 10 | at least three steps, the count frozen after `stop()`, `running()` false; harmless; stopped in under a second; the first step not before the first delay; a second report within two seconds, no request in the record after the join; destroyed in under a second |

@@ -53,6 +53,8 @@ add_library(telemetry_core STATIC
     src/drivers/opensky_json.cpp
     src/drivers/opensky_client.cpp
     src/drivers/aircraft_selector.cpp
+    src/drivers/adsb_source.cpp
+    src/drivers/selection_log.cpp
     src/logging/log_format.cpp
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp
@@ -61,6 +63,7 @@ add_library(telemetry_core STATIC
     src/timing/fixed_rate_scheduler.cpp
     src/timing/timestamp_pacer.cpp
     src/timing/jitter_log.cpp
+    src/timing/periodic_worker.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
     src/transport/session_message.cpp
