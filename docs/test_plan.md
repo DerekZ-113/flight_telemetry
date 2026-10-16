@@ -170,7 +170,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Objective:** Verify that replaying a recorded log through the pipeline reproduces the original session's computed outputs bit for bit.
 - **Preconditions:** `BinaryLogger` and `LogReplaySource` implemented. Pipeline uses frame timestamps, not the wall clock, for every time-dependent computation. Same build of the binary and the same configuration for both runs: the replay reads the configuration recorded beside the log (REQ-CFG-003). Steps 1 through 6 are executed at unit level by `ReplayTest.ReplayReproducesLiveSession` (500 frames with injected faults, every processed frame and fault event compared with `memcmp`) and at the integration level by `tests/integration/test_replay_identity.py`, which runs the binary twice in a temporary directory and parses both logs with `pipeline/log_reader.py`; the output directory is `logging.directory`, `logs` in the shipped file, so the files are `logs/telemetry_000.bin` and `logs/replay_000.bin`.
 - **Steps:**
-  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`. Both runs write and read format version 2: identity is claimed within one format version (REQ-LOG-005).
+  1. Run the pipeline in simulated mode with seed 42 for 500 frames at 50 Hz. Log every processed frame to `logs/telemetry_000.bin`. Both runs write and read one format version (2 until 2026-10-15, 3 since): identity is claimed within one format version (REQ-LOG-005).
   2. Run the pipeline in replay mode with that log as the data source. Log every processed frame to `logs/replay_000.bin`.
   3. Parse both logs in Python. For each frame index, compare every field.
   4. Assert the frame counts are equal.
@@ -271,7 +271,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   10. *(Integration)* Corrupt each header field (magic, version, frame size, event size, endianness) in a Python-written file: assert the reader refuses each, naming the field; the version case is `LOG_FORMAT_VERSION + 1`, and a version-1 header is read (TC-017 step 15).
   11. *(Integration)* Cut a file 41 bytes into its second frame: assert the first frame is returned and 41 torn bytes counted; append an unknown tag: assert refusal naming the offset.
   12. *(Integration)* Write 10 frames across four rotated files: assert they read as one run in order; then a file that restarts at 0, a file with a gap in its index, a file starting 1920 ms after the previous ends, and a file whose timestamps repeat: assert each is refused with the file and timestamps named.
-  13. *(Integration)* Assert the numpy layout derived from the struct format has 104 and 16 bytes and every field offset equal to the struct's (`reserved_a` at 52, latitude at 56, the last flag at 97, the validity bytes at 98 to 102, `reserved_b` at 103; the event's `reserved` at 10), and that a frames array's bytes equal the file's.
+  13. *(Integration)* Assert the numpy layout derived from the struct format has 120 and 16 bytes (104 until format version 3) and every field offset equal to the struct's (`sequence` at 52, `reserved_a` until format version 3, latitude at 56, the last flag at 97, the validity bytes at 98 to 102, `flags` at 103, the version-3 tail at 104 to 116 (TC-031 step 11); the event's `reserved` at 10), and that a frames array's bytes equal the file's.
   14. *(Integration)* The reader's command line on a directory holding a live-shaped file (three frames, GPS never fresh, one GPS timeout event): assert exit 0 with the counts, the fresh totals, and the event line; a file that is not a log exits 2.
 - **Expected result:** All assertions hold. Rotation never splits a record; a limit smaller than one record still yields one record per file. Steps 8 through 14: every refusal names what was wrong, a torn tail loses nothing before it, and rotation reads as one run only when the indices are consecutive and the timestamps continue.
 - **Pass/fail:** Any bit difference in step 2 or 3 fails. Any accepted foreign header in step 5 or 10 fails. Any crash or invented frame in step 6 or 7 fails. Any accepted restart, gap, or repeated timestamp in step 12 fails; any offset disagreement in step 13 fails.
@@ -549,11 +549,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-PROC-007, REQ-LOG-005, REQ-FAULT-006, REQ-FAULT-007 (also exercises REQ-PROC-005, REQ-LOG-003, REQ-LOG-004, REQ-FAULT-004)
 - **Level:** Unit (steps 1 through 10: `tests/unit/test_telemetry_frame.cpp`, `test_validity.cpp`, and the additions to `test_logging.cpp`, `test_replay.cpp`, `test_fault_detection.cpp`, `test_complementary.cpp`, `test_kalman.cpp`), Integration (steps 11 through 15, `tests/integration/test_validity.py`), recorded (step 16, FTS-VR-001 Entry 12 §12.4), Unit again (steps 17 through 20, added 2026-10-15: `test_fault_detection.cpp`, `test_live_sensor_source.cpp`, `test_replay.cpp`, `test_validity.cpp`)
-- **Objective:** Verify that every computed field carries, in the same frame, whether it is a current estimate, has never existed, or is not trustworthy, in the order of precedence REQ-PROC-007 states; that a channel is NO_DATA until its first reading and NOT_AVAILABLE throughout, with no event, when the source does not provide it; that format version 2 has no unspecified byte, that readers accept versions 1 and 2 and refuse others by name before anything is built, and that identity holds within a version.
+- **Objective:** Verify that every computed field carries, in the same frame, whether it is a current estimate, has never existed, or is not trustworthy, in the order of precedence REQ-PROC-007 states; that a channel is NO_DATA until its first reading and NOT_AVAILABLE throughout, with no event, when the source does not provide it; that format version 2 has no unspecified byte (nor version 3, TC-031), that readers accept every version this build defines (1 and 2; 1 to 3 since format version 3) and refuse others by name before anything is built, and that identity holds within a version.
 - **Preconditions:** `TelemetryProcessor` with its default tuning and `FaultDetector` with its defaults; frames built by hand or from `SimulatedSource(20, 42)`; a temporary directory per test for the logs. The reference for step 16 is the 500-frame seed-42 log of the build before this topic (FTS-VR-001 Entry 11 §11.4, SHA-256 `3124895f…`), compared with the candidate's by `cmp -l` and by a script that reads both record by record.
 - **Steps:**
-  1. `sizeof(TelemetryFrame)` and `alignof`; `offsetof` of `reserved_a`, `latitude`, `gps_read_ok`, the five validity bytes and `reserved_b`; `sizeof(FaultEvent)` and `offsetof(FaultEvent, reserved)`; `validity_name` for the four values and an out-of-range byte; `status_name` for NO_DATA, NOT_AVAILABLE and an out-of-range byte.
-  2. Log one frame and read the header; write a version-1 header with this build's sizes over a frame whose validity and reserved bytes are not zero, and read it; write a version-3 header and a wrong frame size and read each; build a frame message.
+  1. `sizeof(TelemetryFrame)` and `alignof`; `offsetof` of `sequence` (`reserved_a` until format version 3), `latitude`, `gps_read_ok`, the five validity bytes and `flags` (`reserved_b` until format version 3); `sizeof(FaultEvent)` and `offsetof(FaultEvent, reserved)`; `validity_name` for the four values and an out-of-range byte; `status_name` for NO_DATA, NOT_AVAILABLE and an out-of-range byte.
+  2. Log one frame and read the header; write a version-1 header with this build's sizes over a frame whose validity and reserved bytes are not zero, and read it; write a header one version past this build's (3 until format version 3, 4 since) and a wrong frame size and read each; build a frame message.
   3. Through a processor: a frame with pressure 0 and `baro_read_ok` false, then one whose barometer is DEGRADED before it ever read, then the first fresh frame. Record barometric altitude, fused altitude, vertical speed and their validities.
   4. A frame with `imu_read_ok` false, then one with an unusable accelerometer, then one with the IMU DEGRADED, then the first usable sample. Record pitch, roll and their validities.
   5. After a seeded frame, a frame with the IMU DEGRADED and 45° of accelerometer tilt, then a NOMINAL frame with `imu_read_ok` false. Record the angles and their validities.
@@ -563,10 +563,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   9. Replay: log a frame with every validity NORMAL and the reserved bytes set, read it through `LogReplaySource`; run `ReplayTest.ReplayReproducesLiveSession`; write a version-1 file by hand and replay it through detector and processor.
   10. Detector: frames whose channel never reads; a channel's first reading; a fault on a channel's first-ever reading; a channel dead from power-on.
   11. *(pytest)* The session fixture's log and replay: the header version, every validity byte and status of every frame, the `Validity:` summary line of both runs, the replay's exit lines.
-  12. *(pytest)* A synthetic version-1 log of 50 raw frames replayed with `--replay`: exit code, the notice on stdout, the replay log's header, its raw fields against the input's, every validity byte.
-  13. *(pytest)* A synthetic version-3 log replayed: exit code, stderr, the log directory; a 5-frame log replayed with `--cycles 12`: the end-of-log line (REQ-LOG-006, TC-019).
+  12. *(pytest)* A synthetic version-1 log of 50 raw frames replayed with `--replay`: exit code, the notice on stdout, the replay log's header, its raw fields against the input's, every validity byte. Since format version 3, a synthetic version-2 log the same way (TC-031 step 13).
+  13. *(pytest)* A synthetic log one version past this build's (3 until format version 3, 4 since) replayed: exit code, stderr, the log directory; a 5-frame log replayed with `--cycles 12`: the end-of-log line (REQ-LOG-006, TC-019).
   14. *(pytest, each transport)* A published run: each receiver line's validity names, and the frames against the log.
-  15. *(pytest)* The Python reader: the dtype's offsets at 52, 98 to 103 and the event's 10; `VALIDITY_NAMES` and `STATUS_NAMES`; `invalid_as_nan` on frames with one FAILURE_WARNING field; a version-1 log read with the bytes the file holds; `summary()` on a mixed log.
+  15. *(pytest)* The Python reader: the dtype's offsets at 52, 98 to 103, since format version 3 the tail's at 104 to 116 (TC-031 step 11), and the event's 10; `VALIDITY_NAMES` and `STATUS_NAMES`; `invalid_as_nan` on frames with one FAILURE_WARNING field; a version-1 log read with the bytes the file holds; `summary()` on a mixed log.
   16. *(Recorded)* The reference log against the candidate's after commit 1 and after commit 2, by `cmp -l` and by the comparison script, both SHA-256s recorded.
   17. Detector: 500 frames whose GPS is reported NOT_AVAILABLE by the source with the other two channels fresh; the same with the barometer, and with the IMU; then a NOT_AVAILABLE GPS beside a barometer that stops reading.
   18. The live source without a receiver: 100 frames.
@@ -576,8 +576,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
   | Step | Expected |
   |---|---|
-  | 1 | 104 and 8; 52, 56, 97, 98 to 102, 103; 16 and 10; the four names and `UNKNOWN`; `NO_DATA`, `NOT_AVAILABLE` and `UNKNOWN` |
-  | 2 | version 2 in the header; the version-1 file accepted, its frame back with every validity NOT_JUDGED and both reserved fields zero; "format version 3; this build reads 1 to 2"; "frame size 112 in the header, 104 in this build"; the message's header carries version 2 |
+  | 1 | 104 and 8 (120 since format version 3, TC-031 step 1); 52, 56, 97, 98 to 102, 103; 16 and 10; the four names and `UNKNOWN`; `NO_DATA`, `NOT_AVAILABLE` and `UNKNOWN` |
+  | 2 | version 2 in the header (3 since format version 3); the version-1 file accepted, its frame back with every validity NOT_JUDGED and both former reserved fields zero (and the version-3 tail zero); "format version 3; this build reads 1 to 2" (since format version 3, "format version 4; this build reads 1 to 3"); "frame size 112 in the header, 104 in this build" (since format version 3, "frame size 112 in the header, 120 for version 3 in this build"); the message's header carries the build's version |
   | 3 | before the first reading: 0, 0, 0 and NO_COMPUTED_DATA on all three (no 44330 m); DEGRADED before any reading: unchanged, NO_COMPUTED_DATA; the first fresh frame: NORMAL on all three and fused altitude equal to barometric altitude |
   | 4 | 0 and NO_COMPUTED_DATA through the stale, unusable and DEGRADED frames; NORMAL with the accelerometer's tilt on the first usable sample |
   | 5 | DEGRADED: both angles held bit for bit, FAILURE_WARNING; stale NOMINAL: held, NORMAL |
@@ -586,9 +586,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 8 | no NOT_JUDGED byte on any frame; every computed field written |
   | 9 | validity NOT_JUDGED and reserved zero after the strip; every frame and event bit-identical between live and replay, FAILURE_WARNING on the DEGRADED frames inside the injected windows and NORMAL outside; the version-1 file's frames come back judged with no NOT_JUDGED byte |
   | 10 | NO_DATA on every frame before the first reading; NOMINAL on the first reading with no event; DEGRADED with its event on a first-reading fault; NO_DATA on every frame before the timeout and DEGRADED after it |
-  | 11 | version 2; every validity NORMAL and every status NOMINAL on all 500 frames of both logs; `Validity:  every computed field NORMAL on 500 of 500 frames (first on frame 0)` in both; no exhaustion line |
-  | 12 | exit 0; "format version 1" on stdout; the replay log version 2; raw fields equal; no NOT_JUDGED byte |
-  | 13 | exit 1, stderr names "format version 3" and "reads 1 to 2", no `logs/` written; "Replay:    5 frames, end of log reached" and a 5-frame replay log (REQ-LOG-006; until it, "replay exhausted after 5 frames; 7 cycles repeated the last frame" and a 12-frame log) |
+  | 11 | version 2 (3 since format version 3); every validity NORMAL and every status NOMINAL on all 500 frames of both logs; `Validity:  every computed field NORMAL on 500 of 500 frames (first on frame 0)` in both; no exhaustion line |
+  | 12 | exit 0; "format version 1" on stdout; the replay log the build's version (2, then 3); raw fields equal, and since format version 3 the sequence 0 and the tail zero; no NOT_JUDGED byte; the version-2 log the same with "format version 2" on stdout |
+  | 13 | exit 1, stderr names the version found and the range read ("format version 3" and "reads 1 to 2"; since format version 3, "format version 4" and "reads 1 to 3"), no `logs/` written; "Replay:    5 frames, end of log reached" and a 5-frame replay log (REQ-LOG-006; until it, "replay exhausted after 5 frames; 7 cycles repeated the last frame" and a 12-frame log) |
   | 14 | the names beside the values on every line; the frames byte-identical to the log |
   | 15 | the offsets; the two dictionaries; NaN in the flagged field only; the file's bytes; the counts |
   | 16 | after commit 1 one differing byte, offset 5; after commit 2 offset 5 and, in every frame, exactly offsets 98 to 102 with the pattern `03 03 03 03 03`; reserved bytes zero; every event identical |
@@ -597,7 +597,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 19 | the IMU still NOT_AVAILABLE after the strip, the other two NOMINAL, every validity NOT_JUDGED |
   | 20 | barometric altitude, pitch and roll NO_COMPUTED_DATA throughout; fused altitude NO_COMPUTED_DATA until the first fresh GPS frame and NORMAL after it, born from the GPS |
 
-- **Pass/fail:** Any NOT_JUDGED byte on an emitted frame, any flag raised over a value nobody measured, any held angle under a DEGRADED IMU reported NORMAL, any coasting altitude reported NORMAL, any accepted version outside 1 to 2, any refused version inside it, any replay that runs on an unreadable log, or any byte of the reference log differing beyond those listed fails.
+- **Pass/fail:** Any NOT_JUDGED byte on an emitted frame, any flag raised over a value nobody measured, any held angle under a DEGRADED IMU reported NORMAL, any coasting altitude reported NORMAL, any accepted version outside the readable range (1 to 2; 1 to 3 since format version 3), any refused version inside it, any replay that runs on an unreadable log, or any byte of the reference log differing beyond those listed fails.
 
 ### TC-018: NMEA Parsing, the Serial Port Seam, and the GPS Through the Live Source
 
@@ -725,15 +725,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-TRANS-004 (also exercises REQ-TRANS-001, REQ-TRANS-002 and REQ-TRANS-003)
 - **Level:** Unit (steps 1 through 4: `tests/unit/test_session_message.cpp`, `test_zmq_publisher.cpp`, `test_udp_publisher.cpp`), Integration (steps 5 through 8: `tests/integration/test_session_status.py`; step 10: `test_adsb.py`), Hardware (step 9)
-- **Objective:** Verify that the status message is nineteen bytes under its own magic and version that no frame reader accepts, carrying the mode, the state and, in ADS-B mode, the aircraft's identity, that both transports send it through the same seam and count it apart from frames, that a run announces its mode before the first frame, repeats it about once a second and reports the end after the last frame, that the receiver reads it and ends on it, and that the status messages change no byte of the log.
+- **Objective:** Verify that the status message is nineteen bytes under its own magic and version that no frame reader accepts, carrying the mode, the state, since version 3 the source mode of REQ-LOG-007, and, in ADS-B mode, the aircraft's identity, that both transports send it through the same seam and count it apart from frames, that a run announces its mode before the first frame, repeats it about once a second and reports the end after the last frame, that the receiver reads it and ends on it, and that the status messages change no byte of the log.
 - **Preconditions:** The in-process subscriber of TC-005 over `inproc://`; a datagram socket bound on the loopback; the receiver harness of TC-005 for the integration steps.
 - **Steps:**
-  1. Build `session_message(REPLAY, RUNNING, {})` and `session_message(ADSB, RUNNING, identity)` with the address `a1b2c3` and the callsign `TEST001`; copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
+  1. Build the status for REPLAY RUNNING with no identity and for ADSB RUNNING with the address `a1b2c3` and the callsign `TEST001` (`session_message(mode, state, identity)` until status version 3; since it, a `SessionStatus` carrying the source mode as well, the replay's ADSB, TC-031 step 10); copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
   2. Publish a status over `inproc://` to a settled subscriber; read the publisher's counters.
   3. Publish a status to a bound datagram socket; read it.
   4. Publish a status through a publisher that is not ok.
   5. *(pytest, each transport)* Run the simulator for 120 cycles with the receiver listening; record every status with its position among the frames and the receiver's time of exit.
-  6. *(pytest)* Parse the nineteen bytes with `frame_format.parse_message`; parse eight bytes, a version-1 status; parse nineteen whose version byte is 1; parse nineteen whose mode byte is 9; parse an ADSB status with an identity.
+  6. *(pytest)* Parse the nineteen bytes with `frame_format.parse_message`; parse eight bytes, a version-1 status; parse nineteen whose version byte is 1, and since status version 3 nineteen whose version byte is 2; parse nineteen whose mode byte is 9; parse an ADSB status with an identity; since status version 3, a REPLAY status whose source mode is ADSB.
   7. *(pytest)* Replay a log with the receiver listening; read the statuses.
   8. *(pytest)* Run the simulator for 120 cycles with `--zmq` and without; compare the two logs.
   9. *(Hardware)* `telemetry --live --zmq <endpoint> --cycles 250` on the Raspberry Pi with the receiver, then the bridge and the page, on the Mac.
@@ -742,13 +742,13 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
   | Step | Expected |
   |---|---|
-  | 1 | `46 54 53 53 02 03 01 00` then eleven zero bytes; with the identity, `a1 b2 c3` and `TEST001 ` space-padded to eight; "bad magic: not a telemetry log"; LIVE, SIMULATED, REPLAY, ADSB; RUNNING, ENDED |
+  | 1 | `46 54 53 53 02 03 01 00` then eleven zero bytes (since status version 3, `46 54 53 53 03 03 01 04`: the version byte, and the source mode in the byte that was reserved); with the identity, `a1 b2 c3` and `TEST001 ` space-padded to eight; "bad magic: not a telemetry log"; LIVE, SIMULATED, REPLAY, ADSB; RUNNING, ENDED |
   | 2 | the subscriber receives exactly those nineteen bytes; `status_published` 1, `published` 0, `send_failures` 0 |
   | 3 | one datagram of nineteen bytes |
   | 4 | false, `send_failures` 1 |
   | 5 | a RUNNING SIMULATED status before frame 0 (UDP: before any frame; ZeroMQ: before the first frame received, within the join), another before frames 50 and 100, ENDED after frame 119 (three copies over UDP, at least one over ZeroMQ); the receiver exits on ENDED well inside its 1 s quiet timeout, printing `session: mode=SIMULATED state=ENDED`; `status messages = 6` on the transport line |
-  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)`; `FormatError` naming the length; `FormatError` naming version 1; `FormatError` naming mode 9; `identity=("a1b2c3", "TEST001")` |
-  | 7 | mode REPLAY on every status, ENDED last |
+  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)` (with `source_mode="SIMULATED"` since status version 3); `FormatError` naming the length; `FormatError` naming version 1, and version 2; `FormatError` naming mode 9; `identity=("a1b2c3", "TEST001")`; `source_mode="ADSB"` under mode REPLAY |
+  | 7 | mode REPLAY on every status, since status version 3 with the source mode the input's header records (REQ-LOG-007), ENDED last |
   | 8 | byte-identical |
   | 9 | mode LIVE before the first frame and ENDED at exit, shown by the receiver and by the page |
   | 10 | mode ADSB on every status; the identity none before the first reading and the selected aircraft's after; on the switch, a status with the new identity before the first frame that carries it |
@@ -777,7 +777,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   13. Close the fake socket; advance the clock past the backoff.
   14. Search the rendered DOM for "latitude", "longitude" and any decimal degree.
   15. Feed an ADSB RUNNING status with an identity, then frames with fresh fixes, then a status with another identity, then a frame with a fresh fix; connect a client and read its `hello`; start a bridge with `--hide-identity` and feed the same.
-  16. Deliver an ADSB status with an identity and read the strip; with no identity; a REPLAY status; a LIVE status.
+  16. Deliver an ADSB status with an identity and read the strip; with no identity; a REPLAY status (since status version 3, with the source mode ADSB; TC-031 step 16 has the other source modes); a LIVE status.
 - **Expected result:**
 
   | Step | Expected |
@@ -785,7 +785,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 1 | `127.0.0.1`; `0.0.0.0` |
   | 2 | `{"type":"hello", ...}` with `stale_ms` 1000, `period_ms` 20, `session` null, the three counts 0 |
   | 3 | `type` frame; `frame` holds every name of `FRAME_FIELDS` but `latitude` and `longitude`, each with its value; `validity` and `status` by name from `frame_format`'s tables; `received_at_ms` present |
-  | 4 | `{"type":"session","mode":"REPLAY","state":"RUNNING","identity":null,...}`; the second client's `hello` carries that session |
+  | 4 | `{"type":"session","mode":"REPLAY","state":"RUNNING","identity":null,...}` (with `"source_mode"` since status version 3, TC-031 step 15); the second client's `hello` carries that session |
   | 5 | both clients receive the ENDED session message |
   | 6 | the remaining client receives all twenty; the bridge keeps running |
   | 7 | 100 frames in order, arrivals spanning about 2 s, then a session message with state ENDED |
@@ -813,7 +813,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   3. Call it for two fields together: NORMAL with FAILURE_WARNING; NORMAL with NOT_JUDGED; NOT_JUDGED with NO_COMPUTED_DATA.
   4. Call it for a NORMAL field with the feed stale; ended; lagging beyond the threshold; the socket closed after frames were seen; with no frame yet; and with several of these at once.
   5. Render each of the six instruments under steps 1, 2 and 4; read its text, its geometry element and its flag.
-  6. Render the panel with no status; with SIM; with REPLAY; with LIVE; with ADS-B and an identity; with ADS-B and none; then under each feed state of step 4; then with a NOT_JUDGED field; then in ADS-B mode read the altitude tape's unit label, and in SIM mode again.
+  6. Render the panel with no status; with SIM; with REPLAY (since status version 3, with the source mode ADSB and then SIMULATED); with LIVE; with ADS-B and an identity; with ADS-B and none; then under each feed state of step 4; then with a NOT_JUDGED field; then in ADS-B mode read the altitude tape's unit label, in SIM mode again and, since status version 3, in REPLAY under each source mode (TC-031 step 16).
   7. Search the panel's text for "HDG", "heading", "airspeed" and "IAS".
 - **Expected result:**
 
@@ -824,7 +824,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | `flag`; `dashes` with `pipeline`; `dashes` with `pipeline` |
   | 4 | stale: `flag` `stale`; ended: `flag` `ended`; lag: `flag` `lag`; closed: `flag` `link`; no frame: `dashes`; together, the precedence link, ended, stale, lag |
   | 5 | `value`: the number's text and the geometry element present and no flag; `dashes`: `---` and no geometry; `flag`: a box with the instrument's name (ATT, ALT, VS, GS, TRK, POS), no number, red for every cause but `ended` and `unavailable`, grey for `ended`, a white outline on no fill for `unavailable`; no element inside the panel carries a line-through or the `stale` class |
-  | 6 | MODE UNKNOWN in amber; SIM and REPLAY each in an amber box with "LIVE" absent from the panel, REPLAY followed by ` · ID UNAVAILABLE`; LIVE plain; ADS-B plain with ` · TEST001` after it and "LIVE" absent, ` · ---` with none; `ft HAE` above the tape in ADS-B mode and `ft` in SIM; the state text WAITING, RUNNING, STALE with the age, ENDED, LAG with the lag, BRIDGE DISCONNECTED as FTS-DS-001 §5 lists; PIPELINE shown only with the NOT_JUDGED field |
+  | 6 | MODE UNKNOWN in amber; SIM and REPLAY each in an amber box with "LIVE" absent from the panel, REPLAY followed by ` · ID UNAVAILABLE` (since status version 3, only under the source mode ADSB, and by nothing under SIMULATED); LIVE plain; ADS-B plain with ` · TEST001` after it and "LIVE" absent, ` · ---` with none; `ft HAE` above the tape whenever the source mode is ADSB, live or replayed, and `ft` otherwise; the state text WAITING, RUNNING, STALE with the age, ENDED, LAG with the lag, BRIDGE DISCONNECTED as FTS-DS-001 §5 lists; PIPELINE shown only with the NOT_JUDGED field |
   | 7 | nothing found |
 
 - **Pass/fail:** Exact as listed. A value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
@@ -1019,7 +1019,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
   | Step | Expected |
   |---|---|
-  | 1 | every raw field 0, `gps_read_ok` false, every validity NOT_JUDGED; then the six GPS fields the example's selected aircraft's, `gps_read_ok` true, `baro_status` and `imu_status` NOT_AVAILABLE, `gps_status` NOMINAL, every validity NOT_JUDGED, reserved 0 |
+  | 1 | every raw field 0, `gps_read_ok` false, every validity NOT_JUDGED; then the six GPS fields the example's selected aircraft's, `gps_read_ok` true, `baro_status` and `imu_status` NOT_AVAILABLE, `gps_status` NOMINAL, every validity NOT_JUDGED, reserved 0; since format version 3 the sequence 0 then 1, the NEW_VEHICLE bit set on the frame that first carries the aircraft, the vertical rate and the pressure altitude from the example's row with their presence bits, the fix quality 0 with its bit clear (TC-031 steps 5 to 8) |
   | 2 | pressure, temperature, the accelerometer and the gyroscope 0 with `baro_read_ok` and `imu_read_ok` false and both statuses NOT_AVAILABLE on all 100 |
   | 3 | timestamps 0, 40, 80 (the live source's rounding) |
   | 4 | 0 and not fresh |
@@ -1031,11 +1031,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 10 | at least three steps, the count frozen after `stop()`, `running()` false; harmless; stopped in under a second; the first step not before the first delay; a second report within two seconds, no request in the record after the join; destroyed in under a second |
   | 11 | the header line and one row per change |
   | 12 | the counters the script implies: the polls a 1,000 ms interval and the 1 s `Retry-After` give in 12 s, `auth` 1 (repaired), `rate-limited` 1, `ok` every other poll, the readings the advancing position times imply, 2 selection changes, the ages from the script's times, the last aircraft named |
-  | 13 | frame 0's GPS NO_DATA, NOMINAL from the first reading, `gps_read_ok` true on exactly the fresh cycles; `baro_status` and `imu_status` NOT_AVAILABLE on every frame; no fault event in the log; pitch, roll and barometric altitude NO_COMPUTED_DATA on every frame; fused altitude NORMAL from the first reading and equal to the GPS altitude on that frame |
-  | 14 | mode ADSB on every status; the identity none before the first reading (or the first poll's aircraft, when the first poll completed before frame 0); a status with the new identity after the switch, before the first frame that carries it; ENDED three times |
+  | 13 | frame 0's GPS NO_DATA, NOMINAL from the first reading, `gps_read_ok` true on exactly the fresh cycles; `baro_status` and `imu_status` NOT_AVAILABLE on every frame; no fault event in the log; pitch, roll and barometric altitude NO_COMPUTED_DATA on every frame; fused altitude NORMAL from the first reading and equal to the GPS altitude on that frame; since format version 3 the NEW_VEHICLE bit on each switch frame, the fused altitude re-born on it, the two ADS-B fields present (TC-031 step 14) |
+  | 14 | mode ADSB on every status (and the source mode ADSB since status version 3); the identity none before the first reading (or the first poll's aircraft, when the first poll completed before frame 0); a status with the new identity after the switch, before the first frame that carries it; ENDED three times |
   | 15 | two rows: the first `initial`, the second `landed`, each with both identities and the timestamp of the first frame carrying the new aircraft, equal to the statuses' places among the frames |
   | 16 | nothing found |
-  | 17 | byte-identical; mode REPLAY on every status with no identity; the barometer and IMU still NOT_AVAILABLE |
+  | 17 | byte-identical; mode REPLAY on every status with no identity, and since format version 3 the source mode ADSB from the log's header (REQ-LOG-007) in place of the first-frame rule; the barometer and IMU still NOT_AVAILABLE |
   | 18 | exit 1 each, the rule named, nothing built; the credentials path named without its contents; `adsb` named |
   | 19 | recorded in FTS-VR-001 Entry 18: the aircraft the strip names against the tracker, the switch when it lands, the tape's `ft HAE` label against the GPS altitude in the diagnostic view and the reading at touchdown, the vertical speed between polls, the attitude indicator's no-source flag, no fault event at 500 ms, the exit line's polls, ages and changes, the jitter line with the thread running; the log's replay byte-identical and labelled `REPLAY · ID UNAVAILABLE` |
 
@@ -1045,15 +1045,15 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-DISP-007, REQ-DISP-004, REQ-DISP-001 (also exercises REQ-DISP-005 and REQ-FAULT-007)
 - **Level:** Integration (steps 1 through 3: `tests/integration/test_bridge.py`), Page (steps 4 through 9: `dashboard/src/pfd/Pfd.test.tsx`, `AltitudeTape.test.tsx`, `useTelemetryFeed.test.ts`, `App.test.tsx`, the instrument tests; Vitest with jsdom)
-- **Objective:** Verify that the identity reaches the page in every session message and in `hello`, that the plot's origin and the trail start over when it changes, that the bridge withholds it on request, that the page shows `ADS-B` plain with the identity after it and never as LIVE, says `ID UNAVAILABLE` in a replay, names the altitude datum in ADS-B mode, attributes the data in ADS-B mode only, and shows the no-source flag for a channel the source does not provide.
+- **Objective:** Verify that the identity reaches the page in every session message and in `hello`, that the plot's origin and the trail start over when it changes, that the bridge withholds it on request, that the page shows `ADS-B` plain with the identity after it and never as LIVE, says `ID UNAVAILABLE` in a replay of an ADS-B recording and nothing in any other replay, names the altitude datum whenever the source mode is ADS-B, attributes the data in ADS-B mode only, and shows the no-source flag for a channel the source does not provide.
 - **Preconditions:** The bridge fed from a list as in TC-022; the page's fake socket and fake clock; `testMessages.session()` extended with an identity.
 - **Steps:**
   1. Feed an ADSB status with an identity, frames with fresh fixes, a status with another identity, a frame with a fresh fix; connect a client and read `hello`.
   2. Feed a status repeating the same identity, then a frame.
   3. Start the bridge with `--hide-identity` and feed the same; read its start line.
-  4. Render the panel with an ADSB status and an identity; with an ADSB status and none; with an identity whose callsign is empty; with a REPLAY status; with LIVE and with SIM.
+  4. Render the panel with an ADSB status and an identity; with an ADSB status and none; with an identity whose callsign is empty; with a REPLAY status (since status version 3, one whose source mode is ADSB and one whose source mode is SIMULATED); with LIVE and with SIM.
   5. Deliver two fresh fixes under one identity, a status with another, then one fresh fix; deliver a status repeating the identity, then a fix.
-  6. Render the altitude tape in ADS-B mode and in SIM.
+  6. Render the altitude tape in ADS-B mode and in SIM; since status version 3, in REPLAY with the source mode ADSB and with SIMULATED.
   7. Render the page in ADS-B mode and in the three other modes; search for the attribution text.
   8. Render the attitude indicator with the IMU NOT_AVAILABLE; GS and TRK with the GPS NOT_AVAILABLE.
   9. The existing mode tests of TC-022 and TC-023.
@@ -1061,17 +1061,65 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
   | Step | Expected |
   |---|---|
-  | 1 | every `session` message and `hello` carry `identity` as `{"icao24", "callsign"}`; the first fix after the second identity reads `east_m` 0 and `north_m` 0 |
+  | 1 | every `session` message and `hello` carry `identity` as `{"icao24", "callsign"}` (and `source_mode` since status version 3); the first fix after the second identity reads `east_m` 0 and `north_m` 0 |
   | 2 | the position relative to the same origin, not re-taken |
   | 3 | `identity` null in every message, and the start line says the identity is withheld |
-  | 4 | `ADS-B · TEST001` plain, not boxed, "LIVE" absent from the panel; `ADS-B · ---`; `ADS-B · 000001`; `REPLAY · ID UNAVAILABLE` boxed; `LIVE` and `SIM` with nothing after them |
+  | 4 | `ADS-B · TEST001` plain, not boxed, "LIVE" absent from the panel; `ADS-B · ---`; `ADS-B · 000001`; `REPLAY · ID UNAVAILABLE` boxed (since status version 3, for the ADS-B recording only, and `REPLAY` alone for the simulator's); `LIVE` and `SIM` with nothing after them |
   | 5 | the trail cleared and started again with the one fix; the trail kept |
-  | 6 | `ft HAE`; `ft` |
+  | 6 | `ft HAE`; `ft`; `ft HAE`; `ft` |
   | 7 | `Traffic data: The OpenSky Network` present in ADS-B mode only |
   | 8 | the no-source flag naming the instrument, an outline and not red, no cause in the strip, the value gone |
   | 9 | unchanged |
 
-- **Pass/fail:** Exact as listed. ADS-B data labelled LIVE, an identity shown in a mode other than ADS-B, a blank where a replay's identity would be, the datum unlabelled in ADS-B mode, an identity forwarded under `--hide-identity`, or a no-source channel shown with the failure flag fails.
+- **Pass/fail:** Exact as listed. ADS-B data labelled LIVE, an identity shown in a mode other than ADS-B, a blank where an ADS-B replay's identity would be, the datum unlabelled under an ADS-B source mode, an identity forwarded under `--hide-identity`, or a no-source channel shown with the failure flag fails.
+
+### TC-031: Format Version 3: the Layout, the Header's Modes, the Sequence Number, the New-Vehicle Flag, the ADS-B Fields, the Fix Quality
+
+- **Requirement:** REQ-LOG-005, REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 (also exercises REQ-SENS-005, REQ-SENS-008, REQ-TRANS-004, REQ-DISP-007, REQ-LOG-003, REQ-LOG-004, REQ-FAULT-001, REQ-TEST-002)
+- **Level:** Unit (steps 1 through 10: `tests/unit/test_telemetry_frame.cpp`, `test_logging.cpp`, `test_replay.cpp`, `test_simulated_data.cpp`, `test_live_sensor_source.cpp`, `test_adsb_source.cpp`, `test_fault_detection.cpp`, `test_kalman.cpp`, `test_validity.cpp`, `test_session_message.cpp`, `test_zmq_publisher.cpp`, `test_udp_publisher.cpp`), Integration (steps 11 through 15: `tests/integration/test_log_reader.py`, `test_validity.py`, `test_replay_identity.py`, `test_session_status.py`, `test_adsb.py`, `test_bridge.py`), Page (step 16: `dashboard/src/pfd/Pfd.test.tsx`, `AltitudeTape.test.tsx`, `App.test.tsx`), recorded (step 17, FTS-VR-001 Entry 19 §19.4)
+- **Objective:** Verify that format version 3 keeps every version-2 byte in place and names every byte of its 16-byte tail; that a reader of this build accepts versions 1 to 3, reads an older frame as a prefix with a zero tail, and refuses any other version by name before anything is built; that the header records the run mode and the source mode and a replay copies the source mode forward instead of guessing it from the frames; that every source numbers its frames from zero and a replay reproduces the recorded numbers; that the live source and the simulator record the fix quality and the satellite count under their presence bit and the ADS-B source records the vertical rate and the pressure altitude under theirs; that the ADS-B source marks the first frame of a newly selected aircraft and the processor is reborn from that frame; that the session status at version 3 carries the source mode and the page labels a replayed ADS-B recording's datum and identity by it; and that the simulator's reference log changed only where the version says.
+- **Preconditions:** Frames built by hand or from `SimulatedSource(20, 42)`; a temporary directory per test; the kept version-2 reference log of FTS-VR-001 Entry 12 §12.4 (500 frames, seed 42, SHA-256 `6d43f343…`) for step 17; the ADS-B stand-in server of TC-029 for step 14; the page's fake socket and fake clock for step 16.
+- **Steps:**
+  1. `sizeof(TelemetryFrame)` and `alignof`; `offsetof` of `sequence`, `course_deg`, `flags`, `gps_vertical_rate_mps`, `gps_pressure_altitude_m`, `gps_fix_quality`, `gps_satellites`, `voter_status` and `reserved_d`; a value-initialized frame's bytes; the name of each `FrameFlag` bit and of each `VoterStatus` bit.
+  2. `make_log_header(ADSB, ADSB)`: the magic, the version, both sizes, the two mode bytes; `header_problem` on a version-4 header, on a version-3 header whose frame size is 104, on a version-2 header whose frame size is 104, on a version-1 header whose frame size is 104.
+  3. Write a version-1 file and a version-2 file by hand, each one frame whose every old field is set and whose validity and reserved bytes are not zero; read each through `LogReader`.
+  4. Log a frame whose sequence, flags, tail fields, voter status and reserved field are all set; read it through `LogReplaySource`.
+  5. Read three frames from `SimulatedSource`, from `LiveSensorSource` over fakes and from `AdsbSource` after a poll; read three through `FaultInjectingSource` over the simulator; log 50 simulated frames and replay them.
+  6. The live source across a fix with quality 2 and 9 satellites, then the cycles after it, and the cycles before any fix; the simulator's frames; the ADS-B source's frames after a poll.
+  7. The ADS-B source after a poll with the example's row (vertical rate and pressure altitude present), then 100 cycles without a poll; after a poll whose row has a null vertical rate.
+  8. The ADS-B source's frame on the first poll, on the next cycle, after a poll that keeps the aircraft, and after a poll that selects another.
+  9. Through a processor: twenty fresh frames of one aircraft at one altitude, then a frame flagged NEW_VEHICLE with a fresh GPS reading 500 m lower; then a flagged frame with no fresh reading, followed by a fresh one; then a flagged frame after the attitude filter was seeded and the barometer read.
+  10. Build `session_message` for a `SessionStatus` of mode REPLAY, source mode ADSB, RUNNING, no identity, and for ADSB, ADSB, RUNNING with the address `a1b2c3` and the callsign `TEST001`; copy the bytes over a zeroed `LogFileHeader` and run `header_problem`; publish a status on each transport and read it.
+  11. *(pytest)* The Python reader: the dtype's size and every offset of step 1; a hand-written version-2 file read as frames; `frames_array` on it; `summary()` on a version-3 log.
+  12. *(pytest)* The session fixture's log: the header's version and modes, every frame's sequence, flags, fix quality, satellites and tail.
+  13. *(pytest)* A synthetic version-2 log of 50 raw frames replayed with `--replay`: exit code, the notice, the replay log's header, its raw fields against the input's, its sequence and tail; a synthetic version-4 log replayed.
+  14. *(pytest)* The ADS-B run of TC-029 step 12: the switch frames' flags, the fused altitude and vertical speed on each, the two ADS-B fields, every status's source mode; its replay with the UDP receiver: the statuses and the log.
+  15. *(pytest)* The bridge fed a REPLAY status whose source mode is ADSB, then a client connected; read the session message and `hello`.
+  16. *(page)* Render the panel with a REPLAY status whose source mode is ADSB; with one whose source mode is SIMULATED; with an ADSB status and an identity; read the strip and the tape's unit label each time.
+  17. *(Recorded)* The seed-42 500-frame log of this build against the version-2 reference, frame by frame by a script: every byte of the first 104 of each frame, the tail, every event; both SHA-256s.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | 120 and 8; 52, 80, 103, 104, 108, 112, 113, 114, 116; every byte zero; NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY; VOTED, LANE_1_FAULTED, LANE_2_FAULTED, LANE_3_FAULTED, NO_MAJORITY |
+  | 2 | `FTLG`, 3, 120 and 16, 4 and 4; "format version 4; this build reads 1 to 3"; "frame size 104 in the header, 120 for version 3 in this build"; accepted; accepted |
+  | 3 | each old field as written; the version-1 frame's validity NOT_JUDGED and both former reserved fields zero; the version-2 frame's validity as written and its sequence and flags as the bytes held; the tail zero on both; the header's modes UNKNOWN |
+  | 4 | the sequence, the flags and the four tail fields kept, `voter_status` (a verdict the voter will recompute) and `reserved_d` zero, every computed field and validity stripped as before |
+  | 5 | 0, 1, 2 from each source; 0, 1, 2 through the injector; the replay's frames carrying the recorded 0 to 49 |
+  | 6 | quality 2, 9 satellites and the FIX_QUALITY bit on the fix cycle and held with the bit on every cycle after; 0, 0 and the bit clear before the first fix; the simulator's quality 1, 8 satellites and the bit on every frame; the ADS-B source's 0, 0 and the bit clear |
+  | 7 | the example's vertical rate and pressure altitude with both bits, held with the bits on all 100 cycles; after the null, the rate 0 with its bit clear and the altitude with its bit still set |
+  | 8 | NEW_VEHICLE set on the first frame carrying the aircraft, clear on the next cycle, clear after the poll that keeps it, set once more on the first frame carrying the other |
+  | 9 | on the flagged frame the fused altitude equal to the new reading and the vertical speed 0, both NORMAL, the previous estimate gone; on the flagged frame without a reading NO_COMPUTED_DATA for the fused fields, then NORMAL at the new reading; pitch, roll and barometric altitude NO_COMPUTED_DATA and 0 after the flag until their next readings |
+  | 10 | `46 54 53 53 03 03 01 04` then eleven zero bytes; `46 54 53 53 03 04 01 04` then `a1 b2 c3` and `TEST001 ` space-padded to eight; "bad magic: not a telemetry log"; nineteen bytes on each transport with `status_published` 1 |
+  | 11 | 120 and the offsets of step 1; the frames' old fields as written with zero tails and sequence 0; an array of 120-byte records whose old bytes equal the file's; the summary's sequence line |
+  | 12 | version 3, run mode SIMULATED, source mode SIMULATED; the sequence equal to the frame's index on all 500 frames; quality 1, 8 satellites and the FIX_QUALITY bit alone on every frame; the vertical rate, the pressure altitude, the voter status and `reserved_d` 0 |
+  | 13 | exit 0; "format version 2" on stdout; the replay log version 3 with run mode REPLAY and source mode UNKNOWN; raw fields equal, sequence 0, tail zero; exit 1 naming "format version 4" and "reads 1 to 3", nothing written |
+  | 14 | the bit set on exactly the frames the selection record's timestamps name; on each the fused altitude equal to the GPS altitude and the vertical speed 0, NORMAL; the two fields the script's values with their bits; source mode ADSB on every status; the replay's statuses mode REPLAY with source mode ADSB, the log byte-identical |
+  | 15 | `{"type":"session","mode":"REPLAY","source_mode":"ADSB",...}`; `hello`'s `session` carrying `source_mode` |
+  | 16 | `REPLAY · ID UNAVAILABLE` boxed with `ft HAE`; `REPLAY` alone with `ft`; `ADS-B · TEST001` plain with `ft HAE` |
+  | 17 | in every frame, the first 104 bytes equal the reference's except at offsets 52 to 55 (the sequence, the frame's index) and 103 (`08`, the FIX_QUALITY bit); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00`; every event identical; the two hashes recorded |
+
+- **Pass/fail:** Steps 1 through 16 exact as listed. A byte of a version-2 field that moved, an older file refused or misread, a version accepted outside 1 to 3, a mode inferred from a frame, a sequence the loop assigned, a filter that carried an estimate across a flagged frame, a presence bit set over a field that was absent or clear over one that was present, or a replayed ADS-B recording labelled `ft` fails. Step 17 is recorded in FTS-VR-001 Entry 19; any difference beyond those listed fails.
 
 ## 6. Coverage Strategy
 
@@ -1125,6 +1173,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
 - REQ-TIME-003 is judged on the Raspberry Pi (TC-009 step 7). Jitter numbers measured on macOS use the `nanosleep` fallback and are recorded in FTS-VR-001 as a preview only.
 - The session status message's LIVE mode (TC-021 step 9) and a paced replay's lateness on the Raspberry Pi are recorded on the next hardware day. The end-of-stream signal on `DataSource` is built (REQ-LOG-006, TC-019).
-- GPS fix-quality detection at the detector (FAULT-003b) is deferred until the frame carries a fix-quality byte (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.
+- GPS fix-quality detection at the detector (FAULT-003b) is deferred; the frame carries the fix quality and the satellite count since format version 3 (TC-031 step 6), and the rule that judges them is still to be written (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.
 - The display's instruments (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; TC-023 to TC-026) are built on the display's branch (2026-10-15). TC-025 step 8, a Chrome background tab, is a manual record and not a gate; TC-026 step 9 is the demo's hand measurement; both go to FTS-VR-001 Entry 17.
 - The ADS-B source (REQ-SENS-008 to REQ-SENS-011, REQ-FAULT-007, REQ-CFG-004, REQ-DISP-007; TC-027 to TC-030) is built on its branch (2026-10-15). TC-029 step 19, the live run against the service, is a manual record in FTS-VR-001 Entry 18 and never a gate: CI never calls the service, and the data license forbids committing what it returns.
+- Format version 3 (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 and the amended REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004 and REQ-DISP-007; TC-031) is specified here and built on the ADS-B branch (2026-10-15). TC-031 step 17, the seed-42 log against the kept version-2 reference, is a recorded hand check in FTS-VR-001 Entry 19, not a gate; the detector judges neither the fix quality nor the satellite count yet (FAULT-003b stays parked with its bytes in place), nothing consumes the ADS-B vertical rate or pressure altitude until Phase B, and the voter's status field is zero until the voting of FTS-DD-001 Section 11.1 lands.

@@ -1,10 +1,10 @@
 # Flight Telemetry System — Display Specification
 
 > **Document ID:** FTS-DS-001
-> **Version:** 0.2.0
+> **Version:** 0.3.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-15
-> **Related:** FTS-SRD-001 v0.12.0 (REQ-DISP-001 to REQ-DISP-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 9, 11.2 and 12), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
+> **Related:** FTS-SRD-001 v0.13.0 (REQ-DISP-001 to REQ-DISP-007, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2 and 12), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030, TC-031), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
 
 ## 1. Purpose and Scope
 
@@ -72,7 +72,7 @@ y 100..420   [GS box x 40..150]   [attitude indicator: centre (400,260), r 160] 
 y 448..520   the track indicator: the top of a rose arc, centre (400,640), r 180, under a lubber line at (400,462); the readout box at y 434
 ```
 
-The mode label sits inside the SVG, at the strip's left, so that no crop of the instruments can lose it (REQ-DISP-004); the page's header bar repeats it above the panel for the diagnostic view. In ADS-B mode the aircraft's identity follows the label after a middle dot, and in REPLAY mode `ID UNAVAILABLE` does (Section 5). Each component module under `dashboard/src/pfd/` exports a component only (React's Fast Refresh keeps the feed's state across an edit only then); the geometry lives in `geometry.ts` as pure functions with their own tests.
+The mode label sits inside the SVG, at the strip's left, so that no crop of the instruments can lose it (REQ-DISP-004); the page's header bar repeats it above the panel for the diagnostic view. In ADS-B mode the aircraft's identity follows the label after a middle dot, and in a REPLAY of an ADS-B recording `ID UNAVAILABLE` does (Section 5; the recording's source mode comes from the session status, REQ-LOG-007). Each component module under `dashboard/src/pfd/` exports a component only (React's Fast Refresh keeps the feed's state across an edit only then); the geometry lives in `geometry.ts` as pure functions with their own tests.
 
 ## 4. Instruments
 
@@ -90,7 +90,7 @@ Each subsection gives the source, the rule, units and range, geometry, update be
 ### 4.2 Altitude tape (ALT)
 
 - **Source:** `fused_altitude_m` with `fused_altitude_validity` (REQ-PROC-003, REQ-PROC-007).
-- **Units:** ft (Section 2.4); the readout rounded to 10 ft. In ADS-B mode the unit label above the tape reads `ft HAE` (REQ-DISP-007): the aircraft's geometric altitude is its GNSS height above the WGS-84 ellipsoid, not above mean sea level as the bench receiver's GPS altitude is, about 30 m apart over San Francisco Bay, so an aircraft on the runway reads below zero; in the other modes the label stays `ft`.
+- **Units:** ft (Section 2.4); the readout rounded to 10 ft. Whenever the session status's source mode is ADS-B, live or replayed, the unit label above the tape reads `ft HAE` (REQ-DISP-007, REQ-LOG-007): the aircraft's geometric altitude is its GNSS height above the WGS-84 ellipsoid, not above mean sea level as the bench receiver's GPS altitude is, about 30 m apart over San Francisco Bay, so an aircraft on the runway reads below zero; under every other source mode the label stays `ft`. The datum is a property of the data, not of the run: until 0.3.0 a replayed approach read `ft` about 90 ft low with nothing to say so (FTS-VR-001 Entry 18 §18.5).
 - **Geometry:** x 600 to 690, y 100 to 420, the centre line at y = 260, 0.4 px per ft, so ±400 ft is visible. Ticks every 20 ft, labels every 100 ft; each tick's y is 260 + (value − tick) × 0.4, computed per tick and clipped to the tape, not a group translation. The readout box sits on the centre line, its text right-aligned; `ft` is written above the tape.
 - **Range:** any; a negative altitude is drawn with its sign, since the barometric reference can put the ground below zero.
 - **Update:** every frame.
@@ -114,7 +114,7 @@ Each subsection gives the source, the rule, units and range, geometry, update be
 
 ### 4.5 Track indicator (TRK)
 
-- **Source:** `heading_deg`, which holds the GPS course over ground (degrees true, 0 to 360, from the RMC sentence; FTS-DD-001 Section 12 parks the field's rename), with `ground_speed_mps` for the speed rule and `gps_status` for the channel's. The instrument is labelled TRK and never HDG: there is no magnetometer, and a course says where the aircraft moves, not where its nose points.
+- **Source:** `course_deg` (`heading_deg` until format version 3), the GPS course over ground (degrees true, 0 to 360, from the RMC sentence; the aircraft's track in ADS-B mode), with `ground_speed_mps` for the speed rule and `gps_status` for the channel's. The instrument is labelled TRK and never HDG: there is no magnetometer, and a course says where the aircraft moves, not where its nose points.
 - **Rule:** the channel's status (Section 2.1); then, with NOMINAL, the track is shown only while `ground_speed_mps` is at or above the threshold `hello` names (`track_min_speed_mps`, 1.0 m/s as shipped, the bridge's `--track-min-speed`), because a stationary receiver's course is noise.
 - **Units:** degrees, rounded to 1, 0 to 359.
 - **Geometry:** a compass rose centred at (400, 640) with radius 180, of which the top is visible between y 448 and 520 under a fixed lubber line at (400, 462); the rose group rotates by −track so that the current track sits under the lubber line (each tick is drawn rotated by its own angle, so the tick at the current track comes up under the lubber line); ticks every 10°, labels every 30° (N, 3, 6, E, 12, 15, S, 21, 24, W, 30, 33). The readout box at y 434, above the lubber line, reads `TRK 087°`.
@@ -140,7 +140,7 @@ The strip at the top of the panel shows, left to right, the mode label, the feed
 | lag beyond the threshold | LAG with the lag, red | red flags | 4 |
 | any field NOT_JUDGED | PIPELINE in amber beside the state | that instrument's dashes | |
 
-**The mode label (REQ-DISP-004):** `LIVE` and `ADS-B` plain; `SIM` and `REPLAY` in an amber box; `MODE UNKNOWN` in amber until a status has named a mode. It is never absent and never defaults to LIVE, so no screenshot or recording of this display can pass simulated, replayed or ADS-B data off as live. **The identity (REQ-DISP-007):** after `ADS-B`, a middle dot and the identity of the aircraft the instruments show, the callsign, or the ICAO address when no callsign is reported, or `---` when none is selected, from the session status; after `REPLAY`, `ID UNAVAILABLE`, because a replay carries no identity (the file beside the log says which aircraft a recorded run tracked); nothing after `LIVE` and `SIM`, which are own-ship. With the bridge's `--hide-identity` the identity reads `---` throughout, for recordings made for publication under the data license.
+**The mode label (REQ-DISP-004):** `LIVE` and `ADS-B` plain; `SIM` and `REPLAY` in an amber box; `MODE UNKNOWN` in amber until a status has named a mode. It is never absent and never defaults to LIVE, so no screenshot or recording of this display can pass simulated, replayed or ADS-B data off as live. **The identity (REQ-DISP-007):** after `ADS-B`, a middle dot and the identity of the aircraft the instruments show, the callsign, or the ICAO address when no callsign is reported, or `---` when none is selected, from the session status; after `REPLAY`, `ID UNAVAILABLE` when the recording's source mode is ADS-B, because a replay carries no identity (the status is never logged; the file beside the log says which aircraft the recorded run tracked), and nothing when it is not, a replayed simulator or bench run never having had an identity to lose (0.3.0; until it, every replay said `ID UNAVAILABLE`); nothing after `LIVE` and `SIM`, which are own-ship. With the bridge's `--hide-identity` the identity reads `---` throughout, for recordings made for publication under the data license.
 
 **The lag (REQ-DISP-006):** `lag = (arrival − arrival₀) − (t − t₀)`, the page's clock against the frame's timestamps, computed on every frame, not on the ticker (silence is staleness's business); beside it in the diagnostic view, `bridge lag = (received_at − received_at₀) − (t − t₀)` from the bridge's `received_at_ms`, to say on which side of the bridge a queue is. The origins are the first frame after a connection, after ENDED, or after a timestamp that goes backwards (a restarted binary with no ENDED seen). The threshold is `hello`'s `lag_ms` (500 ms as shipped, the bridge's `--lag-ms`). An unpaced replay's lag is negative, its frames arriving faster than their timestamps advance, and is not flagged; the rate shows it.
 
