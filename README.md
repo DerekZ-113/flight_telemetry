@@ -134,7 +134,7 @@ src/            telemetry_frame, data_source, main.cpp
   timing/       clock, fixed_rate_scheduler, timestamp_pacer (a replay on its log's timestamps), jitter_log
   transport/    publisher (the seam), zmq_publisher, udp_publisher, session_message (mode and end on the wire)
   config/       telemetry_config (the typed structs, the loader and its rules, the record's naming)
-config/         telemetry_config.yaml, the configuration of record (38 keys, one comment per section citing its requirement)
+config/         telemetry_config.yaml, the configuration of record (48 keys, ten of them in the optional adsb block, one comment per section citing its requirement)
 pipeline/       frame_format (the byte layout, shared by log and wire, and the session status), receiver (ZeroMQ SUB or UDP),
                 log_reader (files, rotation, the numpy layout), bridge (the receiver to browser clients over a WebSocket)
 dashboard/      the page: Vite, React and TypeScript; the feed hook, the diagnostic view, the instruments (src/pfd/), their Vitest tests
