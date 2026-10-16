@@ -3,19 +3,26 @@
 #include <cstddef>
 #include <cstdint>
 
-// Health of one sensor channel (REQ-FAULT-004, REQ-FAULT-005, REQ-FAULT-006).
-// Written by the fault detector only. NOMINAL is zero on purpose: a
-// value-initialized frame, a source's raw frame and every frame of a
-// version-1 log read NOMINAL, which from a source means "unjudged"; the
-// detector overwrites all three statuses on every frame it checks
-// (design.md section 7). NO_DATA is the detector's word for a channel that
-// has never produced a reading: its raw fields are the zeros of a
-// value-initialized frame, which a display would show as a plausible value
-// (a position of 0, 0 is a real place).
+// Health of one sensor channel (REQ-FAULT-004, REQ-FAULT-005, REQ-FAULT-006,
+// REQ-FAULT-007). Judged by the fault detector, with one exception. NOMINAL
+// is zero on purpose: a value-initialized frame, a source's raw frame and
+// every frame of a version-1 log read NOMINAL, which from a source means
+// "unjudged"; the detector overwrites every status left so on each frame
+// it checks (design.md section 7). NO_DATA is the detector's word for a
+// channel that has never produced a reading: its raw fields are the zeros
+// of a value-initialized frame, which a display would show as a plausible
+// value (a position of 0, 0 is a real place). NOT_AVAILABLE is the one
+// status a source asserts: it has no sensor for the channel (the GPS
+// without a receiver, the barometer and IMU of the ADS-B source), a fact
+// of the configuration rather than a judgment about a sensor, which the
+// detector leaves as it is with no timeout and no event, and which a
+// replay keeps. A new value of an existing byte, added 2026-10-15 with no
+// format bump: a reader that predates it prints the number.
 enum class ChannelStatus : uint8_t {
     NOMINAL = 0,
     DEGRADED = 1,
     NO_DATA = 2,
+    NOT_AVAILABLE = 3,
 };
 
 // Validity of one computed field (REQ-PROC-007), written by the processor
@@ -82,8 +89,9 @@ struct TelemetryFrame {
     float fused_altitude_m;     // 84
     float vertical_speed_mps;   // 88
 
-    // Channel health (REQ-FAULT-004, REQ-FAULT-006). Owned by the fault
-    // detector; sources set NOMINAL and never change it.
+    // Channel health (REQ-FAULT-004, REQ-FAULT-006, REQ-FAULT-007). Judged
+    // by the fault detector; a source sets NOMINAL, or NOT_AVAILABLE for a
+    // channel it does not provide, and never anything else.
     ChannelStatus baro_status;  // 92
     ChannelStatus imu_status;   // 93
     ChannelStatus gps_status;   // 94

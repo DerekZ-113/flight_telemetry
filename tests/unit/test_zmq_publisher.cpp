@@ -26,6 +26,7 @@
 
 #include "drivers/simulated_source.h"
 #include "logging/log_format.h"
+#include "transport/session_message.h"
 #include "transport/zmq_publisher.h"
 
 namespace {
@@ -230,4 +231,40 @@ TEST_F(ZmqPublisherTest, SendErrorIsCountedNotThrown) {
     EXPECT_EQ(publisher.stats().send_failures, 1u);
     EXPECT_EQ(publisher.stats().last_errno, ETERM);
     EXPECT_EQ(publisher.stats().published, 0u);
+    // A status meets the same refusal through the same send (REQ-TRANS-004).
+    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::ENDED, SessionIdentity{}));
+    EXPECT_EQ(publisher.stats().send_failures, 2u);
+    EXPECT_EQ(publisher.stats().status_published, 0u);
+}
+
+// REQ-TRANS-004, TC-021 step 2: a status is the nineteen bytes of
+// session_message, sent through the same socket as the frames and counted
+// apart from them.
+TEST_F(ZmqPublisherTest, StatusMessageArrivesAndIsCounted) {
+    ZmqPublisher publisher(context_, "inproc://status");
+    ASSERT_TRUE(publisher.ok());
+    zmq::socket_t sub = make_subscriber("inproc://status");
+    const int warm_ups = settle(publisher, sub);
+
+    ASSERT_TRUE(publisher.publish_status(RunMode::REPLAY, StreamState::RUNNING, SessionIdentity{}));
+
+    zmq::message_t msg;
+    ASSERT_TRUE(sub.recv(msg).has_value());
+    const std::array<uint8_t, kSessionMessageBytes> expected =
+        session_message(RunMode::REPLAY, StreamState::RUNNING, SessionIdentity{});
+    ASSERT_EQ(msg.size(), expected.size());
+    EXPECT_EQ(std::memcmp(msg.data(), expected.data(), expected.size()), 0);
+    EXPECT_EQ(publisher.stats().status_published, 1u);
+    EXPECT_EQ(publisher.stats().published, static_cast<uint64_t>(warm_ups));
+    EXPECT_EQ(publisher.stats().send_failures, 0u);
+}
+
+// TC-021 step 4: a publisher that could not bind counts a status it could
+// not send, as it counts a frame.
+TEST_F(ZmqPublisherTest, NotOkCountsAStatusFailure) {
+    ZmqPublisher publisher(context_, "not-an-endpoint");
+    ASSERT_FALSE(publisher.ok());
+    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::ENDED, SessionIdentity{}));
+    EXPECT_EQ(publisher.stats().send_failures, 1u);
+    EXPECT_EQ(publisher.stats().status_published, 0u);
 }

@@ -15,7 +15,10 @@
 // baro_altitude_m, pitch/roll, fused_altitude_m, and vertical_speed_mps
 // are left at 0.0 for the pipeline to fill. If a source computed them
 // itself, replay could never verify the pipeline, because the work would
-// already be done before the pipeline ran.
+// already be done before the pipeline ran. Statuses are left NOMINAL for
+// the detector to judge, with one exception (REQ-FAULT-007): a channel the
+// source has no sensor for is reported NOT_AVAILABLE on every frame, a
+// fact of the configuration, which the detector then leaves alone.
 class DataSource {
 public:
     // Virtual destructor. Callers own sources through DataSource pointers
@@ -32,4 +35,12 @@ public:
     // provides no implementation, and any class that fails to override it
     // is itself abstract and cannot be instantiated.
     virtual TelemetryFrame read_frame() = 0;
+
+    // Whether read_frame() has a frame to give (REQ-LOG-006). The loop asks
+    // before every read and stops at the first false, so no cycle runs past
+    // the end of a log. A sensor and the simulator always have a next frame:
+    // an endless source has no end of stream, which is why the default is
+    // true and only a replay overrides it. A caller that never asks gets the
+    // source's own fallback (a replay: its last frame again).
+    virtual bool has_next() { return true; }
 };

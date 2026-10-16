@@ -3,7 +3,7 @@
 > **Document ID:** FTS-NP-001
 > **Version:** 0.1.0
 > **Status:** Draft (method and acceptance criteria; results pending the capture of 2026-10-13)
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 > **Related:** FTS-SRD-001 (REQ-PROC-004, REQ-SENS-006), FTS-DD-001 (Sections 5 and 6), FTS-TP-001 (TC-015), FTS-TM-001, FTS-VR-001 (Entry 9)
 
 This document is the measurement REQ-PROC-004 names. It states, before the data exists, what is measured on a stationary capture of the real sensors, how each number is estimated, what the datasheets lead us to expect, which Kalman constants the capture can set and which it cannot, and the rules that decide the open questions once the numbers are in. Version 0.1.0 is the method; 0.2.0 adds the results. Writing the method first is the test plan's own discipline (a card before its execution) applied to a measurement, so that the analysis cannot drift toward a wanted answer.
@@ -84,7 +84,7 @@ R is the per-sample scatter the filter sees at each update, which the Kalman gai
 | Constant | Status | Rule |
 |---|---|---|
 | `kBaroMeasurementVariance` | **measured** | ADEV(τ₀)² of `baro_altitude_m`, in m² |
-| `kInitialAltitudeVariance` | **measured** | equals the barometric variance: the filter is born from one barometric sample |
+| `kInitialAltitudeVariance` | **measured** | equals the measurement variance of the source the filter is born from (REQ-PROC-003, 0.12.0): the barometric variance on the bench, where the barometer reads on the first cycle; the GPS variance, the datasheet's 25 m² until a capture with the receiver fixing is analysed, when the barometer has not read, as in ADS-B mode, where the GPS channel carries an aircraft's GNSS height and the same figure stands until a capture measures it |
 | `kGpsMeasurementVariance` | **retained**, 25 m² | no GPS capture analysed yet (the receiver landed 2026-10-14, REQ-SENS-005); the receiver's vertical error is about 5 m |
 | `kAccelNoiseVariance` | **retained**, 1 (m/s²)² | Section 3.4 |
 | `kInitialVelocityVariance` | **chosen by replay** | Section 3.5 |

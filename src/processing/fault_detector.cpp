@@ -227,14 +227,27 @@ void FaultDetector::record_event(uint64_t now_ms, Channel channel, FaultType typ
 TelemetryFrame FaultDetector::check(const TelemetryFrame& raw) {
     const uint64_t now_ms = raw.timestamp_ms;
 
-    transition(Channel::BARO, baro_, observe_baro(raw, now_ms), now_ms);
-    transition(Channel::IMU, imu_, observe_imu(raw, now_ms), now_ms);
-    transition(Channel::GPS, gps_, observe_gps(raw, now_ms), now_ms);
+    // A channel the source reports NOT_AVAILABLE (REQ-FAULT-007) is a fact,
+    // not a reading: no observation, no transition, no event, and the
+    // status passes through as the source set it. The channel's own state
+    // is not touched, so a source that provides it later starts at NO_DATA.
+    const bool baro_absent = raw.baro_status == ChannelStatus::NOT_AVAILABLE;
+    const bool imu_absent = raw.imu_status == ChannelStatus::NOT_AVAILABLE;
+    const bool gps_absent = raw.gps_status == ChannelStatus::NOT_AVAILABLE;
+    if (!baro_absent) {
+        transition(Channel::BARO, baro_, observe_baro(raw, now_ms), now_ms);
+    }
+    if (!imu_absent) {
+        transition(Channel::IMU, imu_, observe_imu(raw, now_ms), now_ms);
+    }
+    if (!gps_absent) {
+        transition(Channel::GPS, gps_, observe_gps(raw, now_ms), now_ms);
+    }
 
     TelemetryFrame out = raw;
-    out.baro_status = baro_.status;
-    out.imu_status = imu_.status;
-    out.gps_status = gps_.status;
+    out.baro_status = baro_absent ? ChannelStatus::NOT_AVAILABLE : baro_.status;
+    out.imu_status = imu_absent ? ChannelStatus::NOT_AVAILABLE : imu_.status;
+    out.gps_status = gps_absent ? ChannelStatus::NOT_AVAILABLE : gps_.status;
     return out;
 }
 

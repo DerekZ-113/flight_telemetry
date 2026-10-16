@@ -54,6 +54,19 @@ TEST(AltitudeTest, AboveSeaLevelReference) {
     EXPECT_NEAR(pressure_to_altitude(1012.25f, 1013.25f), 8.3f, 0.2f);
 }
 
+// TC-026 step 1 (REQ-SENS-007). The inverse round-trips: the pressure the
+// simulator writes for a scripted altitude reads back as that altitude
+// through the pipeline's own relation, within a centimetre over the
+// altitudes the demo flies and the ISA table's thousand metres, and the
+// table's 1000 m pressure inverts to the hundredth of a hectopascal.
+TEST(AltitudeTest, PressureRoundTrips) {
+    for (float altitude : {0.0f, 2.0f, 122.0f, 1000.0f, 2000.0f}) {
+        EXPECT_NEAR(pressure_to_altitude(altitude_to_pressure(altitude)), altitude, 0.01f) << altitude << " m";
+    }
+    EXPECT_NEAR(altitude_to_pressure(pressure_to_altitude(898.76f)), 898.76f, 0.01f);
+    EXPECT_NEAR(altitude_to_pressure(0.0f), 1013.25f, 1e-3f);
+}
+
 // Not a TC-001 step, but a property the formula must have: lower pressure
 // is always higher altitude. A sign error or a non-monotonic curve fit
 // would pass the six point checks and still fail this. (REQ-PROC-001)

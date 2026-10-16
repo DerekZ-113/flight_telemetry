@@ -1,8 +1,11 @@
 #include "drivers/simulated_source.h"
 
+#include <utility>
+
 SimulatedSource::SimulatedSource(uint64_t interval_ms, uint32_t seed, uint64_t gps_interval_ms,
-                                 const SimulationNoise& noise)
-    : generator_(seed, gps_interval_ms, noise),
+                                 const SimulationNoise& noise, std::optional<MotionProfile> profile)
+    : profile_(std::move(profile)),
+      generator_(seed, gps_interval_ms, noise, profile_.has_value() ? &*profile_ : nullptr),
       interval_ms_(interval_ms),
       next_timestamp_ms_(0)
 {

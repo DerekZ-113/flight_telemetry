@@ -3,8 +3,8 @@ REQ-LOG-004, REQ-TEST-002).
 
 What the binary, the receiver and the Python reader say about validity and the format version:
 the session fixture's log and replay are version 2 and NORMAL from frame 0; a version-1 log
-replays and a version-3 log is refused before anything is built; a replay that outlasts its log
-says so; the receiver's lines carry the validity names; the reader's layout, names, NaN view and
+replays and a version-3 log is refused before anything is built; a replay ends at its log
+(TC-019, `test_replay_pacing.py`); the receiver's lines carry the validity names; the reader's layout, names, NaN view and
 summary agree with the C++ side.
 """
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_session_is_version_2_and_normal_from_frame_0(sim_session):
         assert "NO_COMPUTED_DATA on 0 frames, FAILURE_WARNING on 0" in stdout
     assert "Replay input: " in sim_session.replay_stdout
     assert "(format version 2)" in sim_session.replay_stdout
-    assert "exhausted after" not in sim_session.replay_stdout
+    assert "Replay:    500 frames, end of log reached" in sim_session.replay_stdout
 
 
 # --- steps 12 and 13: the format version at the command line -----------------------------------
@@ -91,7 +91,7 @@ def test_version_1_log_replays_through_this_build(telemetry_bin, tmp_path):
     for field in VALIDITY_FIELDS:
         assert (judged[field] != NOT_JUDGED).all(), field
     assert (judged["fused_altitude_validity"] == VALIDITY_NORMAL).all()
-    assert "exhausted after" not in completed.stdout
+    assert "Replay:    50 frames, end of log reached" in completed.stdout
 
 
 def test_version_3_log_is_refused_before_anything_is_built(telemetry_bin, tmp_path):
@@ -101,14 +101,6 @@ def test_version_3_log_is_refused_before_anything_is_built(telemetry_bin, tmp_pa
     assert "format version 3" in completed.stderr, completed.stderr
     assert "reads 1 to 2" in completed.stderr, completed.stderr
     assert not (tmp_path / "logs").exists(), "nothing may be built before the input is accepted"
-
-
-def test_replay_past_the_end_of_the_log_says_so(telemetry_bin, tmp_path):
-    source = write_replayable(tmp_path / "short", raw_frames(5))
-    completed = run(telemetry_bin, tmp_path, "--replay", str(source.relative_to(tmp_path)), "--cycles", "12")
-    assert completed.returncode == 0, completed.stderr
-    assert "Replay:    exhausted after 5 frames; 7 cycles repeated the last frame" in completed.stdout
-    assert len(read_log(tmp_path / "logs" / "replay_000.bin").frames) == 12
 
 
 # --- step 14: the receiver's lines ---------------------------------------------------------------
@@ -139,7 +131,7 @@ def test_reader_layout_names_nan_view_and_summary(tmp_path, capsys):
     assert event_dtype().fields["reserved"][1] == 10
     assert FRAME.size == 104 and EVENT.size == 16
     assert VALIDITY_NAMES == {0: "NOT_JUDGED", 1: "NO_COMPUTED_DATA", 2: "FAILURE_WARNING", 3: "NORMAL"}
-    assert STATUS_NAMES == {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA"}
+    assert STATUS_NAMES == {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA", 3: "NOT_AVAILABLE"}
 
     # The NaN view: one FAILURE_WARNING field becomes NaN there and nowhere else; the frames
     # themselves keep their numbers.

@@ -127,9 +127,13 @@ TelemetryFrame LiveSensorSource::read_frame() {
     frame.ground_speed_mps = last_gps_.ground_speed_mps;
     frame.heading_deg = last_gps_.course_deg;
 
-    // Sources report; the detector judges (telemetry_frame.h).
+    // Sources report; the detector judges (telemetry_frame.h). The one
+    // status a source asserts: without a receiver the GPS channel is not
+    // provided, NOT_AVAILABLE on every frame (REQ-FAULT-007), so the
+    // detector raises no timeout and no event for a sensor that was never
+    // there.
     frame.baro_status = ChannelStatus::NOMINAL;
     frame.imu_status = ChannelStatus::NOMINAL;
-    frame.gps_status = ChannelStatus::NOMINAL;
+    frame.gps_status = gps_.has_value() ? ChannelStatus::NOMINAL : ChannelStatus::NOT_AVAILABLE;
     return frame;
 }

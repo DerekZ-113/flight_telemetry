@@ -1,0 +1,235 @@
+/* The page's one stylesheet. Classes are the contract the tests read:
+   validity-<NAME> on each field's row, stale on the table, the rows and the
+   channels while the feed is stale, badge-<kind> on the state badge. */
+
+:root {
+  --bg: #0b0f14;
+  --panel: #121923;
+  --text: #d7e0ea;
+  --dim: #6b7785;
+  --normal: #37c871;
+  --warning: #f0a830;
+  --absent: #7f8c9a;
+  --pipeline: #e24bd1;
+  --stale: #8a94a0;
+  --ended: #5aa7ff;
+  --disconnected: #ff5c5c;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.pfd {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2rem;
+}
+
+/* The instrument panel and, beside it, the ground track plot; the panel's
+   geometry is its viewBox, scaled to the width it is given. */
+.instruments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-top: 1rem;
+}
+
+.panel {
+  display: block;
+  width: 100%;
+  max-width: 800px;
+  height: auto;
+  border-radius: 6px;
+  background: #0f1318;
+}
+
+.plot {
+  display: block;
+  width: 300px;
+  height: 300px;
+  border-radius: 6px;
+  background: #0f1318;
+}
+
+.bar {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  border-bottom: 1px solid #243040;
+  padding-bottom: 0.75rem;
+}
+
+.mode {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.mode[data-mode="UNKNOWN"] {
+  color: var(--dim);
+}
+
+.badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.25rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #0b0f14;
+  background: var(--dim);
+}
+
+.badge-running {
+  background: var(--normal);
+}
+
+.badge-stale {
+  background: var(--warning);
+}
+
+.badge-ended {
+  background: var(--ended);
+}
+
+.badge-disconnected {
+  background: var(--disconnected);
+}
+
+.detail {
+  color: var(--dim);
+}
+
+.counters {
+  display: flex;
+  gap: 2rem;
+  padding: 1rem 0;
+}
+
+.counters .label {
+  display: block;
+  color: var(--dim);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.counters .number {
+  font-size: 1.4rem;
+}
+
+.counters .unit {
+  margin-left: 0.4rem;
+  color: var(--dim);
+}
+
+.fields {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+}
+
+.fields th,
+.fields td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #1d2733;
+}
+
+.fields .value {
+  text-align: right;
+  font-size: 1.25rem;
+  min-width: 7rem;
+}
+
+.fields .verdict .name {
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+}
+
+.validity-NORMAL .verdict {
+  color: var(--normal);
+}
+
+.validity-FAILURE_WARNING .verdict,
+.validity-FAILURE_WARNING .value {
+  color: var(--warning);
+}
+
+.validity-FAILURE_WARNING .value {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.validity-NO_COMPUTED_DATA .verdict,
+.validity-NO_COMPUTED_DATA .value,
+.validity-NONE .verdict,
+.validity-NONE .value {
+  color: var(--absent);
+}
+
+.validity-NOT_JUDGED .verdict,
+.validity-NOT_JUDGED .value {
+  color: var(--pipeline);
+}
+
+.annunciator {
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--pipeline);
+  border-radius: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Stale: every number stays legible under the mark, and the mark is unmistakable. */
+.stale .value,
+.stale .verdict,
+.channel.stale {
+  color: var(--stale);
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.channels {
+  display: flex;
+  gap: 1.5rem;
+  padding-top: 1rem;
+}
+
+.channel {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.channel .name {
+  color: var(--dim);
+}
+
+.status-NOMINAL .status {
+  color: var(--normal);
+}
+
+.status-DEGRADED .status {
+  color: var(--warning);
+}
+
+.status-NO_DATA .status,
+.status-NONE .status {
+  color: var(--absent);
+}
+
+.channel .fresh {
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.attribution {
+  margin-top: 1.5rem;
+  color: var(--dim);
+  font-size: 0.85rem;
+}

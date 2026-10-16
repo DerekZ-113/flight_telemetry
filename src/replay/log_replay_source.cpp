@@ -26,9 +26,12 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
     frame.roll_deg = 0.0f;
     frame.fused_altitude_m = 0.0f;
     frame.vertical_speed_mps = 0.0f;
-    frame.baro_status = ChannelStatus::NOMINAL;
-    frame.imu_status = ChannelStatus::NOMINAL;
-    frame.gps_status = ChannelStatus::NOMINAL;
+    // The statuses the detector judged go back to NOMINAL for it to judge
+    // again; the one a source asserts, NOT_AVAILABLE, stays, so a replay
+    // reproduces the availability the source wrote (REQ-FAULT-007).
+    frame.baro_status = frame.baro_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
+    frame.imu_status = frame.imu_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
+    frame.gps_status = frame.gps_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
     // The pipeline's judgments go too (REQ-PROC-007): a source hands out
     // NOT_JUDGED and the processor writes every validity. The reserved
     // bytes are zero by definition (log_format.h).
@@ -41,20 +44,29 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
     frame.reserved_b = 0;
 }
 
-TelemetryFrame LogReplaySource::read_frame() {
-    while (!exhausted_) {
+bool LogReplaySource::has_next() {
+    // Fill the look-ahead from the current file, or the next readable one,
+    // until it holds a frame or the files run out. Nothing is consumed
+    // here: read_frame() hands the buffered frame out.
+    while (!next_.has_value() && !exhausted_) {
         if (!reader_.has_value() && !open_next_file()) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
             exhausted_ = true;
             break;
         }
-        std::optional<TelemetryFrame> frame = reader_->next_frame();
-        if (frame.has_value()) {
-            strip_to_raw(*frame);
-            last_ = *frame;
-            frames_read_++;
-            return last_;
+        next_ = reader_->next_frame();
+        if (!next_.has_value()) {
+            reader_.reset();   // this file is done; try the next
         }
-        reader_.reset();   // this file is done; try the next
+    }
+    return next_.has_value();
+}
+
+TelemetryFrame LogReplaySource::read_frame() {
+    if (has_next()) {
+        strip_to_raw(*next_);
+        last_ = *next_;
+        next_.reset();
+        frames_read_++;
     }
     return last_;
 }

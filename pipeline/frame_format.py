@@ -1,13 +1,19 @@
-"""Byte layout of the telemetry log and of every ZeroMQ message (REQ-LOG-001, REQ-TRANS-001).
+"""Byte layout of the telemetry log and of every message on the wire (REQ-LOG-001, REQ-TRANS-001,
+REQ-TRANS-004).
 
-This module is the Python side of three C++ definitions and must change with them:
+This module is the Python side of four C++ definitions and must change with them:
 
     src/telemetry_frame.h            TelemetryFrame  ->  FRAME, FRAME_FIELDS
     src/processing/fault_detector.h  FaultEvent      ->  EVENT, EVENT_FIELDS
     src/logging/log_format.h         LogFileHeader   ->  HEADER, LOG_FORMAT_VERSION
+    src/transport/session_message.h  session_message ->  SESSION, MODE_NAMES, STATE_NAMES
 
-A log file is HEADER followed by {tag byte, record} pairs; a ZeroMQ message is
-HEADER followed by exactly one such pair (FTS-DD-001 section 9). The C++ side
+A log file is HEADER followed by {tag byte, record} pairs; a frame message on either
+transport is HEADER followed by exactly one such pair (FTS-DD-001 section 9). The one
+message that is not a log record is the session status, nineteen bytes under its own magic
+(SESSION below): the run mode, whether the stream has ended and, in ADS-B mode, the identity
+of the aircraft the frames present, which the frames cannot say.
+A reader tells the two apart by the first four bytes and never finds a status in a file. The C++ side
 writes the structs' in-memory bytes verbatim, so the formats here use '@':
 native byte order and native alignment. Format version 2 names every byte, so
 there is no padding to reproduce: reserved_a sits where version 1 had four
@@ -60,7 +66,7 @@ FRAME_FIELDS = (
 )
 EVENT_FIELDS = ("timestamp_ms", "channel", "type", "reserved", "value")
 
-STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA"}                      # ChannelStatus
+STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA", 3: "NOT_AVAILABLE"}   # ChannelStatus
 VALIDITY_NAMES = {0: "NOT_JUDGED", 1: "NO_COMPUTED_DATA", 2: "FAILURE_WARNING", 3: "NORMAL"}   # Validity
 VALIDITY_NORMAL = 3
 # Each computed field and the validity byte that judges it (REQ-PROC-007).
@@ -73,6 +79,14 @@ COMPUTED_VALIDITY = {
 }
 VALIDITY_FIELDS = tuple(COMPUTED_VALIDITY.values())
 CHANNEL_NAMES = {0: "BARO", 1: "IMU", 2: "GPS"}                                 # Channel
+
+# The session status message (REQ-TRANS-004): src/transport/session_message.h.
+SESSION_MAGIC = b"FTSS"
+SESSION_MESSAGE_VERSION = 2                                     # kSessionMessageVersion: version 1 (eight bytes) is no longer read
+SESSION = struct.Struct("@4sBBBB3s8s")                          # 19 bytes: magic, version, mode, state, reserved, icao24, callsign
+NO_IDENTITY = bytes(11)                                         # the eleven identity bytes zero: nothing selected, or another mode
+MODE_NAMES = {1: "LIVE", 2: "SIMULATED", 3: "REPLAY", 4: "ADSB"}   # RunMode
+STATE_NAMES = {1: "RUNNING", 2: "ENDED"}                        # StreamState
 FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY"}   # FaultType
 
 assert len(FRAME_FIELDS) == len(FRAME.unpack(bytes(FRAME.size)))
@@ -89,6 +103,14 @@ class Header(NamedTuple):
     event_size: int
     reserved: int
     endian_marker: int
+
+
+class SessionStatus(NamedTuple):
+    """One status message, by name: the run mode, the stream's state and, in ADS-B mode, the
+    selected aircraft's identity (REQ-SENS-009, REQ-DISP-007)."""
+    mode: str                                 # LIVE, SIMULATED, REPLAY or ADSB
+    state: str                                # RUNNING or ENDED
+    identity: tuple[str, str] | None = None   # (icao24 as six hex digits, callsign stripped), or None
 
 
 class FormatError(ValueError):
@@ -142,8 +164,31 @@ def iter_records(buf: bytes) -> Iterator[Frame | FaultEvent]:
         yield record
 
 
-def parse_message(buf: bytes) -> Frame | FaultEvent:
-    """A ZeroMQ message: a header and exactly one record, nothing after it."""
+def parse_session(buf: bytes) -> SessionStatus:
+    """The status in `buf`, by name; a length, version, mode or state this module does not
+    know is refused, as a header it cannot read is. The identity is None when its eleven
+    bytes are zero; otherwise the address as hex digits and the callsign with its padding
+    stripped (an aircraft without a callsign reads as an empty string, not as None)."""
+    if len(buf) != SESSION.size:
+        raise FormatError(f"session status of {len(buf)} bytes, expected {SESSION.size}")
+    _magic, version, mode, state, _reserved, icao24, callsign = SESSION.unpack(buf)
+    if version != SESSION_MESSAGE_VERSION:
+        raise FormatError(f"session status version {version}; this module reads {SESSION_MESSAGE_VERSION}")
+    if mode not in MODE_NAMES:
+        raise FormatError(f"session status mode {mode} is not one this module names")
+    if state not in STATE_NAMES:
+        raise FormatError(f"session status state {state} is not one this module names")
+    identity = None
+    if icao24 + callsign != NO_IDENTITY:
+        identity = (icao24.hex(), callsign.decode("ascii", "replace").rstrip(" \0"))
+    return SessionStatus(MODE_NAMES[mode], STATE_NAMES[state], identity)
+
+
+def parse_message(buf: bytes) -> Frame | FaultEvent | SessionStatus:
+    """A message from either transport: a header and exactly one record, nothing after it; or
+    a session status, told apart by its first four bytes (REQ-TRANS-004)."""
+    if buf[:4] == SESSION_MAGIC:
+        return parse_session(buf)
     check_header(parse_header(buf))
     record, end = parse_record(buf, HEADER.size)
     if end != len(buf):

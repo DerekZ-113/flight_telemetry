@@ -5,6 +5,7 @@ const char* status_name(ChannelStatus status) {
         case ChannelStatus::NOMINAL:  return "NOMINAL";
         case ChannelStatus::DEGRADED: return "DEGRADED";
         case ChannelStatus::NO_DATA:  return "NO_DATA";
+        case ChannelStatus::NOT_AVAILABLE: return "NOT_AVAILABLE";
     }
     // A byte outside the enumeration: a corrupt log, never the detector.
     return "UNKNOWN";

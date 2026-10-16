@@ -94,6 +94,31 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     EXPECT_EQ(raw.reserved_b, 0u);
 }
 
+// TC-017 step 19 (REQ-FAULT-007, FAULT-018). The one status a source
+// asserts survives the strip: a channel recorded NOT_AVAILABLE comes back
+// NOT_AVAILABLE, so a replay reproduces the availability the source wrote
+// into every frame, while the statuses the detector judged go back to
+// NOMINAL for it to judge again, and the validities to NOT_JUDGED.
+TEST_F(ReplayTest, NotAvailableSurvivesTheStrip) {
+    TelemetryFrame processed{};
+    processed.timestamp_ms = 60;
+    processed.baro_status = ChannelStatus::DEGRADED;
+    processed.imu_status = ChannelStatus::NOT_AVAILABLE;
+    processed.gps_status = ChannelStatus::NO_DATA;
+    processed.pitch_validity = Validity::NO_COMPUTED_DATA;
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        logger.log_frame(processed);
+    }
+
+    LogReplaySource source({dir_ / "t_000.bin"});
+    const TelemetryFrame raw = source.read_frame();
+    EXPECT_EQ(raw.baro_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(raw.imu_status, ChannelStatus::NOT_AVAILABLE);
+    EXPECT_EQ(raw.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(raw.pitch_validity, Validity::NOT_JUDGED);
+}
+
 // REQ-LOG-005, TC-017 step 9. A version-1 log replays: its raw fields come
 // through as logged and its frames arrive unjudged, the reader having set
 // the version-1 padding to what version 2 means by it.
@@ -147,8 +172,9 @@ TEST_F(ReplayTest, ReplaySpansRotatedFiles) {
     EXPECT_EQ(source.frames_read(), 10u);
 }
 
-// The end-of-stream decision, pinned: past the end, the last frame
-// repeats and exhausted() says so.
+// The fallback for a caller that never asks has_next(): past the end, the
+// last frame repeats and exhausted() says so. REQ-LOG-006 makes the loop
+// ask, so no cycle runs on a repeat (HasNextIsFalseAfterTheLastFrame).
 TEST_F(ReplayTest, ExhaustedReturnsLastFrame) {
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
@@ -182,6 +208,99 @@ TEST_F(ReplayTest, EmptyFileListIsExhaustedImmediately) {
     const TelemetryFrame f = source.read_frame();
     EXPECT_TRUE(source.exhausted());
     EXPECT_EQ(f.timestamp_ms, 0u);
+}
+
+// REQ-LOG-006, TC-019 step 1: a source can say whether a next frame exists.
+// The answer comes from a one-frame look-ahead that consumes nothing, so the
+// loop can ask before every read and stop exactly at the log's end.
+TEST_F(ReplayTest, HasNextIsFalseAfterTheLastFrame) {
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        for (int i = 0; i < 3; i++) {
+            TelemetryFrame f{};
+            f.timestamp_ms = static_cast<uint64_t>(i) * 20;
+            logger.log_frame(f);
+        }
+    }
+    LogReplaySource source({dir_ / "t_000.bin"});
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(source.has_next()) << "before frame " << i;
+        EXPECT_EQ(source.read_frame().timestamp_ms, static_cast<uint64_t>(i) * 20) << "frame " << i;
+    }
+    EXPECT_FALSE(source.has_next());
+    EXPECT_TRUE(source.exhausted());
+    EXPECT_EQ(source.frames_read(), 3u);
+    // The fallback for a caller that never asks: the last frame again,
+    // counted once.
+    EXPECT_EQ(source.read_frame().timestamp_ms, 40u);
+    EXPECT_EQ(source.frames_read(), 3u);
+}
+
+// TC-019 step 1, the look-ahead consumes nothing: asking twice then reading
+// gives the one frame once.
+TEST_F(ReplayTest, HasNextDoesNotConsume) {
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        TelemetryFrame f{};
+        f.timestamp_ms = 100;
+        logger.log_frame(f);
+    }
+    LogReplaySource source({dir_ / "t_000.bin"});
+    EXPECT_TRUE(source.has_next());
+    EXPECT_TRUE(source.has_next());
+    EXPECT_EQ(source.read_frame().timestamp_ms, 100u);
+    EXPECT_EQ(source.frames_read(), 1u);
+    EXPECT_FALSE(source.has_next());
+}
+
+// TC-019 step 2: the look-ahead opens files lazily and skips an unreadable
+// one, as read_frame() always did.
+TEST_F(ReplayTest, HasNextOpensLazilyAndSkipsUnreadable) {
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        TelemetryFrame f{};
+        f.timestamp_ms = 7;
+        logger.log_frame(f);
+    }
+    LogReplaySource source({dir_ / "missing.bin", dir_ / "t_000.bin"});
+    EXPECT_TRUE(source.has_next());
+    EXPECT_EQ(source.read_frame().timestamp_ms, 7u);
+    EXPECT_FALSE(source.has_next());
+}
+
+// TC-019 step 3.
+TEST_F(ReplayTest, EmptyListHasNoNext) {
+    LogReplaySource source({});
+    EXPECT_FALSE(source.has_next());
+    EXPECT_TRUE(source.exhausted());
+}
+
+// TC-019 step 4: the injector wraps a source and answers as it does; an
+// endless source answers true forever, which is the base class's default.
+TEST_F(ReplayTest, FaultInjectorForwardsHasNext) {
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        for (int i = 0; i < 2; i++) {
+            TelemetryFrame f{};
+            f.timestamp_ms = static_cast<uint64_t>(i) * 20;
+            logger.log_frame(f);
+        }
+    }
+    FaultInjectingSource source(std::make_unique<LogReplaySource>(
+        std::vector<fs::path>{dir_ / "t_000.bin"}));
+    EXPECT_TRUE(source.has_next());
+    EXPECT_EQ(source.read_frame().timestamp_ms, 0u);
+    EXPECT_TRUE(source.has_next());
+    EXPECT_EQ(source.read_frame().timestamp_ms, 20u);
+    EXPECT_FALSE(source.has_next());
+}
+
+TEST_F(ReplayTest, SimulatedSourceAlwaysHasNext) {
+    SimulatedSource source(20, 42);
+    for (int i = 0; i < 100; i++) {
+        EXPECT_TRUE(source.has_next()) << "frame " << i;
+        source.read_frame();
+    }
 }
 
 // REQ-LOG-003, TC-004 at unit level. This is the thesis test.
@@ -228,13 +347,15 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
         LogReplaySource source(files);
         FaultDetector detector;
         TelemetryProcessor processor;
-        for (int i = 0; i < kFrames; i++) {
+        // REQ-LOG-006 (TC-019 step 5): the loop asks the source, not a
+        // count, and stops exactly at the log's end.
+        while (source.has_next()) {
             replay_frames.push_back(processor.process(detector.check(source.read_frame())));
             for (const FaultEvent& e : detector.take_events()) {
                 replay_events.push_back(e);
             }
         }
-        EXPECT_FALSE(source.exhausted());
+        EXPECT_TRUE(source.exhausted());
         EXPECT_EQ(source.frames_read(), static_cast<size_t>(kFrames));
     }
 

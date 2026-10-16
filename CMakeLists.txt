@@ -39,6 +39,7 @@ add_library(telemetry_core STATIC
     src/processing/fault_detector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
+    src/drivers/motion_profile.cpp
     src/drivers/fault_injecting_source.cpp
     src/drivers/i2c_bus.cpp
     src/drivers/bmp280.cpp
@@ -47,15 +48,25 @@ add_library(telemetry_core STATIC
     src/drivers/nmea.cpp
     src/drivers/serial_port.cpp
     src/drivers/nmea_gps.cpp
+    src/drivers/http_client.cpp
+    src/drivers/curl_http_client.cpp
+    src/drivers/opensky_json.cpp
+    src/drivers/opensky_client.cpp
+    src/drivers/aircraft_selector.cpp
+    src/drivers/adsb_source.cpp
+    src/drivers/selection_log.cpp
     src/logging/log_format.cpp
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp
     src/replay/log_replay_source.cpp
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
+    src/timing/timestamp_pacer.cpp
     src/timing/jitter_log.cpp
+    src/timing/periodic_worker.cpp
     src/transport/zmq_publisher.cpp
     src/transport/udp_publisher.cpp
+    src/transport/session_message.cpp
     src/config/telemetry_config.cpp
 )
 
@@ -134,6 +145,48 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 target_link_libraries(telemetry_core PRIVATE yaml-cpp::yaml-cpp)
 
+# ---------------------------------------------------------------------------
+# The ADS-B source (REQ-SENS-008). Three pieces. libcurl, the HTTP client,
+# comes from the system like libzmq does: the macOS SDK ships it, the Pi and
+# the CI runner take libcurl4-openssl-dev; CMake's own FindCURL exports the
+# CURL::libcurl target. Only src/drivers/curl_http_client.cpp includes it,
+# so the link is PRIVATE. nlohmann/json, the parser behind
+# src/drivers/opensky_json.cpp (the one translation unit that includes it),
+# is header-only and is fetched pinned like Google Test, with one difference:
+# by URL from the release's json.tar.xz (the headers and their CMake files,
+# 115 KB) rather than by a tag of a repository that is about 300 MB of
+# history and test data; the SHA-256 pins the release as a tag does, and
+# CMake refuses a mismatch. Its tests and install rules are off, and its
+# include is marked system so its headers sit outside the project's warning
+# policy as yaml-cpp's do. Threads, for the poll thread (src/timing/
+# periodic_worker.cpp): PUBLIC, since the unit tests start threads too.
+# ---------------------------------------------------------------------------
+find_package(CURL REQUIRED)
+target_link_libraries(telemetry_core PRIVATE CURL::libcurl)
+
+# CMP0135 (CMake 3.24): stamp the extracted files with the time of
+# extraction, so a change of the URL rebuilds what depends on them; a CMake
+# without the policy has no warning to silence.
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
+
+FetchContent_Declare(
+    json
+    URL      https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa   # pinned: the release asset's digest; the asset's detached signature verified
+                                                                                      # against the maintainer's key (fingerprint 797167AE41C0A6D9232E48457F3CEA63AE251B69,
+                                                                                      # the one the project's README names) on 2026-10-15, FTS-VR-001 Entry 18 §18.6
+)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+set(JSON_SystemInclude ON CACHE INTERNAL "")
+FetchContent_MakeAvailable(json)
+target_link_libraries(telemetry_core PRIVATE nlohmann_json::nlohmann_json)
+
+find_package(Threads REQUIRED)
+target_link_libraries(telemetry_core PUBLIC Threads::Threads)
+
 enable_testing()
 
 # CONFIGURE_DEPENDS re-runs the glob at build time, so a new test file is
@@ -161,8 +214,11 @@ gtest_discover_tests(unit_tests)
 # as written; the optimizer would otherwise fold some away before gcov
 # can count them.
 if(ENABLE_COVERAGE)
+    # -fprofile-update=atomic: the poll thread (REQ-SENS-008) runs
+    # instrumented code beside the loop, and gcov's counters are plain
+    # increments unless told otherwise; atomic updates keep the record exact.
     foreach(t telemetry_core unit_tests)
-        target_compile_options(${t} PRIVATE --coverage -O0 -g)
+        target_compile_options(${t} PRIVATE --coverage -O0 -g -fprofile-update=atomic)
     endforeach()
     # The link flag is PUBLIC on the library: anything that links
     # instrumented object code (the tests, and the telemetry executable)

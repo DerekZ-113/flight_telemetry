@@ -1,7 +1,8 @@
 # Build output (build/, build-cov/, ...)
 build*/
 
-# Runtime logs written by ./telemetry
+# Runtime logs written by ./telemetry. An ADS-B session's log and its telemetry_adsb.csv stay
+# here too: the OpenSky Network's terms forbid redistributing what it returns.
 logs/
 
 # IDE
@@ -26,10 +27,16 @@ __pycache__/
 # Private context and local Claude Code state (never committed)
 CLAUDE.local.md
 .claude/settings.local.json
+.claude/launch.json
 .claude/worktrees/
 
 # Python tests
 .pytest_cache/
+
+# The dashboard's installed packages, build and coverage output (recreate with npm ci)
+dashboard/node_modules/
+dashboard/dist/
+dashboard/coverage/
 
 # captures/ is not ignored: a raw sensor capture is committed selectively, like the
 # coverage reports, when it sets constants (docs/noise_profile.md). Other captures stay out.

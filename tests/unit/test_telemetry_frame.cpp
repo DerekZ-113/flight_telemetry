@@ -81,5 +81,6 @@ TEST(FrameLayoutTest, StatusNamesAreReadable) {
     EXPECT_STREQ(status_name(ChannelStatus::NOMINAL), "NOMINAL");
     EXPECT_STREQ(status_name(ChannelStatus::DEGRADED), "DEGRADED");
     EXPECT_STREQ(status_name(ChannelStatus::NO_DATA), "NO_DATA");
+    EXPECT_STREQ(status_name(ChannelStatus::NOT_AVAILABLE), "NOT_AVAILABLE");
     EXPECT_STREQ(status_name(static_cast<ChannelStatus>(9)), "UNKNOWN");
 }

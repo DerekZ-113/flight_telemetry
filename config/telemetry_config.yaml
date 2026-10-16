@@ -7,13 +7,15 @@
 # and copies this text verbatim beside the session's log as
 # <prefix>_config.yaml, which a replay of that log then reads (REQ-CFG-003).
 #
-# Rules. Every key below is required; an unknown or duplicate key is an
-# error. A whole number is decimal digits or 0x and hex digits, nothing else
+# Rules. Every key below is required, except that the adsb block as a whole
+# may be omitted by a file no ADS-B run uses (every key inside it is
+# required when it is present); an unknown or duplicate key is an error. A whole number is decimal digits or 0x and hex digits, nothing else
 # (010 is refused, not read as octal). A number is anything strtod reads in
 # full that is finite (.inf and .nan are refused). A switch is exactly true
 # or false. Text must not be empty. --zmq <endpoint> and --udp <ipv4>:<port>
-# enable a transport for one run and override its address; --live, --replay
-# and --cycles choose the run; nothing else on the command line overrides a key.
+# enable a transport for one run and override its address; --live, --replay,
+# --pace, --adsb and --cycles choose the run; nothing else on the command line
+# overrides a key.
 #
 # The values here equal the defaults compiled into the module structs, the
 # unit tests' baseline; ConfigTest.ShippedFileEqualsDefaults fails the build
@@ -99,3 +101,23 @@ simulation:
     latitude_sigma_deg: 0.00002    # about 2.2 m
     longitude_sigma_deg: 0.00002   # about 1.8 m at 37.5 N
     gps_altitude_sigma_m: 2.0      # optimistic: a NEO-6M is closer to 5 m
+
+# REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001: the ADS-B source (--adsb). The
+# one block a file may omit: an ADS-B run requires it, no other run reads
+# it, and a configuration recorded before it existed replays as recorded
+# (REQ-CFG-001). The box and the reference point are public places, the SFO
+# approach and the airport (FTS-DD-001 section 3); the service's endpoints
+# and the credentials are not keys (REQ-CFG-004).
+adsb:
+  box:                       # the bounding box asked of the service, WGS-84 degrees: 0.135 square degrees, one credit per poll
+    lat_min: 37.45
+    lat_max: 37.75
+    lon_min: -122.55
+    lon_max: -122.10
+  reference:                 # KSFO; the nearest descending airborne aircraft to it is selected
+    latitude: 37.6213
+    longitude: -122.3790
+  poll_interval_ms: 5000     # the service's own resolution; one credit per poll, 720 an hour against 4,000 a day; 1000 to 3600000
+  switch_margin_m: 2000      # a candidate replaces the kept aircraft only when nearer by more than this; at least 0
+  gone_after_polls: 2        # responses without the kept aircraft before it counts as gone; at least 1
+  timeout_ms: 20000          # the GPS channel's timeout in this mode (FAULT-003); must exceed poll_interval_ms
