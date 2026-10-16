@@ -1,15 +1,15 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.4.0
+> **Version:** 0.5.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-14
+> **Last Updated:** 2026-10-15
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
 Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9).
 
-Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants; the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
+Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants, and the ADS-B entries' (FAULT-012 to FAULT-015), whose keys sit in the optional `adsb` block (REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
 
 Where a response says a computed field is "marked invalid" or "flagged", the frame's validity byte for that field reads FAILURE_WARNING (REQ-PROC-007): the field keeps a defined number, held or coasting, and the flag is what the display acts on. A raw field (position, heading, ground speed, GPS altitude, pressure) carries no validity byte of its own; it is invalid when its channel's status says so. See "Start-up and validity" before the degradation table.
 
@@ -43,7 +43,7 @@ Where a response says a computed field is "marked invalid" or "flagged", the fra
 - **Cause:** (a) Loose wire, wrong device path or baud rate, module power issue, the USB lead pulled. (b) Indoor operation, obstructed sky view, the minutes a cold start takes.
 - **Likelihood:** (a) Low. (b) Medium, especially indoors or near windows with partial sky.
 - **Detection:** Both reach the detector as one condition. The live source delivers a reading (`gps_read_ok` true) only on the cycle a valid fix completes, so a silent receiver and one without a fix both leave the channel without a reading, and the detector declares the fault when no fix has been read within the configured timeout (`fault.uart_timeout_ms`, 2000 ms). The timeout must exceed the receiver's 1 Hz fix period, so it is configurable rather than fixed at 500 ms, and the configuration refuses a value at or below the simulated receiver's fix period. The two causes are told apart at the receiver's exit line (`GPS:` sentences, epochs without a fix, bad checksums, read errors): sentences without fixes is (b); nothing, bad checksums, or read errors climbing (a device the kernel hung up) is (a). A detector-side distinction with its own event waits for the fix-quality byte parked in FTS-DD-001 Section 11.2.
-- **Response:** Mark GPS channel DEGRADED. Log fault event (COMM_TIMEOUT with the elapsed ms). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer and stays NORMAL. Position, heading, and ground speed are invalid by the channel's status (DEGRADED here; NO_DATA before the first fix, REQ-FAULT-006), the raw fields carrying no validity byte of their own. With `sensors.gps.enabled` false, or before the receiver's first fix, the channel is NO_DATA from the first frame and DEGRADED with this event at the timeout; the first fix after that starts the recovery of FAULT-011, five fixes at 1 Hz. Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the timeout must exceed the fix period (REQ-PROC-006).
+- **Response:** Mark GPS channel DEGRADED. Log fault event (COMM_TIMEOUT with the elapsed ms). Continue processing with barometer + IMU only. Fused altitude relies solely on barometer and stays NORMAL. Position, heading, and ground speed are invalid by the channel's status (DEGRADED here; NO_DATA before the first fix, REQ-FAULT-006), the raw fields carrying no validity byte of their own. Before the receiver's first fix the channel is NO_DATA from the first frame and DEGRADED with this event at the timeout; the first fix after that starts the recovery of FAULT-011, five fixes at 1 Hz. With `sensors.gps.enabled` false the channel is not provided and is NOT_AVAILABLE from the first frame with no event (FAULT-018; until 0.5.0 it was NO_DATA and then DEGRADED with this event, a failure that never happened). In ADS-B mode (REQ-SENS-008) the channel carries the aircraft's position, its delivery period is the poll interval, the timeout is `adsb.timeout_ms` (20,000 ms, four polls), and the exit line that tells the causes apart is the `ADS-B:` line (FAULT-012 to FAULT-015). Between fixes (49 of every 50 cycles at 1 Hz) `gps_read_ok` is false and the last fix is not re-applied; that is normal operation, not a fault, and it is why the timeout must exceed the fix period (REQ-PROC-006).
 - **Requirement:** (a) REQ-FAULT-001. (b) REQ-FAULT-003, the fix-quality limit applied at the source. Both: REQ-FAULT-004
 - **Test:** (a) `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.GpsTimeoutUsesUartBound`; `tests/unit/test_live_sensor_source.cpp` → `LiveSensorSourceTest.FixIsFreshOnlyOnTheCycleItCompleted`. (b) `tests/unit/test_nmea_gps.cpp` → `NmeaGpsTest.NoFixEpochIsNotAReading` (quality 0) and `NmeaGpsTest.FixQualityGgaWithStatusVRmcIsNoFix` (status V beside a fix-quality GGA), the two halves of the fix rule at the source; the detector's own event is deferred with the fix-quality byte.
 
@@ -143,9 +143,87 @@ Where a response says a computed field is "marked invalid" or "flagged", the fra
 
 ---
 
+## External Data Source Failures
+
+The ADS-B source (REQ-SENS-008) reads one aircraft from the OpenSky Network's REST API on a thread of its own, every `adsb.poll_interval_ms` (5,000 ms). Every failure below leaves the held reading in the frame with `gps_read_ok` false, so the detector's timeout (FAULT-003's rule at `adsb.timeout_ms`) is what decides when a silence matters; the source counts each failure by kind and prints the counts on the `ADS-B:` exit line. No credential, token, request header or response body is ever printed or written (REQ-CFG-004).
+
+### FAULT-012: ADS-B service unreachable or answering with an error
+
+- **What:** The request does not complete, or completes with a status other than 2xx, 401 and 429.
+- **Cause:** No network (the hotspot down, name resolution failing), the service down or overloaded (5xx), a request past its timeout (10 s in all, 5 s to connect), an origin given to `--adsb-origin` that is not a server.
+- **Likelihood:** Medium. The service is a research network with no availability promise.
+- **Detection:** The HTTP seam reports a transport error with libcurl's text, or a status the client does not handle; counted as `transport errors` and `http errors` on the exit line, with the last status and curl code.
+- **Response:** The poll yields nothing and is not retried inside the interval; the held reading stays; the next poll at the regular interval. If it lasts, the GPS channel times out through FAULT-003's rule at `adsb.timeout_ms` and the display flags GS, TRK and POS; the first readings after it start FAULT-011's recovery, five polls.
+- **Requirement:** REQ-SENS-008, REQ-FAULT-001, REQ-FAULT-004
+- **Test:** `tests/unit/test_opensky_client.cpp` → `OpenSkyClientTest.ServerErrorsAreCountedAndTheTokenKept`, `TransportErrorIsCountedWithCurlsText`, `OtherClientErrorIsCounted`; `tests/unit/test_adsb_source.cpp` → `AdsbSourceTest.FailedPollHoldsAndCounts`
+
+### FAULT-013: Token refused or expired
+
+- **What:** The token endpoint refuses the client's credentials, or the states endpoint answers 401 because the bearer token expired or was revoked.
+- **Cause:** A wrong or revoked client secret; a token older than its `expires_in` (30 minutes); a clock margin missed.
+- **Likelihood:** Low in a session; certain over a day without the refresh.
+- **Detection:** 400, 401 or 403 from the token endpoint; 401 from the states endpoint. Counted as `auth` on the exit line, the token requests beside it.
+- **Response:** On 401 from the states endpoint, one refresh and one retry of the same poll; a second 401 ends the poll with nothing delivered, and the next poll fetches a token again. A token refused at startup refuses the run, naming the status and the credentials path, never the response body; a token endpoint unreachable at startup is FAULT-012 and the run starts without a reading. The token is refreshed 60 s before its expiry on the monotonic clock, so a session never meets the expiry in the ordinary course.
+- **Requirement:** REQ-CFG-004, REQ-SENS-008
+- **Test:** `OpenSkyClientTest.UnauthorizedGetRefreshesOnceAndRetries`, `SecondUnauthorizedIsReportedNotLooped`, `RefusedTokenIsTokenRefused`, `TokenIsReusedUntilTheMarginBeforeExpiry`; `AdsbSourceTest.StartRefusesARefusedTokenByStatus`; `tests/integration/test_adsb.py` (the scripted 401; the secret and the token absent from every file the run writes)
+
+### FAULT-014: Credit budget exhausted
+
+- **What:** The service answers 429: the account's daily credits are spent.
+- **Cause:** Polling faster or longer than the budget allows: 4,000 credits a day for a registered account, one per call for a box under 25 square degrees, 720 an hour at the shipped interval.
+- **Likelihood:** Low for attended sessions; certain for an unattended day, which the data license does not allow anyway.
+- **Detection:** 429, with the `X-Rate-Limit-Retry-After-Seconds` header when the service sends it. Counted as `rate-limited`, the last Retry-After beside it.
+- **Response:** The poll yields nothing; the next poll waits the header's seconds when present and the regular interval when not (the header is the service's own back-pressure; a second policy would be untested tuning); the held reading stays and the channel times out as in FAULT-012 if it lasts.
+- **Requirement:** REQ-SENS-008
+- **Test:** `OpenSkyClientTest.RateLimitedReadsRetryAfterHeader`, `RateLimitedWithoutTheHeaderHasNoRetryAfter`; `AdsbSourceTest.NextDelayIsTheIntervalOrTheRetryAfter`; `tests/integration/test_adsb.py` (the scripted 429)
+
+### FAULT-015: The selected aircraft is gone
+
+- **What:** The aircraft the source presents landed, left the box, stopped being reported, or reports an incomplete state.
+- **Cause:** The approach ended; the aircraft flew out of the box; a coverage gap at the receivers; a transponder that stops sending its GNSS height or velocity.
+- **Likelihood:** Certain, every few minutes on an approach.
+- **Detection:** In a response: `on_ground` true (`landed`); a required field null (`incomplete`, FAULT-016); the aircraft absent from `adsb.gone_after_polls` (2) consecutive responses (`left`). A failed poll is not a response and counts nothing, so a service outage never counts an aircraft gone.
+- **Response:** Reselection by REQ-SENS-009's rule: the nearest descending candidate (`nearer` when a candidate beat a kept aircraft by more than `adsb.switch_margin_m`, 2,000 m; `initial` from none) or none. Every change is one console line and one row of `<prefix>_adsb.csv` beside the log, with both identities, the reason, the distance and the timestamp of the first frame carrying the new aircraft, and a session status goes out at once so the display re-takes the plot's origin before that frame (REQ-TRANS-004, REQ-DISP-007). With no candidate the fields hold with `gps_read_ok` false and the channel times out by FAULT-003's rule.
+- **Requirement:** REQ-SENS-009, REQ-TRANS-004, REQ-DISP-007
+- **Test:** `tests/unit/test_aircraft_selector.cpp` → `AircraftSelectorTest.*` (one test per reason); `AdsbSourceTest.SwitchIsRecordedWithTheFrameTimestamp`; `tests/integration/test_adsb.py` (the scripted landing and its status)
+
+### FAULT-016: Incomplete state vector
+
+- **What:** A row of `states` lacks a field a reading needs (latitude, longitude, geometric altitude, velocity, track, the time of the position) or has fewer than fourteen elements.
+- **Cause:** Nulls are normal in the service's data: an aircraft without a GNSS height (an older transponder, a position from multilateration), a position older than fifteen seconds (the service nulls its time), a row cut short.
+- **Likelihood:** High for some aircraft in every response.
+- **Detection:** Per field, at the parser: a null or a wrongly typed field reads as absent; a short row is skipped and counted.
+- **Response:** The aircraft is not a candidate and its vector is not a reading; the rest of the response is used. If it is the selected aircraft, FAULT-015 with the reason `incomplete`. Counted on the exit line.
+- **Requirement:** REQ-SENS-008, REQ-SENS-009
+- **Test:** `tests/unit/test_opensky_json.cpp` → `OpenSkyJsonTest.EveryNullableFieldReadsAsAbsent`, `WrongTypeInAFieldReadsAsAbsent`, `ShortOrNonArrayRowsAreSkippedAndCounted`; `AircraftSelectorTest.OnGroundClimbingAndIncompleteAreNotCandidates`
+
+### FAULT-017: Malformed response
+
+- **What:** The body is not what the schema says: not JSON, `states` neither an array nor null, `time` missing, a top-level array.
+- **Cause:** An error page served with a 200, a body truncated by a dropped connection or the 4 MiB cap, a schema change at the service.
+- **Likelihood:** Low.
+- **Detection:** The parser refuses the document by name; it is told not to throw and every field is type-checked, so no exception is involved. Counted as `malformed`.
+- **Response:** The response is discarded; the held reading stays; the selector is not consulted, because a response that says nothing about the sky is not a miss; the next poll at the interval.
+- **Requirement:** REQ-SENS-008
+- **Test:** `OpenSkyJsonTest.MalformedJsonIsRefused`, `UnexpectedShapeIsRefused`; `OpenSkyClientTest.MalformedStatesBodyIsCounted`
+
+---
+
 ## Start-up and validity
 
 **NO_DATA (REQ-FAULT-006).** A channel is NO_DATA from start-up until its first successful reading, then NOMINAL without an event: a start is not a recovery. A fault on a NO_DATA channel, the communication timeout included, marks it DEGRADED as from NOMINAL, with its event. Before the first reading the raw fields are the zeros of a value-initialized frame, which is why the status says NO_DATA rather than letting a display show a position of 0, 0.
+
+**NOT_AVAILABLE (REQ-FAULT-007).** A channel the active source does not provide is reported NOT_AVAILABLE by the source on every frame, from the first: availability is the source's fact, health the detector's judgment, and the detector leaves the fact alone. The fields that depend on such a channel stay NO_COMPUTED_DATA, the display shows a no-source flag rather than a failure flag, and a replay reproduces the status from the recorded frames.
+
+### FAULT-018: Channel not provided by the source
+
+- **What:** The active source has no sensor for a channel: the barometer and the IMU in ADS-B mode (the broadcast carries neither pressure nor attitude, REQ-SENS-011), the GPS receiver when `sensors.gps.enabled` is false.
+- **Cause:** Configuration, not failure.
+- **Likelihood:** Certain in those configurations.
+- **Detection:** None needed: the source reports the channel NOT_AVAILABLE on every frame, the one status a source may assert.
+- **Response:** The detector leaves the channel as reported: no timeout, no stuck or range check, no event. The processor never consumes it, so the attitude and the barometric altitude stay NO_COMPUTED_DATA in ADS-B mode and the fused fields rest on the GPS channel alone (REQ-PROC-003's birth from either source). The display shows the no-source flag, outlined and not red, with no cause in the strip (FTS-DS-001 §2.1). Until 0.5.0 a disabled receiver was reported NO_DATA and then DEGRADED at 2 s with a COMM_TIMEOUT in every log.
+- **Requirement:** REQ-FAULT-007, REQ-SENS-011, REQ-DISP-001
+- **Test:** `tests/unit/test_fault_detection.cpp` → `FaultDetectionTest.NotAvailableChannelIsLeftAloneWithNoEvent`; `tests/unit/test_live_sensor_source.cpp` → `LiveSensorSourceTest.GpsWithoutAReceiverIsNotAvailable`; `tests/unit/test_replay.cpp` → `ReplayTest.NotAvailableSurvivesTheStrip`; `tests/unit/test_validity.cpp` → `ProcessorValidityTest.NotAvailableChannelNeverContributes`; `tests/unit/test_adsb_source.cpp` → `AdsbSourceTest.FrameIsRawOnlyWithTheAbsentChannelsNotAvailable`
 
 **Validity (REQ-PROC-007).** Every computed field carries one byte in the frame, written by the processor on every frame in this order of precedence:
 
@@ -156,7 +234,7 @@ Where a response says a computed field is "marked invalid" or "flagged", the fra
 | FAILURE_WARNING | the channel the field depends on is DEGRADED, or no altitude source contributes to the fused fields | the last accepted or coasting estimate, held | the value removed under a flag |
 | NORMAL | a current estimate | the estimate | the value |
 
-Barometric altitude depends on the barometer; pitch and roll on the IMU and a seeded filter; fused altitude and vertical speed on an altitude source the filter has taken a measurement from, barometer or GPS, so they stay NORMAL on either alone and read FAILURE_WARNING, at once and for as long as it lasts, with neither. No field ever holds NaN.
+Barometric altitude depends on the barometer; pitch and roll on the IMU and a seeded filter; fused altitude and vertical speed on an altitude source the filter has taken a measurement from, barometer or GPS, so they stay NORMAL on either alone and read FAILURE_WARNING, at once and for as long as it lasts, with neither. A channel reported NOT_AVAILABLE is not NOMINAL, so it contributes nothing and the fields that depend on it stay NO_COMPUTED_DATA. No field ever holds NaN.
 
 ## System-Level Degradation Summary
 
@@ -171,6 +249,8 @@ Barometric altitude depends on the barometer; pitch and roll on the IMU and a se
 | MPU6050 + GPS DEGRADED | Barometric and fused altitude NORMAL on the barometer alone; attitude FAILURE_WARNING; position and heading invalid. Critically degraded. |
 | All DEGRADED | System logs faults, continues running (the processing loop does not crash); every computed field FAILURE_WARNING and every raw field invalid by status. |
 | A channel before its first reading (NO_DATA) | The fields that depend on it NO_COMPUTED_DATA; the others as the rows above. A fault on it degrades it as from NOMINAL. |
+| A channel the source does not provide (NOT_AVAILABLE) | The fields that depend on it NO_COMPUTED_DATA, with no event ever; the others as the rows above. |
+| ADS-B mode | Barometer and IMU NOT_AVAILABLE; attitude and barometric altitude NO_COMPUTED_DATA; fused altitude and vertical speed on the GPS channel alone, stepping at each poll; position and track from the aircraft, flagged when it is gone (FAULT-015) for longer than the timeout. |
 
 The system never stops. A crashed telemetry process is worse than a degraded one producing partial data. This is the fundamental principle: degrade gracefully, never crash.
 
