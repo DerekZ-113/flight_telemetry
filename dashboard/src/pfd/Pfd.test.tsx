@@ -7,7 +7,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Pfd } from "./Pfd";
-import { frame, runningFeed } from "../testMessages";
+import { frame, runningFeed, TEST001 } from "../testMessages";
 
 afterEach(cleanup);
 
@@ -38,19 +38,19 @@ describe("the panel's strip", () => {
     expect(mode.dataset.mode).toBe("UNKNOWN");
     expect(mode.dataset.boxed).toBe("true");
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "SIMULATED", state: "RUNNING" } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "SIMULATED", state: "RUNNING", identity: null } })} />);
     mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("SIM");
     expect(mode.dataset.boxed).toBe("true");
     expect(container.textContent).not.toMatch(/LIVE/);
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING" } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
     mode = screen.getByTestId("pfd-mode");
-    expect(mode.textContent).toBe("REPLAY");
+    expect(mode.textContent).toBe("REPLAY \u00b7 ID UNAVAILABLE"); // a replay carries no identity (REQ-DISP-007)
     expect(mode.dataset.boxed).toBe("true");
     expect(container.textContent).not.toMatch(/LIVE/);
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING" } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null } })} />);
     mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("LIVE");
     expect(mode.dataset.boxed).toBe("false");
@@ -95,5 +95,45 @@ describe("the panel's strip", () => {
     expect(screen.getByTestId("pfd-rate").textContent).toBe("50 fps · lag 12 ms");
     rerender(<Pfd feed={runningFeed({ rate: 0, lagMs: null, lastFrame: null })} />);
     expect(screen.getByTestId("pfd-rate").textContent).toBe("0 fps · lag ---");
+  });
+});
+
+// TC-030 steps 4 and 6 (REQ-DISP-007, REQ-DISP-004).
+describe("the identity after the label", () => {
+  it("shows the aircraft after ADS-B, plain and never LIVE, dashes with none, ID UNAVAILABLE after REPLAY, nothing after LIVE and SIM", () => {
+    const { rerender, container } = render(
+      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001 } })} />,
+    );
+    let mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("ADS-B \u00b7 TEST001");
+    expect(mode.dataset.mode).toBe("ADSB");
+    expect(mode.dataset.boxed).toBe("false");
+    expect(container.textContent).not.toMatch(/LIVE/);
+
+    const nameless = { icao24: "a1b2c3", callsign: "" };
+    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: nameless } })} />);
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 a1b2c3");
+    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: null } })} />);
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 ---");
+
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
+    mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("REPLAY \u00b7 ID UNAVAILABLE");
+    expect(mode.dataset.boxed).toBe("true");
+    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null } })} />);
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("LIVE");
+    rerender(<Pfd feed={runningFeed()} />);
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("SIM");
+  });
+
+  it("labels the altitude tape ft HAE in ADS-B mode and ft otherwise", () => {
+    const { rerender, container } = render(
+      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001 } })} />,
+    );
+    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft HAE");
+    rerender(<Pfd feed={runningFeed()} />);
+    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft");
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
+    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft");
   });
 });

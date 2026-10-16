@@ -1,6 +1,6 @@
 // Messages the tests deliver, built the way the bridge builds them, and a
 // feed state built by hand for the instruments' tests.
-import type { ComputedField, FrameMessage, HelloMessage, Session, SessionMessage, ValidityName } from "./feed";
+import type { ComputedField, FrameMessage, HelloMessage, Identity, Session, SessionMessage, ValidityName } from "./feed";
 import type { FeedState } from "./useTelemetryFeed";
 
 export const PERIOD_MS = 20;
@@ -30,9 +30,17 @@ export function hello(session: Session | null = null, staleMs = STALE_MS, extra:
   };
 }
 
-export function session(mode: Session["mode"], state: Session["state"] = "RUNNING"): SessionMessage {
-  return { type: "session", mode, state, received_at_ms: 0 };
+export function session(
+  mode: Session["mode"],
+  state: Session["state"] = "RUNNING",
+  identity: Identity | null = null,
+): SessionMessage {
+  return { type: "session", mode, state, identity, received_at_ms: 0 };
 }
+
+// The two synthetic aircraft the tests show (nothing from the service).
+export const TEST001: Identity = { icao24: "a1b2c3", callsign: "TEST001" };
+export const TEST002: Identity = { icao24: "b2c3d4", callsign: "TEST002" };
 
 // A processed frame on the 20 ms grid: every validity NORMAL and every
 // channel NOMINAL and fresh unless overridden, no coordinates anywhere.
@@ -97,7 +105,7 @@ export function runningFeed(overrides: Partial<FeedState> = {}): FeedState {
   return {
     connection: "open",
     opened: true,
-    session: { mode: "SIMULATED", state: "RUNNING" },
+    session: { mode: "SIMULATED", state: "RUNNING", identity: null },
     staleMs: STALE_MS,
     lastFrame: frame(0),
     lastArrivalMs: 0,

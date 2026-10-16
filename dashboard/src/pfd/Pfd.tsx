@@ -7,7 +7,7 @@
 // the tests build that state by hand.
 import type { JSX } from "react";
 
-import { COMPUTED_FIELDS, modeLabel } from "../feed";
+import { COMPUTED_FIELDS, stripLabel } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
 import { AltitudeTape } from "./AltitudeTape";
 import { AttitudeIndicator } from "./AttitudeIndicator";
@@ -33,8 +33,16 @@ function stateColor(cause: ReturnType<typeof feedCause>, feed: FeedState): strin
 
 export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   const cause = feedCause(feed);
-  const label = modeLabel(feed.session);
-  const boxed = feed.session?.mode !== "LIVE"; // SIM, REPLAY and MODE UNKNOWN are boxed in amber
+  // The mode label with the aircraft's identity after it in ADS-B mode and
+  // ID UNAVAILABLE after REPLAY (REQ-DISP-004, REQ-DISP-007). LIVE and ADS-B
+  // are real data, plain; SIM, REPLAY and MODE UNKNOWN are boxed in amber.
+  const label = stripLabel(feed.session);
+  const mode = feed.session?.mode;
+  const boxed = mode !== "LIVE" && mode !== "ADSB";
+  // The tape names its datum in ADS-B mode (REQ-DISP-007, FTS-DS-001 §4.2):
+  // the aircraft's altitude is a GNSS height above the WGS-84 ellipsoid, not
+  // the bench receiver's height above mean sea level.
+  const altitudeUnit = mode === "ADSB" ? "ft HAE" : "ft";
   const pipeline =
     feed.lastFrame !== null && COMPUTED_FIELDS.some((field) => feed.lastFrame?.validity[field] === "NOT_JUDGED");
   const labelWidth = label.length * 11 + 16;
@@ -104,7 +112,7 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
         </text>
       </g>
       <AttitudeIndicator pitchDeg={frame?.frame.pitch_deg ?? 0} rollDeg={frame?.frame.roll_deg ?? 0} state={attitude} />
-      <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} />
+      <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} unit={altitudeUnit} />
       <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
       <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={gps} />
       <TrackIndicator trackDeg={frame?.frame.heading_deg ?? 0} shown={track} state={gps} />

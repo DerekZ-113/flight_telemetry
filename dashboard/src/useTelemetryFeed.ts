@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   parseMessage,
+  sameIdentity,
   type BridgeMessage,
   type FrameMessage,
   type Position,
@@ -60,7 +61,7 @@ export interface FeedState {
   lagMs: number | null; // this clock's elapsed time since the lag origin minus the frame's, per frame
   bridgeLagMs: number | null; // the bridge's elapsed time since the origin minus the frame's, from received_at_ms
   lagExceeded: boolean; // the last frame's lag is past the threshold
-  trail: Position[]; // one point per fresh fix since the origin, newest last, capped at TRAIL_MAX
+  trail: Position[]; // one point per fresh fix since the origin, newest last, capped at TRAIL_MAX; cleared when the identity changes
 }
 
 export const DEFAULT_STALE_MS = 1000;
@@ -161,7 +162,7 @@ function applyFrame(state: FeedInternal, message: FrameMessage, nowMs: number): 
 function applyMessage(state: FeedInternal, message: BridgeMessage, nowMs: number, rate: number): FeedInternal {
   switch (message.type) {
     case "hello": {
-      const session = message.session;
+      const session = message.session === null ? null : { ...message.session, identity: message.session.identity ?? null };
       return judge(
         {
           ...state,
@@ -176,11 +177,19 @@ function applyMessage(state: FeedInternal, message: BridgeMessage, nowMs: number
       );
     }
     case "session": {
-      const session: Session = { mode: message.mode, state: message.state };
+      const session: Session = { mode: message.mode, state: message.state, identity: message.identity ?? null };
       const ended = session.state === "ENDED";
       // An end closes the lag origin: the next frame is a new session's
-      // first. The trail stays drawn until that frame arrives.
-      return judge({ ...state, session, ended, lagOrigin: ended ? null : state.lagOrigin }, nowMs, rate);
+      // first. The trail stays drawn until that frame arrives. A new
+      // aircraft is a new track (REQ-DISP-007): the status that names it
+      // precedes the first frame carrying it, and the trail is cleared at
+      // once, so no point of the previous aircraft joins the next one's.
+      const identityChanged = !sameIdentity(state.session?.identity ?? null, session.identity);
+      return judge(
+        { ...state, session, ended, lagOrigin: ended ? null : state.lagOrigin, trail: identityChanged ? [] : state.trail },
+        nowMs,
+        rate,
+      );
     }
     case "frame":
       return judge(applyFrame(state, message, nowMs), nowMs, rate);

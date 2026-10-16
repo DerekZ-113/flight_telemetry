@@ -227,3 +227,9 @@ body {
   color: var(--dim);
   font-size: 0.8rem;
 }
+
+.attribution {
+  margin-top: 1.5rem;
+  color: var(--dim);
+  font-size: 0.85rem;
+}

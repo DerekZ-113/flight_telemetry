@@ -54,4 +54,14 @@ describe("the altitude tape", () => {
       cleanup();
     }
   });
+  it("names the datum the panel gives it, ft unless told otherwise (REQ-DISP-007)", () => {
+    expect(draw(0, { show: "value" }).querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft");
+    cleanup();
+    const hae = render(
+      <svg>
+        <AltitudeTape altitudeM={0} state={{ show: "value" }} unit="ft HAE" />
+      </svg>,
+    ).container;
+    expect(hae.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft HAE");
+  });
 });
