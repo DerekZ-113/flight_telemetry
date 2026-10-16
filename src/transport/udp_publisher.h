@@ -54,9 +54,9 @@ public:
     // frame was not sent; stats() says how often that has happened.
     bool publish(const TelemetryFrame& frame) override;
 
-    // The eight-byte session status (REQ-TRANS-004) as one datagram,
+    // The nineteen-byte session status (REQ-TRANS-004) as one datagram,
     // counted apart from frames.
-    bool publish_status(RunMode mode, StreamState state) override;
+    bool publish_status(RunMode mode, StreamState state, const SessionIdentity& identity) override;
 
     const PublishStats& stats() const override { return stats_; }
 

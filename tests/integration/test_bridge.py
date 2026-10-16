@@ -26,8 +26,19 @@ from pipeline.receiver import ZmqSource
 from synthetic_log import log_bytes, make_frame
 
 PERIOD_MS = 20
-RUNNING = b"FTSS" + bytes([1, 3, 1, 0])   # REPLAY, RUNNING
-ENDED = b"FTSS" + bytes([1, 3, 2, 0])     # REPLAY, ENDED
+
+
+def status(mode: int, state: int, identity: bytes = bytes(11)) -> bytes:
+    """A status as the binary writes one (version 2): the eleven identity bytes zero unless given."""
+    return b"FTSS" + bytes([2, mode, state, 0]) + identity
+
+
+RUNNING = status(3, 1)   # REPLAY, RUNNING
+ENDED = status(3, 2)     # REPLAY, ENDED
+IDENTITY_A = bytes.fromhex("a1b2c3") + b"TEST001 "
+IDENTITY_B = bytes.fromhex("b2c3d4") + b"TEST002 "
+ADSB_A = status(4, 1, IDENTITY_A)   # ADSB, RUNNING, the first aircraft
+ADSB_B = status(4, 1, IDENTITY_B)
 
 
 class QueueSource:
@@ -146,7 +157,7 @@ def test_session_status_is_forwarded_and_greets_a_later_client():
                 assert isinstance(session["received_at_ms"], (int, float))
                 async with connect(ws_url(bridge)) as second:
                     hello = await recv_json(second)
-                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING"}
+                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None}
                     source.feed(ENDED)
                     for ws in (first, second):
                         ended = await recv_json(ws)
@@ -307,3 +318,75 @@ def test_origin_resets_after_a_backwards_timestamp_and_after_ended():
     assert restarted["position"] == {"east_m": 0.0, "north_m": 0.0}, "a backwards timestamp must re-take the origin"
     assert (ended["type"], ended["state"]) == ("session", "ENDED")
     assert after_end["position"] == {"east_m": 0.0, "north_m": 0.0}, "a frame after ENDED must re-take the origin"
+
+
+# --- TC-030 steps 1 to 3: the aircraft's identity (REQ-DISP-007, REQ-SENS-009) -----------------
+
+
+def test_identity_is_forwarded_in_session_and_hello():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as first:
+                await recv_json(first)
+                source.feed(ADSB_A)
+                session = await recv_json(first)
+                async with connect(ws_url(bridge)) as second:
+                    hello = await recv_json(second)
+                source.feed(status(4, 1))   # ADSB, nothing selected
+                none_selected = await recv_json(first)
+        return session, hello, none_selected
+
+    session, hello, none_selected = asyncio.run(check())
+    assert (session["type"], session["mode"], session["state"]) == ("session", "ADSB", "RUNNING")
+    assert session["identity"] == {"icao24": "a1b2c3", "callsign": "TEST001"}
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "a1b2c3", "callsign": "TEST001"}}
+    assert none_selected["identity"] is None
+
+
+def test_origin_is_retaken_when_the_identity_changes():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(ADSB_A, fix(1), fix(2, north_m=1.0))                 # the first aircraft: its origin, a metre north
+                first = [await recv_json(ws) for _ in range(3)]
+                source.feed(ADSB_A, fix(3, north_m=2.0))                         # the same aircraft repeated: kept
+                repeated = [await recv_json(ws) for _ in range(2)]
+                source.feed(ADSB_B, fix(4, north_m=5.0), fix(5, north_m=6.0))   # a new aircraft: a new track
+                switched = [await recv_json(ws) for _ in range(3)]
+                return first, repeated, switched
+
+    first, repeated, switched = asyncio.run(check())
+    assert first[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert first[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert repeated[1]["position"]["north_m"] == pytest.approx(2.0, abs=0.01), "a repeated identity keeps the origin"
+    assert switched[0]["identity"] == {"icao24": "b2c3d4", "callsign": "TEST002"}
+    assert switched[1]["position"] == {"east_m": 0.0, "north_m": 0.0}, "a new identity re-takes the origin"
+    assert switched[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_hide_identity_forwards_none_and_keeps_the_origin_rule():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0, hide_identity=True) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(ADSB_A, fix(1), fix(2, north_m=1.0), ADSB_B, fix(3, north_m=2.0))
+                messages = [await recv_json(ws) for _ in range(5)]
+                async with connect(ws_url(bridge)) as later:
+                    hello = await recv_json(later)
+        return messages, hello
+
+    messages, hello = asyncio.run(check())
+    assert messages[0]["identity"] is None and messages[3]["identity"] is None
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": None}
+    assert messages[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert messages[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert messages[4]["position"] == {"east_m": 0.0, "north_m": 0.0}, "the hidden identity still re-takes the origin"
+    for message in messages:
+        assert "a1b2c3" not in json.dumps(message) and "TEST00" not in json.dumps(message)

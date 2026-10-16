@@ -4,7 +4,8 @@ REQ-TRANS-002, REQ-TEST-002).
 The binary announces its mode before the first frame, repeats it about once a second and
 reports the end after the last frame, on both transports; the receiver reads a status like any
 record, keeps the latest, and ends on ENDED without waiting out its quiet timeout; the statuses
-are not frames and change no byte of the log.
+are not frames and change no byte of the log. The nineteen bytes since version 2 carry the
+selected aircraft's identity in ADS-B mode (TC-021 step 6); the ADS-B run itself is test_adsb.py.
 """
 from __future__ import annotations
 
@@ -36,30 +37,46 @@ def status_count(stdout: str, name: str) -> int:
     raise AssertionError(f"no Transport line for {name} in:\n{stdout[-600:]}")
 
 
-# --- step 6: the eight bytes ------------------------------------------------------------------
+# --- step 6: the nineteen bytes ---------------------------------------------------------------
+
+
+def status_bytes(mode: int, state: int, identity: bytes = bytes(11), version: int = 2) -> bytes:
+    """A status as the binary writes one: the magic, the version, the mode, the state, a reserved
+    zero and the eleven identity bytes (zero: nothing selected, or another mode)."""
+    return b"FTSS" + bytes([version, mode, state, 0]) + identity
+
+
+IDENTITY = bytes.fromhex("a1b2c3") + b"TEST001 "   # the address as three bytes, the callsign space-padded
 
 
 def test_parse_message_reads_a_status():
-    assert frame_format.parse_message(b"FTSS" + bytes([1, 2, 1, 0])) == SessionStatus("SIMULATED", "RUNNING")
-    assert frame_format.parse_message(b"FTSS" + bytes([1, 3, 2, 0])) == SessionStatus("REPLAY", "ENDED")
-    assert frame_format.parse_message(b"FTSS" + bytes([1, 1, 1, 0])) == SessionStatus("LIVE", "RUNNING")
+    assert frame_format.parse_message(status_bytes(2, 1)) == SessionStatus("SIMULATED", "RUNNING", None)
+    assert frame_format.parse_message(status_bytes(3, 2)) == SessionStatus("REPLAY", "ENDED", None)
+    assert frame_format.parse_message(status_bytes(1, 1)) == SessionStatus("LIVE", "RUNNING", None)
+    assert frame_format.parse_message(status_bytes(4, 1, IDENTITY)) == \
+        SessionStatus("ADSB", "RUNNING", ("a1b2c3", "TEST001"))
+    # An aircraft without a callsign is eight spaces on the wire: an identity, not none.
+    assert frame_format.parse_message(status_bytes(4, 1, bytes.fromhex("0a0b0c") + b" " * 8)) == \
+        SessionStatus("ADSB", "RUNNING", ("0a0b0c", ""))
 
 
 def test_short_status_is_a_format_error():
-    with pytest.raises(frame_format.FormatError, match="7"):
-        frame_format.parse_message(b"FTSS" + bytes([1, 2, 1]))
+    with pytest.raises(frame_format.FormatError, match="8 bytes"):
+        frame_format.parse_message(b"FTSS" + bytes([1, 2, 1, 0]))   # a version-1 status: eight bytes
 
 
 def test_unknown_mode_or_state_is_a_format_error():
     with pytest.raises(frame_format.FormatError, match="mode 9"):
-        frame_format.parse_message(b"FTSS" + bytes([1, 9, 1, 0]))
+        frame_format.parse_message(status_bytes(9, 1))
     with pytest.raises(frame_format.FormatError, match="state 0"):
-        frame_format.parse_message(b"FTSS" + bytes([1, 2, 0, 0]))
+        frame_format.parse_message(status_bytes(2, 0))
 
 
 def test_unknown_status_version_is_a_format_error():
-    with pytest.raises(frame_format.FormatError, match="version 2"):
-        frame_format.parse_message(b"FTSS" + bytes([2, 2, 1, 0]))
+    with pytest.raises(frame_format.FormatError, match="version 1"):
+        frame_format.parse_message(status_bytes(2, 1, version=1))
+    with pytest.raises(frame_format.FormatError, match="version 3"):
+        frame_format.parse_message(status_bytes(2, 1, version=3))
 
 
 # --- the receiver ends on ENDED, not on quiet (in-process) ------------------------------------
@@ -87,8 +104,8 @@ class ListSource:
 def test_receiver_keeps_the_latest_status_and_ends_on_ended():
     from synthetic_log import log_bytes, make_frame
 
-    running = b"FTSS" + bytes([1, 3, 1, 0])
-    ended = b"FTSS" + bytes([1, 3, 2, 0])
+    running = status_bytes(3, 1)
+    ended = status_bytes(3, 2)
     messages = [running, log_bytes([make_frame(0)]), log_bytes([make_frame(1)]), ended, ended,
                 log_bytes([make_frame(2)])]   # the frame after ENDED is never read
     receiver = FrameReceiver(ListSource(messages), PERIOD_MS)

@@ -66,15 +66,15 @@ bool ZmqPublisher::publish(const TelemetryFrame& frame) {
     return true;
 }
 
-bool ZmqPublisher::publish_status(RunMode mode, StreamState state) {
+bool ZmqPublisher::publish_status(RunMode mode, StreamState state, const SessionIdentity& identity) {
     if (!ok_) {
         stats_.send_failures++;
         return false;
     }
 
-    // Eight bytes under their own magic (session_message.h), the one
+    // Nineteen bytes under their own magic (session_message.h), the one
     // message on this socket that is not a log record.
-    const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(mode, state);
+    const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(mode, state, identity);
     if (!send_bytes(bytes.data(), bytes.size())) {
         stats_.send_failures++;
         return false;
