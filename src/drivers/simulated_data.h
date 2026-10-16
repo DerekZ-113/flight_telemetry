@@ -56,6 +56,13 @@ public:
     // (REQ-CFG-001).
     static constexpr uint64_t kDefaultGpsIntervalMs = 1000;
 
+    // The simulated receiver's own judgment of its fix (REQ-SENS-005,
+    // format version 3): GGA's quality 1, a GPS fix, and eight satellites,
+    // a healthy receiver's figures, as fabricated as its fixes and labelled
+    // SIM. Scenario facts like the stationary readings below, not tunables.
+    static constexpr uint8_t kFixQuality = 1;
+    static constexpr uint8_t kSatellites = 8;
+
     // Seed controls the random sequence. Same seed = same data every time.
     // gps_interval_ms is the fix period; pass the frame interval (or 0) to
     // get a fix on every frame, which tests of the status gate rely on.

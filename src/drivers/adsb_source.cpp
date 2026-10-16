@@ -153,6 +153,7 @@ TelemetryFrame AdsbSource::read_frame() {
         first_read_ns_ = now_ns;
     }
     frame.timestamp_ms = (now_ns - *first_read_ns_ + 500'000) / 1'000'000;
+    frame.sequence = next_sequence();   // REQ-LOG-008: the frames' count, not the polls'
 
     bool fresh = false;
     std::optional<PollReport> report = take();

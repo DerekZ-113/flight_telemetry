@@ -223,6 +223,28 @@ TEST_F(ReplayTest, Version2LogReplaysAsAPrefix) {
     EXPECT_EQ(source.frames_read(), 3u);
 }
 
+// REQ-LOG-008, TC-031 step 5. A replay hands out the sequence its log
+// recorded, the recording source's count, and numbers nothing itself: a
+// log whose first frame is the source's fifth replays from 5.
+TEST_F(ReplayTest, ReplayReproducesTheRecordedSequence) {
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        SimulatedSource source(20, 42);
+        for (int i = 0; i < 5; i++) {
+            source.read_frame();          // frames 0 to 4, never logged
+        }
+        for (int i = 0; i < 300; i++) {
+            logger.log_frame(source.read_frame());
+        }
+    }
+    LogReplaySource replay({dir_ / "t_000.bin"});
+    for (uint32_t i = 5; i < 305; i++) {
+        ASSERT_TRUE(replay.has_next()) << i;
+        EXPECT_EQ(replay.read_frame().sequence, i);
+    }
+    EXPECT_FALSE(replay.has_next());
+}
+
 // Rotated files replay as one session, in order.
 TEST_F(ReplayTest, ReplaySpansRotatedFiles) {
     const uint64_t limit = sizeof(LogFileHeader) + 3 * (1 + sizeof(TelemetryFrame));

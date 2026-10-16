@@ -77,6 +77,7 @@ TelemetryFrame LiveSensorSource::read_frame() {
         first_read_ns_ = now_ns;
     }
     frame.timestamp_ms = (now_ns - *first_read_ns_ + 500'000) / 1'000'000;
+    frame.sequence = next_sequence();   // REQ-LOG-008: one per frame, whatever was read
 
     // Each channel: a fresh reading replaces the held one and marks the
     // frame fresh; a failed read leaves the held one and does not. The
@@ -126,6 +127,16 @@ TelemetryFrame LiveSensorSource::read_frame() {
     frame.gps_altitude_m = last_gps_.altitude_m;
     frame.ground_speed_mps = last_gps_.ground_speed_mps;
     frame.course_deg = last_gps_.course_deg;
+    // The receiver's own judgment of the fix, held with it (REQ-SENS-005):
+    // GGA's quality and satellite count, which the parser bounds to 0..9
+    // and 0..99 (nmea.cpp), so a byte holds each, and the bit that says
+    // they are present, from the first fix on. Nothing judges them yet
+    // (FAULT-003b).
+    if (gps_ever_fixed_) {
+        frame.gps_fix_quality = static_cast<uint8_t>(last_gps_.fix_quality);
+        frame.gps_satellites = static_cast<uint8_t>(last_gps_.satellites);
+        set_flag(frame, FrameFlag::FIX_QUALITY);
+    }
 
     // Sources report; the detector judges (telemetry_frame.h). The one
     // status a source asserts: without a receiver the GPS channel is not

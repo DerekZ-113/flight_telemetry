@@ -98,6 +98,7 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
 
     const TelemetryFrame before = source.read_frame();
     EXPECT_EQ(before.timestamp_ms, 0u);
+    EXPECT_EQ(before.sequence, 0u);
     EXPECT_FALSE(before.gps_read_ok);
     EXPECT_EQ(before.latitude, 0.0);
     EXPECT_EQ(before.longitude, 0.0);
@@ -141,8 +142,10 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(f.sequence, 0u);          // the source numbers its frames from commit 4 of format version 3
-    EXPECT_EQ(f.flags, 0u);
+    EXPECT_EQ(f.sequence, 1u);          // the source's count (REQ-LOG-008)
+    EXPECT_EQ(f.flags, 0u);             // no fix quality: a state vector reports none (REQ-SENS-005)
+    EXPECT_EQ(f.gps_fix_quality, 0u);
+    EXPECT_EQ(f.gps_satellites, 0u);
     EXPECT_EQ(f.voter_status, 0u);
     EXPECT_EQ(f.reserved_d, 0u);
     ASSERT_TRUE(source.identity().has_value());
@@ -169,6 +172,26 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
         EXPECT_EQ(g.baro_status, ChannelStatus::NOT_AVAILABLE) << i;
         EXPECT_EQ(g.imu_status, ChannelStatus::NOT_AVAILABLE) << i;
         EXPECT_EQ(g.gps_status, ChannelStatus::NOMINAL) << i;
+    }
+}
+
+// REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero,
+// one per read_frame(), whether a poll delivered anything or not: the
+// count is the frames', not the polls' or the readings'.
+TEST(AdsbSourceTest, NumbersItsFramesFromZero) {
+    Rig rig;
+    AdsbSource source = rig.make();
+    EXPECT_EQ(source.read_frame().sequence, 0u);    // before any poll
+    rig.clock.advance(kPeriodNs);
+    EXPECT_EQ(source.read_frame().sequence, 1u);
+    rig.script_token();
+    rig.script(ex::kStatesResponse);
+    source.poll_once();
+    for (uint32_t i = 2; i < 300; ++i) {
+        rig.clock.advance(kPeriodNs);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.sequence, i);
+        EXPECT_EQ(f.gps_read_ok, i == 2) << i;   // the vector handed over once, then held
     }
 }
 

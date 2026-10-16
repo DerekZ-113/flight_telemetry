@@ -688,6 +688,68 @@ TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
     EXPECT_EQ(b.accel_x, a.accel_x);
     EXPECT_EQ(b.latitude, a.latitude);
     EXPECT_NE(b.pressure_hpa, a.pressure_hpa);
+    // The inner source's count passes through: a fault is in a channel,
+    // not in the stream (REQ-LOG-008, TC-031 step 5).
+    EXPECT_EQ(a.sequence, 0u);
+    EXPECT_EQ(b.sequence, 1u);
+}
+
+namespace {
+
+// A source that hands out the frames it was given, in order: the injector
+// on fields the simulator never varies.
+class FrameList : public DataSource {
+public:
+    explicit FrameList(std::vector<TelemetryFrame> frames) : frames_(std::move(frames)) {}
+    TelemetryFrame read_frame() override { return frames_.at(next_++); }
+
+private:
+    std::vector<TelemetryFrame> frames_;
+    size_t next_ = 0;
+};
+
+}  // namespace
+
+// The GPS channel's reading is the position, the speed and the course and,
+// since format version 3, the receiver's fix quality and satellite count
+// and the ADS-B vertical rate and pressure altitude, with the bits that say
+// each is present (REQ-SENS-005, REQ-SENS-008): a held GPS is held whole,
+// as the live source holds its last fix. What the frame says of itself
+// passes through: the source's count (REQ-LOG-008) and NEW_VEHICLE
+// (REQ-PROC-008).
+TEST(FaultInjectingSourceTest, HeldGpsIsTheWholeReading) {
+    TelemetryFrame first{};
+    first.latitude = 37.5;
+    first.course_deg = 90.0f;
+    first.gps_vertical_rate_mps = -3.5f;
+    first.gps_pressure_altitude_m = 300.0f;
+    first.gps_fix_quality = 2;
+    first.gps_satellites = 9;
+    set_flag(first, FrameFlag::VERTICAL_RATE);
+    set_flag(first, FrameFlag::PRESSURE_ALTITUDE);
+    set_flag(first, FrameFlag::FIX_QUALITY);
+    TelemetryFrame second{};
+    second.timestamp_ms = 20;
+    second.sequence = 1;
+    second.latitude = 38.0;
+    second.course_deg = 180.0f;
+    set_flag(second, FrameFlag::NEW_VEHICLE);
+    FaultInjectingSource source(std::make_unique<FrameList>(std::vector<TelemetryFrame>{first, second}));
+    source.read_frame();
+    source.hold_values(Channel::GPS, true);
+    const TelemetryFrame held = source.read_frame();
+    EXPECT_EQ(held.latitude, 37.5);
+    EXPECT_EQ(held.course_deg, 90.0f);
+    EXPECT_EQ(held.gps_vertical_rate_mps, -3.5f);
+    EXPECT_EQ(held.gps_pressure_altitude_m, 300.0f);
+    EXPECT_EQ(held.gps_fix_quality, 2u);
+    EXPECT_EQ(held.gps_satellites, 9u);
+    EXPECT_TRUE(has_flag(held, FrameFlag::VERTICAL_RATE));
+    EXPECT_TRUE(has_flag(held, FrameFlag::PRESSURE_ALTITUDE));
+    EXPECT_TRUE(has_flag(held, FrameFlag::FIX_QUALITY));
+    EXPECT_TRUE(has_flag(held, FrameFlag::NEW_VEHICLE));   // the frame's own fact, through
+    EXPECT_EQ(held.sequence, 1u);                           // the inner source's count, through
+    EXPECT_EQ(held.timestamp_ms, 20u);
 }
 
 TEST(FaultInjectingSourceTest, HoldValuesImuAndGps) {

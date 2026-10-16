@@ -65,6 +65,13 @@ def test_frames_pack_round_trip(logs):
             assert FRAME.pack(*frame) == raw
 
 
+def test_sequence_is_the_frame_index_on_both_logs(logs):
+    # The simulator numbers its frames from zero (REQ-LOG-008) and the replay keeps the recorded
+    # count rather than numbering its own (TC-031 step 12).
+    for log in logs:
+        assert [frame.sequence for frame in log.frames] == list(range(500))
+
+
 def test_timestamps_are_the_simulator_grid(logs):
     for log in logs:
         assert [frame.timestamp_ms for frame in log.frames] == list(range(0, 10000, 20))

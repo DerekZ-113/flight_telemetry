@@ -76,17 +76,27 @@ TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
         EXPECT_TRUE(f.baro_read_ok);
         EXPECT_TRUE(f.imu_read_ok);
         EXPECT_EQ(f.gps_read_ok, i == 0) << "frame " << i;
-        // Unjudged and the reserved pair zero: the processor judges,
-        // and a reserved field is zero by definition (REQ-PROC-007).
+        // Unjudged, no voter's status and the reserved field zero: the
+        // processor judges, no voter runs, and a reserved field is zero by
+        // definition (REQ-PROC-007).
         EXPECT_EQ(f.baro_altitude_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.pitch_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-        EXPECT_EQ(f.sequence, 0u);
-        EXPECT_EQ(f.flags, 0u);
         EXPECT_EQ(f.voter_status, 0u);
         EXPECT_EQ(f.reserved_d, 0u);
+        // The generator does not number frames; the source does (REQ-LOG-008).
+        EXPECT_EQ(f.sequence, 0u);
+        // A healthy receiver's own judgment of its fix on every frame, held
+        // from the first (REQ-SENS-005, REQ-SENS-006; TC-031 step 6):
+        // quality 1, eight satellites and the bit that says the two are
+        // present, no other fact stated, the ADS-B fields absent.
+        EXPECT_EQ(f.flags, static_cast<uint8_t>(FrameFlag::FIX_QUALITY)) << "frame " << i;
+        EXPECT_EQ(f.gps_fix_quality, 1u) << "frame " << i;
+        EXPECT_EQ(f.gps_satellites, 8u) << "frame " << i;
+        EXPECT_EQ(f.gps_vertical_rate_mps, 0.0f);
+        EXPECT_EQ(f.gps_pressure_altitude_m, 0.0f);
     }
 }
 
@@ -209,15 +219,31 @@ TEST(SimulatedSourceTest, TimestampsAdvanceByInterval) {
 }
 
 // The source is a thin wrapper: frame i from the source is exactly what
-// the generator produces for timestamp i * interval with the same seed.
+// the generator produces for timestamp i * interval with the same seed,
+// numbered i, since the count is the source's (REQ-LOG-008).
 TEST(SimulatedSourceTest, SourceMatchesGeneratorWithSameSeed) {
     SimulatedSource source(kIntervalMs, 42);
     SimulatedDataGenerator generator(42);
     for (int i = 0; i < 20; i++) {
         const TelemetryFrame fs = source.read_frame();
-        const TelemetryFrame fg = generator.generate(static_cast<uint64_t>(i) * kIntervalMs);
+        TelemetryFrame fg = generator.generate(static_cast<uint64_t>(i) * kIntervalMs);
+        fg.sequence = static_cast<uint32_t>(i);
         EXPECT_EQ(std::memcmp(&fs, &fg, sizeof(TelemetryFrame)), 0) << "frame " << i;
     }
+}
+
+// REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero
+// for the run, one per read_frame(), past 255 into the second byte; a
+// second source starts its own count.
+TEST(SimulatedSourceTest, NumbersItsFramesFromZero) {
+    SimulatedSource source(kIntervalMs, 42);
+    for (uint32_t i = 0; i < 300; i++) {
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.sequence, i);
+        EXPECT_EQ(f.timestamp_ms, static_cast<uint64_t>(i) * kIntervalMs);
+    }
+    SimulatedSource other(kIntervalMs, 7);
+    EXPECT_EQ(other.read_frame().sequence, 0u);
 }
 
 // TC-026 step 3 (REQ-SENS-007). The profile's readings are the pipeline's

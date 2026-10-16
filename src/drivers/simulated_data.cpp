@@ -166,6 +166,13 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.gps_altitude_m = last_gps_altitude_m_;
     frame.ground_speed_mps = last_ground_speed_mps_;
     frame.course_deg = last_track_deg_;
+    // The receiver's judgment of the fix it holds, with the bit that says
+    // it is present (REQ-SENS-005): the first frame always fixes, so every
+    // frame carries it. No noise is drawn, so the sequence of draws, and
+    // with it every other byte of the stationary default, is unchanged.
+    frame.gps_fix_quality = kFixQuality;
+    frame.gps_satellites = kSatellites;
+    set_flag(frame, FrameFlag::FIX_QUALITY);
 
     // Fused outputs — pipeline's Kalman filter fills these (REQ-PROC-003)
     frame.fused_altitude_m = 0.0f;

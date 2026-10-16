@@ -112,10 +112,28 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(f.sequence, 0u);          // the source numbers its frames from commit 4 of format version 3
-    EXPECT_EQ(f.flags, 0u);
+    EXPECT_EQ(f.sequence, 0u);          // the run's first frame (REQ-LOG-008)
+    EXPECT_EQ(f.flags, 0u);             // no receiver on this rig, so no fix quality (REQ-SENS-005)
+    EXPECT_EQ(f.gps_fix_quality, 0u);
+    EXPECT_EQ(f.gps_satellites, 0u);
     EXPECT_EQ(f.voter_status, 0u);
     EXPECT_EQ(f.reserved_d, 0u);
+}
+
+// REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero,
+// one per read_frame(): a frame whose barometer read failed is still a
+// frame, and the count is the frames', not the readings'.
+TEST(LiveSensorSourceTest, NumbersItsFramesFromZero) {
+    Rig rig;
+    LiveSensorSource source = rig.make();
+    ASSERT_TRUE(source.ok()) << source.error();
+    for (uint32_t i = 0; i < 300; ++i) {
+        rig.bus->fail_reads_at(kBaro, Bmp280::kRegData, i % 7 == 3);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.sequence, i);
+        EXPECT_EQ(f.baro_read_ok, i % 7 != 3) << i;
+        rig.clock.advance(20'000'000);
+    }
 }
 
 // TC-014 step 6. A failed barometer burst holds the barometer's fields at
@@ -328,6 +346,38 @@ TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
     ASSERT_TRUE(counters.has_value());
     EXPECT_EQ(counters->fixes, 1u);
     EXPECT_EQ(counters->sentences, 2u);
+}
+
+// TC-031 step 6 (REQ-SENS-005). The receiver's own judgment of its fix,
+// GGA's quality and satellite count, rides the frame with the fix: zero
+// with the FIX_QUALITY bit clear before the first fix, the fix's values
+// with the bit on the cycle it completed, and held with the bit on every
+// cycle after, as the position is. No other fact is stated.
+TEST(LiveSensorSourceTest, FixQualityAndSatellitesRideTheFix) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    const TelemetryFrame before = source.read_frame();
+    EXPECT_EQ(before.gps_fix_quality, 0u);
+    EXPECT_EQ(before.gps_satellites, 0u);
+    EXPECT_EQ(before.flags, 0u);
+
+    run_startup(source, rig);
+    rig.gps->queue(epoch());
+    const TelemetryFrame fix = source.read_frame();
+    ASSERT_TRUE(fix.gps_read_ok);
+    EXPECT_EQ(static_cast<int>(fix.gps_fix_quality), nmea_examples::kGgaQuality);
+    EXPECT_EQ(static_cast<int>(fix.gps_satellites), nmea_examples::kGgaSatellites);
+    EXPECT_EQ(fix.flags, static_cast<uint8_t>(FrameFlag::FIX_QUALITY));
+
+    for (int i = 0; i < 49; ++i) {
+        rig.clock.advance(20'000'000);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.gps_fix_quality, fix.gps_fix_quality) << i;
+        EXPECT_EQ(f.gps_satellites, fix.gps_satellites) << i;
+        EXPECT_EQ(f.flags, static_cast<uint8_t>(FrameFlag::FIX_QUALITY)) << i;
+    }
 }
 
 // A sentence cut across two cycles completes on the second, and the fix is

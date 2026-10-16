@@ -65,10 +65,11 @@ def test_session_is_version_3_and_normal_from_frame_0(sim_session):
             assert (frames[field] == VALIDITY_NORMAL).all(), field
         for channel in ("baro", "imu", "gps"):
             assert (frames[f"{channel}_status"] == 0).all(), channel   # the simulator is fresh at t = 0
-        assert (frames["sequence"] == 0).all(), "the sources number their frames from commit 4 of format version 3"
-        assert (frames["flags"] == 0).all()
-        for name in ("gps_vertical_rate_mps", "gps_pressure_altitude_m", "gps_fix_quality", "gps_satellites",
-                     "voter_status", "reserved_d"):
+        assert (frames["sequence"] == np.arange(500)).all(), "the source numbers its frames from 0 (REQ-LOG-008)"
+        # The simulator's receiver states its fix: FIX_QUALITY alone, quality 1, eight satellites.
+        assert (frames["flags"] == 0x08).all()
+        assert (frames["gps_fix_quality"] == 1).all() and (frames["gps_satellites"] == 8).all()
+        for name in ("gps_vertical_rate_mps", "gps_pressure_altitude_m", "voter_status", "reserved_d"):
             assert (frames[name] == 0).all(), name
     for stdout in (sim_session.stdout, sim_session.replay_stdout):
         match = VALIDITY_LINE.search(stdout)
