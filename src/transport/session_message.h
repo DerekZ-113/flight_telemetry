@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+#include "run_mode.h"
+
 // The session status message (REQ-TRANS-004): what a consumer cannot learn
 // from the frames. Every frame message is a one-record log file
 // (log_format.h), and live, simulated, replayed and ADS-B frames have one
@@ -40,12 +42,8 @@
 // figures are facts about the wire, constants and not configuration keys,
 // like the ZeroMQ high-water mark (FTS-DD-001 section 12).
 
-enum class RunMode : uint8_t {
-    LIVE = 1,        // the sensors (--live)
-    SIMULATED = 2,   // the simulator, the default source
-    REPLAY = 3,      // a recorded log (--replay)
-    ADSB = 4,        // one aircraft from the OpenSky Network (--adsb)
-};
+// RunMode lives in run_mode.h since format version 3: the log header
+// records it too (REQ-LOG-007), and logging does not include transport.
 
 enum class StreamState : uint8_t {
     RUNNING = 1,
@@ -79,5 +77,4 @@ constexpr int kEndedRepeats = 3;
 std::array<uint8_t, kSessionMessageBytes> session_message(RunMode mode, StreamState state,
                                                           const SessionIdentity& identity);
 
-const char* mode_name(RunMode mode);
-const char* state_name(StreamState state);
+const char* state_name(StreamState state);   // mode_name is run_mode.h's

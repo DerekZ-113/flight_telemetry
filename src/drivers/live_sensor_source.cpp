@@ -125,7 +125,7 @@ TelemetryFrame LiveSensorSource::read_frame() {
     frame.longitude = last_gps_.longitude_deg;
     frame.gps_altitude_m = last_gps_.altitude_m;
     frame.ground_speed_mps = last_gps_.ground_speed_mps;
-    frame.heading_deg = last_gps_.course_deg;
+    frame.course_deg = last_gps_.course_deg;
 
     // Sources report; the detector judges (telemetry_frame.h). The one
     // status a source asserts: without a receiver the GPS channel is not

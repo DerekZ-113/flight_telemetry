@@ -16,7 +16,7 @@
 // The wire format is the log format (FTS-DD-001 section 9). Every message
 // is a complete one-record log file:
 //
-//   LogFileHeader (16 bytes) | RecordType tag (1 byte) | TelemetryFrame (104 bytes)
+//   LogFileHeader (16 bytes) | RecordType tag (1 byte) | TelemetryFrame (120 bytes)
 //
 // so a subscriber validates the layout from its first message, whenever it
 // joins, with the same parser it uses for a log on disk. Pub/sub has no
@@ -55,8 +55,13 @@ public:
     // Creating the socket itself fails only when the process is out of
     // descriptors or the context is already terminated; that is a
     // zmq::error_t from the member initializer and is not handled here.
+    // `header` is the one every message carries (REQ-LOG-007): the
+    // composition root hands in the header its logger writes, so the file
+    // and the wire say the same modes; a publisher nobody told says
+    // UNKNOWN.
     ZmqPublisher(zmq::context_t& context, const std::string& endpoint,
-                 int send_high_water_mark = kDefaultSendHighWaterMark);
+                 int send_high_water_mark = kDefaultSendHighWaterMark,
+                 LogFileHeader header = make_log_header());
 
     // The socket is a resource with one owner; a copy would close it twice.
     ZmqPublisher(const ZmqPublisher&) = delete;
@@ -82,6 +87,7 @@ private:
     bool send_bytes(const uint8_t* data, size_t size);
 
     zmq::socket_t socket_;
+    LogFileHeader header_;
     bool ok_ = false;
     std::string error_;
     PublishStats stats_;

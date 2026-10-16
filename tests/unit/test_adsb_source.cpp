@@ -76,7 +76,7 @@ void expect_test001(const TelemetryFrame& f) {
     EXPECT_NEAR(f.longitude, -122.3289, 1e-9);
     EXPECT_FLOAT_EQ(f.gps_altitude_m, 480.0f);
     EXPECT_FLOAT_EQ(f.ground_speed_mps, 72.0f);
-    EXPECT_FLOAT_EQ(f.heading_deg, 298.0f);
+    EXPECT_FLOAT_EQ(f.course_deg, 298.0f);
 }
 
 long long elapsed_ms(std::chrono::steady_clock::time_point since) {
@@ -103,7 +103,7 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     EXPECT_EQ(before.longitude, 0.0);
     EXPECT_EQ(before.gps_altitude_m, 0.0f);
     EXPECT_EQ(before.ground_speed_mps, 0.0f);
-    EXPECT_EQ(before.heading_deg, 0.0f);
+    EXPECT_EQ(before.course_deg, 0.0f);
     EXPECT_EQ(before.baro_status, ChannelStatus::NOT_AVAILABLE);
     EXPECT_EQ(before.imu_status, ChannelStatus::NOT_AVAILABLE);
     EXPECT_EQ(before.gps_status, ChannelStatus::NOMINAL);
@@ -141,8 +141,10 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(f.reserved_a, 0u);
-    EXPECT_EQ(f.reserved_b, 0u);
+    EXPECT_EQ(f.sequence, 0u);          // the source numbers its frames from commit 4 of format version 3
+    EXPECT_EQ(f.flags, 0u);
+    EXPECT_EQ(f.voter_status, 0u);
+    EXPECT_EQ(f.reserved_d, 0u);
     ASSERT_TRUE(source.identity().has_value());
     EXPECT_EQ(source.identity()->icao24, "000001");
     EXPECT_EQ(source.identity()->callsign, "TEST001");
@@ -203,7 +205,7 @@ TEST(AdsbSourceTest, ReadingIsFreshOnceThenHeld) {
         EXPECT_EQ(f.longitude, first.longitude) << i;
         EXPECT_EQ(f.gps_altitude_m, first.gps_altitude_m) << i;
         EXPECT_EQ(f.ground_speed_mps, first.ground_speed_mps) << i;
-        EXPECT_EQ(f.heading_deg, first.heading_deg) << i;
+        EXPECT_EQ(f.course_deg, first.course_deg) << i;
         EXPECT_EQ(f.timestamp_ms, 20u * static_cast<unsigned>(i)) << i;
     }
     EXPECT_EQ(source.counters().readings, 1u);
@@ -275,7 +277,7 @@ TEST(AdsbSourceTest, ANewAircraftIsFreshEvenWithAnOlderPositionTime) {
     EXPECT_NEAR(f.longitude, -122.2888, 1e-9);
     EXPECT_FLOAT_EQ(f.gps_altitude_m, 730.0f);
     EXPECT_FLOAT_EQ(f.ground_speed_mps, 80.0f);
-    EXPECT_FLOAT_EQ(f.heading_deg, 298.0f);
+    EXPECT_FLOAT_EQ(f.course_deg, 298.0f);
     EXPECT_EQ(source.identity()->icao24, "000002");
     EXPECT_EQ(source.identity()->callsign, "TEST002");
     rig.clock.advance(kPeriodNs);

@@ -124,7 +124,8 @@ TEST(UdpPublisherTest, ConnectsAndReportsOk) {
 // tag, the frame's bytes verbatim. (REQ-TRANS-002; TC-005 step 4)
 TEST(UdpPublisherTest, DatagramIsHeaderTagAndFrameBytes) {
     Receiver receiver;
-    UdpPublisher publisher(kLoopback, receiver.port());
+    const LogFileHeader expected = make_log_header(RunMode::LIVE, RunMode::LIVE);
+    UdpPublisher publisher(kLoopback, receiver.port(), expected);
     SimulatedSource source(20, 42);
     const TelemetryFrame frame = source.read_frame();
     ASSERT_TRUE(publisher.publish(frame));
@@ -134,7 +135,8 @@ TEST(UdpPublisherTest, DatagramIsHeaderTagAndFrameBytes) {
     LogFileHeader header{};
     std::memcpy(&header, datagram.data(), sizeof(header));
     EXPECT_TRUE(header_is_valid(header));
-    const LogFileHeader expected = make_log_header();
+    EXPECT_EQ(header.version, 3);
+    EXPECT_EQ(header.run_mode, static_cast<uint8_t>(RunMode::LIVE));   // the header handed in (REQ-LOG-007)
     EXPECT_EQ(std::memcmp(&header, &expected, sizeof(header)), 0);
     EXPECT_EQ(datagram[sizeof(header)], static_cast<uint8_t>(RecordType::FRAME));
     EXPECT_EQ(std::memcmp(frame_bytes(datagram), &frame, sizeof(frame)), 0);

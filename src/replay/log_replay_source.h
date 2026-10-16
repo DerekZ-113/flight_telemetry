@@ -15,11 +15,13 @@
 // ChannelStatus the detector judged is reset to NOMINAL (NOT_AVAILABLE, the
 // one a source asserts, is kept, REQ-FAULT-007) and every Validity to
 // NOT_JUDGED.
-// Timestamp, sensor fields, and the read_ok flags are kept exactly as
-// logged; a version-1 log's frames arrive the same way (REQ-LOG-005). That
-// is the raw-only contract from data_source.h applied to replay: the
-// detector recomputes status from read_ok and the processor recomputes the
-// rest. A replay that passed the logged results through would let the
+// Timestamp, sensor fields, the read_ok flags and, since format version 3,
+// the sequence number, the flags byte and the tail's raw fields are kept
+// exactly as logged, facts the source stated, while the voter's status, a
+// verdict the voter will recompute, and the reserved field are zeroed; a version-1 or version-2 log's frames arrive the same way, as a
+// prefix with a zero tail (REQ-LOG-005). That is the raw-only contract
+// from data_source.h applied to replay: the detector recomputes status
+// from read_ok and the processor recomputes the rest. A replay that passed the logged results through would let the
 // pipeline be skipped entirely and still "match".
 //
 // Files are read in the order given, so rotated files replay as one

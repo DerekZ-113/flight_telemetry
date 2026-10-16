@@ -39,7 +39,10 @@ protected:
 
 // REQ-LOG-004: what comes out of replay is raw. Computed fields zeroed,
 // status NOMINAL, validity NOT_JUDGED, the reserved bytes zero, everything
-// the sensors said and the read_ok flags kept (TC-017 step 9).
+// the sensors said and the read_ok flags kept (TC-017 step 9); since format
+// version 3 the sequence, the flags and the tail's raw fields are kept too,
+// facts the source stated, while the voter's status, a verdict the voter
+// will recompute, and the reserved field are zeroed (TC-031 step 4).
 TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     TelemetryFrame processed{};
     processed.timestamp_ms = 40;
@@ -61,8 +64,14 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     processed.roll_validity = Validity::NORMAL;
     processed.fused_altitude_validity = Validity::NORMAL;
     processed.vertical_speed_validity = Validity::NORMAL;
-    processed.reserved_a = 1;
-    processed.reserved_b = 1;
+    processed.sequence = 7;
+    processed.flags = 0x0F;
+    processed.gps_vertical_rate_mps = -2.5f;
+    processed.gps_pressure_altitude_m = 300.0f;
+    processed.gps_fix_quality = 2;
+    processed.gps_satellites = 9;
+    processed.voter_status = 0x0011;   // VOTED | NO_MAJORITY: a verdict the voter will recompute
+    processed.reserved_d = 1;
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
         logger.log_frame(processed);
@@ -76,6 +85,12 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     EXPECT_EQ(raw.accel_z, 9.81f);
     EXPECT_FALSE(raw.baro_read_ok);
     EXPECT_TRUE(raw.imu_read_ok);
+    EXPECT_EQ(raw.sequence, 7u);
+    EXPECT_EQ(raw.flags, 0x0F);
+    EXPECT_EQ(raw.gps_vertical_rate_mps, -2.5f);
+    EXPECT_EQ(raw.gps_pressure_altitude_m, 300.0f);
+    EXPECT_EQ(raw.gps_fix_quality, 2u);
+    EXPECT_EQ(raw.gps_satellites, 9u);
 
     EXPECT_EQ(raw.baro_altitude_m, 0.0f);
     EXPECT_EQ(raw.pitch_deg, 0.0f);
@@ -90,8 +105,8 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     EXPECT_EQ(raw.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(raw.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(raw.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(raw.reserved_a, 0u);
-    EXPECT_EQ(raw.reserved_b, 0u);
+    EXPECT_EQ(raw.voter_status, 0u);
+    EXPECT_EQ(raw.reserved_d, 0u);
 }
 
 // TC-017 step 19 (REQ-FAULT-007, FAULT-018). The one status a source
@@ -125,21 +140,22 @@ TEST_F(ReplayTest, NotAvailableSurvivesTheStrip) {
 TEST_F(ReplayTest, Version1LogReplaysAsRawFrames) {
     LogFileHeader h = make_log_header();
     h.version = 1;
+    h.frame_size = kVersion2FrameBytes;                // a version-1 frame is 104 bytes
     TelemetryFrame logged{};
     logged.timestamp_ms = 20;
     logged.pressure_hpa = 1012.5f;
     logged.accel_z = 9.81f;
     logged.baro_read_ok = true;
     logged.imu_read_ok = true;
-    logged.reserved_a = 0xDEADBEEFu;                   // stack contents in a pre-9/9 log
+    logged.sequence = 0xDEADBEEFu;                     // stack contents in a pre-9/9 log
     logged.pitch_validity = Validity::NORMAL;
-    logged.reserved_b = 0x55;
+    logged.flags = 0x55;
     {
         std::ofstream out(dir_ / "v1_000.bin", std::ios::binary);
         out.write(reinterpret_cast<const char*>(&h), sizeof(h));
         const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
         out.write(reinterpret_cast<const char*>(&tag), 1);
-        out.write(reinterpret_cast<const char*>(&logged), sizeof(logged));
+        out.write(reinterpret_cast<const char*>(&logged), kVersion2FrameBytes);
     }
     LogReplaySource source({dir_ / "v1_000.bin"});
     const TelemetryFrame raw = source.read_frame();
@@ -148,9 +164,63 @@ TEST_F(ReplayTest, Version1LogReplaysAsRawFrames) {
     EXPECT_EQ(raw.accel_z, 9.81f);
     EXPECT_TRUE(raw.baro_read_ok);
     EXPECT_EQ(raw.pitch_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(raw.reserved_a, 0u);
-    EXPECT_EQ(raw.reserved_b, 0u);
+    EXPECT_EQ(raw.sequence, 0u);
+    EXPECT_EQ(raw.flags, 0u);
+    EXPECT_EQ(raw.gps_fix_quality, 0u);
+    EXPECT_EQ(raw.reserved_d, 0u);
     EXPECT_EQ(source.frames_read(), 1u);
+}
+
+// REQ-LOG-005, TC-031 step 3 and step 13's unit half. A version-2 log
+// replays as a prefix: its 104-byte frames come through with every old
+// field as logged, the sequence and the flags as the bytes held (zero,
+// a version-2 source's reserved fields) and the tail zero.
+TEST_F(ReplayTest, Version2LogReplaysAsAPrefix) {
+    LogFileHeader h = make_log_header();
+    h.version = 2;
+    h.frame_size = kVersion2FrameBytes;
+    h.run_mode = 0;
+    h.source_mode = 0;
+    const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
+    {
+        std::ofstream out(dir_ / "v2_000.bin", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+        for (int i = 0; i < 3; i++) {
+            TelemetryFrame logged{};
+            logged.timestamp_ms = 20u * static_cast<uint64_t>(i);
+            logged.pressure_hpa = 1012.5f + static_cast<float>(i);
+            logged.course_deg = 270.0f;
+            logged.gps_read_ok = true;
+            logged.fused_altitude_m = 5.0f;              // a processed field: stripped on replay
+            logged.fused_altitude_validity = Validity::NORMAL;
+            logged.gps_status = ChannelStatus::DEGRADED;
+            logged.gps_fix_quality = 9;                  // beyond the bytes written
+            out.write(reinterpret_cast<const char*>(&tag), 1);
+            out.write(reinterpret_cast<const char*>(&logged), kVersion2FrameBytes);
+        }
+    }
+    LogReplaySource source({dir_ / "v2_000.bin"});
+    for (int i = 0; i < 3; i++) {
+        ASSERT_TRUE(source.has_next()) << "frame " << i;
+        const TelemetryFrame raw = source.read_frame();
+        EXPECT_EQ(raw.timestamp_ms, 20u * static_cast<uint64_t>(i));
+        EXPECT_EQ(raw.pressure_hpa, 1012.5f + static_cast<float>(i));
+        EXPECT_EQ(raw.course_deg, 270.0f);
+        EXPECT_TRUE(raw.gps_read_ok);
+        EXPECT_EQ(raw.fused_altitude_m, 0.0f);
+        EXPECT_EQ(raw.fused_altitude_validity, Validity::NOT_JUDGED);
+        EXPECT_EQ(raw.gps_status, ChannelStatus::NOMINAL);
+        EXPECT_EQ(raw.sequence, 0u);
+        EXPECT_EQ(raw.flags, 0u);
+        EXPECT_EQ(raw.gps_fix_quality, 0u);
+        EXPECT_EQ(raw.gps_satellites, 0u);
+        EXPECT_EQ(raw.gps_vertical_rate_mps, 0.0f);
+        EXPECT_EQ(raw.gps_pressure_altitude_m, 0.0f);
+        EXPECT_EQ(raw.voter_status, 0u);
+        EXPECT_EQ(raw.reserved_d, 0u);
+    }
+    EXPECT_FALSE(source.has_next());
+    EXPECT_EQ(source.frames_read(), 3u);
 }
 
 // Rotated files replay as one session, in order.
@@ -409,15 +479,16 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
 TEST_F(ReplayTest, Version1LogReplaysJudged) {
     LogFileHeader h = make_log_header();
     h.version = 1;
+    h.frame_size = kVersion2FrameBytes;                // a version-1 frame is 104 bytes
     {
         std::ofstream out(dir_ / "v1_000.bin", std::ios::binary);
         out.write(reinterpret_cast<const char*>(&h), sizeof(h));
         SimulatedSource source(20, 42);
         for (int i = 0; i < 5; i++) {
-            const TelemetryFrame raw = source.read_frame();   // a version-1 log's raw bytes are these
+            const TelemetryFrame raw = source.read_frame();   // a version-1 log's raw bytes are the first 104 of these
             const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
             out.write(reinterpret_cast<const char*>(&tag), 1);
-            out.write(reinterpret_cast<const char*>(&raw), sizeof(raw));
+            out.write(reinterpret_cast<const char*>(&raw), kVersion2FrameBytes);
         }
     }
     LogReplaySource source({dir_ / "v1_000.bin"});

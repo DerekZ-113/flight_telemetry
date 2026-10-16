@@ -17,7 +17,7 @@ AdsbReading reading_of(const AircraftIdentity& identity, const opensky_json::Air
     reading.longitude = *state.longitude;
     reading.gps_altitude_m = *state.geo_altitude_m;
     reading.ground_speed_mps = *state.velocity_mps;
-    reading.heading_deg = *state.true_track_deg;
+    reading.track_deg = *state.true_track_deg;
     reading.time_position = *state.time_position;
     reading.server_time = server_time;
     return reading;
@@ -197,7 +197,7 @@ TelemetryFrame AdsbSource::read_frame() {
         frame.longitude = held_->longitude;
         frame.gps_altitude_m = held_->gps_altitude_m;
         frame.ground_speed_mps = held_->ground_speed_mps;
-        frame.heading_deg = held_->heading_deg;
+        frame.course_deg = held_->track_deg;
     }
     frame.gps_read_ok = fresh;
 

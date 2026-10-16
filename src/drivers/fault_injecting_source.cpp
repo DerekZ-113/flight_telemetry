@@ -25,7 +25,7 @@ void FaultInjectingSource::copy_channel(Channel channel, const TelemetryFrame& f
             to.longitude = from.longitude;
             to.gps_altitude_m = from.gps_altitude_m;
             to.ground_speed_mps = from.ground_speed_mps;
-            to.heading_deg = from.heading_deg;
+            to.course_deg = from.course_deg;
             break;
     }
 }

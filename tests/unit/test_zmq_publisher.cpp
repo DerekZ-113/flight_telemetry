@@ -110,10 +110,12 @@ TEST_F(ZmqPublisherTest, InvalidEndpointIsReportedNotThrown) {
 }
 
 // One message is a one-record log file: the 16-byte header this build
-// writes to disk, the FRAME tag, then the frame's bytes verbatim.
-// (REQ-TRANS-001; FTS-DD-001 section 9)
+// writes to disk, with the modes the composition root handed the
+// publisher (REQ-LOG-007), the FRAME tag, then the frame's bytes verbatim.
+// (REQ-TRANS-001; FTS-DD-001 section 9; TC-031 step 2)
 TEST_F(ZmqPublisherTest, MessageIsHeaderTagAndFrameBytes) {
-    ZmqPublisher publisher(context_, "inproc://layout");
+    const LogFileHeader expected = make_log_header(RunMode::SIMULATED, RunMode::SIMULATED);
+    ZmqPublisher publisher(context_, "inproc://layout", kDefaultSendHighWaterMark, expected);
     ASSERT_TRUE(publisher.ok());
     zmq::socket_t sub = make_subscriber("inproc://layout");
     settle(publisher, sub);
@@ -130,7 +132,8 @@ TEST_F(ZmqPublisherTest, MessageIsHeaderTagAndFrameBytes) {
     LogFileHeader header{};
     std::memcpy(&header, bytes, sizeof(header));
     EXPECT_TRUE(header_is_valid(header));
-    const LogFileHeader expected = make_log_header();
+    EXPECT_EQ(header.version, 3);
+    EXPECT_EQ(header.run_mode, static_cast<uint8_t>(RunMode::SIMULATED));
     EXPECT_EQ(std::memcmp(bytes, &expected, sizeof(expected)), 0);
     EXPECT_EQ(bytes[sizeof(header)], static_cast<uint8_t>(RecordType::FRAME));
     EXPECT_EQ(std::memcmp(frame_bytes(msg), &frame, sizeof(frame)), 0);

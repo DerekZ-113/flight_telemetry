@@ -60,21 +60,10 @@ std::array<uint8_t, kSessionMessageBytes> session_message(RunMode mode, StreamSt
     return out;
 }
 
-const char* mode_name(RunMode mode) {
-    switch (mode) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
-        case RunMode::LIVE:      return "LIVE";
-        case RunMode::SIMULATED: return "SIMULATED";
-        case RunMode::REPLAY:    return "REPLAY";
-        case RunMode::ADSB:      return "ADSB";
-    }
-    // A byte outside the enumeration: never main, which chooses the mode.
-    return "UNKNOWN";  // LCOV_EXCL_LINE
-}
-
 const char* state_name(StreamState state) {
     switch (state) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
         case StreamState::RUNNING: return "RUNNING";
         case StreamState::ENDED:   return "ENDED";
     }
-    return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see mode_name)
+    return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable: main chooses the state, nothing reads one from a file)
 }

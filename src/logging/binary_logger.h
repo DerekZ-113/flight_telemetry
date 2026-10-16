@@ -12,8 +12,10 @@
 // REQ-FAULT-004).
 //
 // Files are named <prefix>_000.bin, <prefix>_001.bin, ... so a plain sort
-// is chronological. Every file starts with a LogFileHeader, so each one
-// can be read on its own. Rotation happens before a record that would
+// is chronological. Every file starts with the LogFileHeader the
+// composition root built (the run mode and the source mode, REQ-LOG-007;
+// a test's logger takes the default, both unknown), so each one can be
+// read on its own. Rotation happens before a record that would
 // push the file past max_file_bytes; a record is never split across two
 // files, because a torn record would make the tail of one file unreadable
 // and replay would silently lose a frame.
@@ -26,7 +28,8 @@ public:
     // Creates `directory` if needed and opens <prefix>_000.bin.
     // max_file_bytes below header + one frame record is raised to that
     // minimum, so rotation can never trigger on every write.
-    BinaryLogger(std::filesystem::path directory, std::string prefix, uint64_t max_file_bytes);
+    BinaryLogger(std::filesystem::path directory, std::string prefix, uint64_t max_file_bytes,
+                 LogFileHeader header = make_log_header());
 
     void log_frame(const TelemetryFrame& frame);
     void log_event(const FaultEvent& event);
@@ -42,6 +45,7 @@ private:
     std::filesystem::path directory_;
     std::string prefix_;
     uint64_t max_file_bytes_;
+    LogFileHeader header_;           // written at the top of every file, rotated ones included
     uint64_t bytes_written_ = 0;     // in the current file, header included
     bool file_has_record_ = false;
     int file_index_ = -1;

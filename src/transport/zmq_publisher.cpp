@@ -15,8 +15,8 @@ constexpr int kLingerMs = 500;
 }  // namespace
 
 ZmqPublisher::ZmqPublisher(zmq::context_t& context, const std::string& endpoint,
-                           int send_high_water_mark)
-    : socket_(context, zmq::socket_type::pub) {
+                           int send_high_water_mark, LogFileHeader header)
+    : socket_(context, zmq::socket_type::pub), header_(header) {
     // cppzmq reports failures by throwing zmq::error_t. This class reports
     // them as status, like BinaryLogger::ok(), so the composition root
     // decides what a failed bind means and the loop never sees an exception.
@@ -57,7 +57,7 @@ bool ZmqPublisher::publish(const TelemetryFrame& frame) {
     // The message is the one-record log file frame_message lays out
     // (log_format.h): header, one tag byte, then the frame's bytes
     // verbatim. The UDP publisher sends the same bytes as a datagram.
-    const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame);
+    const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame, header_);
     if (!send_bytes(bytes.data(), bytes.size())) {
         stats_.send_failures++;
         return false;

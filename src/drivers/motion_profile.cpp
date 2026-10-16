@@ -31,7 +31,7 @@ float lerp(float from, float to, float u) {
 }
 
 // A course stays in [0, 360): the script may interpolate across north one
-// day, and the frame's heading_deg is "0-360" by contract.
+// day, and the frame's course_deg is "0-360" by contract.
 float wrap_degrees(float degrees) {
     const float wrapped = std::fmod(degrees, 360.0f);
     return wrapped < 0.0f ? wrapped + 360.0f : wrapped;

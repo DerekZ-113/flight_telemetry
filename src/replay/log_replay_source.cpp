@@ -33,15 +33,19 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
     frame.imu_status = frame.imu_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
     frame.gps_status = frame.gps_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
     // The pipeline's judgments go too (REQ-PROC-007): a source hands out
-    // NOT_JUDGED and the processor writes every validity. The reserved
-    // bytes are zero by definition (log_format.h).
+    // NOT_JUDGED and the processor writes every validity, and the voter's
+    // status is a verdict the voter will recompute (telemetry_frame.h).
+    // The sequence, the flags and the tail's raw fields stay: a source
+    // wrote them, and a replay reproduces what the source said
+    // (REQ-LOG-008, REQ-PROC-008). The reserved field is zero by
+    // definition (log_format.h).
     frame.baro_altitude_validity = Validity::NOT_JUDGED;
     frame.pitch_validity = Validity::NOT_JUDGED;
     frame.roll_validity = Validity::NOT_JUDGED;
     frame.fused_altitude_validity = Validity::NOT_JUDGED;
     frame.vertical_speed_validity = Validity::NOT_JUDGED;
-    frame.reserved_a = 0;
-    frame.reserved_b = 0;
+    frame.voter_status = 0;
+    frame.reserved_d = 0;
 }
 
 bool LogReplaySource::has_next() {

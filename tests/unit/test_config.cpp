@@ -498,10 +498,10 @@ TEST(ConfigTest, SeaLevelPositive) {
 }
 
 TEST(ConfigTest, MaxFileBytesAtLeastOneRecord) {
-    static_assert(kFrameMessageBytes == 121, "the message below names the record size");
-    expect_one_problem(load_edited("max_file_bytes: 1048576", "max_file_bytes: 120"),
-                       "logging.max_file_bytes: must be at least 121 (got 120)");
-    expect_accepted(load_edited("max_file_bytes: 1048576", "max_file_bytes: 121"));
+    static_assert(kFrameMessageBytes == 137, "the message below names the record size");   // 121 until format version 3
+    expect_one_problem(load_edited("max_file_bytes: 1048576", "max_file_bytes: 136"),
+                       "logging.max_file_bytes: must be at least 137 (got 136)");
+    expect_accepted(load_edited("max_file_bytes: 1048576", "max_file_bytes: 137"));
 }
 
 // The UDP host is checked with the publisher's own test, and whether or
@@ -601,7 +601,7 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"sea_level_pressure_hpa: 1013.25", "1013.25", "processing.sea_level_pressure_hpa", Rule::Positive},
         {"directory: logs", "logs", "logging.directory", Rule::Text},
         {"max_file_bytes: 1048576", "1048576", "logging.max_file_bytes", Rule::Whole, "120",
-         "must be at least 121 (got 120)"},
+         "must be at least 137 (got 120)"},
         {"enabled: false\n    endpoint", "false", "transport.zmq.enabled", Rule::Switch},
         {"endpoint: tcp://127.0.0.1:5555", "tcp://127.0.0.1:5555", "transport.zmq.endpoint", Rule::Text},
         {"enabled: false\n    host", "false", "transport.udp.enabled", Rule::Switch},

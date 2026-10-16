@@ -26,8 +26,8 @@
 // altitude (the aircraft's GNSS height above the WGS-84 ellipsoid, a
 // different datum from the bench receiver's altitude above mean sea
 // level, design.md section 12) as gps_altitude_m, the ground speed, and
-// the track over ground as heading_deg, which holds the receiver's course
-// today (REQ-SENS-005). The broadcast carries no pressure and no attitude,
+// the track over ground as course_deg, the receiver's course over ground
+// (REQ-SENS-005). The broadcast carries no pressure and no attitude,
 // so the barometer and the IMU are channels this source does not provide:
 // their fields zero, never fresh, and NOT_AVAILABLE on every frame
 // (REQ-FAULT-007), the one status a source asserts. A pressure derived
@@ -77,7 +77,7 @@ struct AdsbReading {
     double longitude = 0.0;
     float gps_altitude_m = 0.0f;      // the geometric altitude: GNSS height above the WGS-84 ellipsoid
     float ground_speed_mps = 0.0f;
-    float heading_deg = 0.0f;         // the track over ground, as the receiver's course (REQ-SENS-005)
+    float track_deg = 0.0f;           // the track over ground: the frame's course_deg (REQ-SENS-005)
     int64_t time_position = 0;        // the position's own epoch, the server's unix seconds
     int64_t server_time = 0;          // the response's time; the difference is the position's age
 };

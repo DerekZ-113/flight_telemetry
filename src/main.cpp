@@ -82,7 +82,7 @@ void print_frame(const TelemetryFrame& frame) {
               << frame.longitude << std::endl;
     std::cout << "GPS Alt:      " << frame.gps_altitude_m << " m" << std::endl;
     std::cout << "Ground Speed: " << frame.ground_speed_mps << " m/s" << std::endl;
-    std::cout << "Heading:      " << frame.heading_deg << " deg" << std::endl;
+    std::cout << "Course:       " << frame.course_deg << " deg" << std::endl;
     std::cout << "Fused Alt:    " << frame.fused_altitude_m << " m ["
               << validity_name(frame.fused_altitude_validity) << "]" << std::endl;
     std::cout << "Vert Speed:   " << frame.vertical_speed_mps << " m/s ["
@@ -706,9 +706,15 @@ int main(int argc, char* argv[]) {
     // which is refused here rather than destroyed (REQ-LOG-003,
     // REQ-CFG-003).
     const std::string prefix = replaying ? "replay" : "telemetry";
-    // Whether a replayed log was recorded by the ADS-B source, decided from
-    // its first frame below: the detector's GPS timeout depends on it.
-    bool adsb_log = false;
+
+    // The run's mode, decided where the source is (REQ-TRANS-004,
+    // REQ-LOG-007), and the source mode its frames are produced in: the
+    // run's own, except for a replay, which copies its input's forward
+    // below. Both go into every record's header and every status.
+    const RunMode mode = options.adsb ? RunMode::ADSB
+                         : options.live ? RunMode::LIVE
+                         : replaying ? RunMode::REPLAY : RunMode::SIMULATED;
+    RunMode source_mode = mode;
     if (replaying) {
         const std::filesystem::path input(*options.replay_file);
         std::filesystem::path input_directory = input.parent_path();
@@ -730,34 +736,33 @@ int main(int argc, char* argv[]) {
         // of feeding zero frames through the pipeline for --cycles cycles
         // (FTS-VR-001 Entry 11 §11.8). The replay source opens the file
         // again on its first read; this probe reads the header only. A
-        // version-1 input is a legitimate replay, said so on one line: the
-        // raw fields are the record and the pipeline recomputes the rest
-        // (REQ-LOG-004), so its replay log is a version-2 log.
+        // version-1 or version-2 input is a legitimate replay, said so on
+        // one line: the raw fields are the record and the pipeline
+        // recomputes the rest (REQ-LOG-004), so its replay log is a
+        // version-3 log.
         LogReader probe(input);
         if (!probe.ok()) {
             std::cerr << "error: cannot replay " << input.string() << ": " << probe.error() << std::endl;
             return 1;
         }
-        // The first frame says which source wrote the log: the ADS-B source
-        // is the one that reports the barometer and the IMU NOT_AVAILABLE
-        // from frame 0 (REQ-SENS-011), and its GPS channel's timeout is the
-        // configured ADS-B timeout (REQ-FAULT-001), which the replay must
-        // use to reproduce the run's faults (REQ-LOG-004). The mode itself is
-        // not in the log; the next format version carries it (design.md
-        // section 12).
-        LogRecord first;
-        if (probe.next(first) && first.type == RecordType::FRAME) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-            adsb_log = first.frame.baro_status == ChannelStatus::NOT_AVAILABLE &&
-                       first.frame.imu_status == ChannelStatus::NOT_AVAILABLE;
-        }
-        std::cout << "Replay input:  " << input.string() << " (format version " << probe.header().version;
+        // The header says how the frames were produced (REQ-LOG-007), and
+        // the replay carries that forward in its own header and status: an
+        // ADS-B recording's GPS channel takes the configured ADS-B timeout
+        // below (REQ-FAULT-001), so the replay reproduces the run's faults
+        // (REQ-LOG-004), and the page labels its datum. A file older than
+        // version 3 records neither mode; UNKNOWN goes forward, never a
+        // guess from the frames.
+        source_mode = static_cast<RunMode>(probe.header().source_mode);
+        std::cout << "Replay input:  " << input.string() << " (format version " << probe.header().version
+                  << ", run mode " << mode_name(static_cast<RunMode>(probe.header().run_mode))
+                  << ", source mode " << mode_name(source_mode);
         if (probe.header().version != kLogFormatVersion) {
             std::cout << "; this build writes version " << kLogFormatVersion
                       << ", so the replay log is version " << kLogFormatVersion
                       << " with the computed fields and their validity recomputed from the raw fields";
         }
-        if (adsb_log) {
-            std::cout << "; an ADS-B run by its first frame, so the GPS channel's timeout is adsb.timeout_ms";
+        if (source_mode == RunMode::ADSB) {
+            std::cout << "; an ADS-B recording by its header, so the GPS channel's timeout is adsb.timeout_ms";
         }
         std::cout << ")" << std::endl;
     }
@@ -770,11 +775,6 @@ int main(int argc, char* argv[]) {
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
-    // The run's mode, decided where the source is (REQ-TRANS-004): the one
-    // fact about the frames the wire cannot carry in them.
-    const RunMode mode = options.adsb ? RunMode::ADSB
-                         : options.live ? RunMode::LIVE
-                         : replaying ? RunMode::REPLAY : RunMode::SIMULATED;
 
     // The credentials file (REQ-CFG-004): named by --adsb-credentials or
     // found under the home directory, read once by the source, its path
@@ -822,14 +822,14 @@ int main(int argc, char* argv[]) {
     // fault bound and the processor's re-seed bound (REQ-PROC-002), and
     // they must be the same number.
     // The GPS channel's timeout (REQ-FAULT-001): the receiver's in a live
-    // run, and in ADS-B mode the configured ADS-B timeout, because the
+    // run, and for ADS-B frames the configured ADS-B timeout, because the
     // channel's delivery period is the poll interval there; a replay of an
-    // ADS-B log (identified by its first frame above) takes the same value,
-    // so the replay reproduces the run's faults (REQ-LOG-004). The
-    // composition root chooses which configured value a channel's timeout
-    // is, as it hands the IMU timeout to two consumers.
+    // ADS-B recording (by its header's source mode above, REQ-LOG-007)
+    // takes the same value, so the replay reproduces the run's faults
+    // (REQ-LOG-004). The composition root chooses which configured value a
+    // channel's timeout is, as it hands the IMU timeout to two consumers.
     FaultDetectorConfig fault = cfg.fault;
-    if (options.adsb || adsb_log) {
+    if (source_mode == RunMode::ADSB) {
         if (!cfg.adsb.has_value()) {
             std::cerr << "error: replaying an ADS-B log needs the adsb block of the configuration, which "
                       << config_path.string() << " lacks" << std::endl;
@@ -840,7 +840,12 @@ int main(int argc, char* argv[]) {
     FaultDetector detector(fault);
     TelemetryProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
 
-    BinaryLogger logger(cfg.logging.directory, prefix, cfg.logging.max_file_bytes);
+    // The header every record and every frame message carries
+    // (REQ-LOG-007): built once, from the run's mode and the source mode,
+    // and handed to the logger and both publishers, so the file and the
+    // wire say the same thing.
+    const LogFileHeader header = make_log_header(mode, source_mode);
+    BinaryLogger logger(cfg.logging.directory, prefix, cfg.logging.max_file_bytes, header);
     if (!logger.ok()) {
         std::cerr << "cannot open log file in " << cfg.logging.directory << std::endl;
         return 1;
@@ -873,7 +878,7 @@ int main(int argc, char* argv[]) {
     std::optional<ZmqPublisher> publisher;
     if (zmq_enabled) {
         zmq_context.emplace(1);   // one I/O thread moves messages to the wire
-        publisher.emplace(*zmq_context, zmq_endpoint);
+        publisher.emplace(*zmq_context, zmq_endpoint, kDefaultSendHighWaterMark, header);
         if (!publisher->ok()) {
             std::cerr << "cannot bind ZeroMQ publisher to " << zmq_endpoint
                       << ": " << publisher->error() << std::endl;
@@ -892,7 +897,7 @@ int main(int argc, char* argv[]) {
     const std::string udp_destination = udp_host + ":" + std::to_string(udp_port);
     std::optional<UdpPublisher> udp_publisher;
     if (udp_enabled) {
-        udp_publisher.emplace(udp_host, udp_port);
+        udp_publisher.emplace(udp_host, udp_port, header);
         if (!udp_publisher->ok()) {
             std::cerr << "cannot send UDP to " << udp_destination
                       << ": " << udp_publisher->error() << std::endl;

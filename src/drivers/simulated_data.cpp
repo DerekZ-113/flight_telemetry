@@ -95,7 +95,7 @@ SimulatedDataGenerator::BaseReadings SimulatedDataGenerator::scripted_readings(u
                   east_m_ / (kMetersPerDegreeLatitude * std::cos(kStationary.latitude * kPi / 180.0));
     r.gps_altitude_m = s.altitude_m;
     r.ground_speed_mps = s.ground_speed_mps;
-    r.heading_deg = s.track_deg;
+    r.track_deg = s.track_deg;
     return r;
 }
 
@@ -157,7 +157,7 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
         last_longitude_ = base.longitude + gps_lon_noise_(rng_);
         last_gps_altitude_m_ = base.gps_altitude_m + gps_alt_noise_(rng_);
         last_ground_speed_mps_ = base.ground_speed_mps;   // no noise on these two, as before
-        last_heading_deg_ = base.heading_deg;
+        last_track_deg_ = base.track_deg;
         have_fix_ = true;
         last_fix_index_ = fix_index;
     }
@@ -165,7 +165,7 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     frame.longitude = last_longitude_;
     frame.gps_altitude_m = last_gps_altitude_m_;
     frame.ground_speed_mps = last_ground_speed_mps_;
-    frame.heading_deg = last_heading_deg_;
+    frame.course_deg = last_track_deg_;
 
     // Fused outputs — pipeline's Kalman filter fills these (REQ-PROC-003)
     frame.fused_altitude_m = 0.0f;

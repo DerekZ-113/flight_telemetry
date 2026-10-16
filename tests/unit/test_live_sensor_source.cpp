@@ -98,7 +98,7 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.longitude, 0.0);
     EXPECT_EQ(f.gps_altitude_m, 0.0f);
     EXPECT_EQ(f.ground_speed_mps, 0.0f);
-    EXPECT_EQ(f.heading_deg, 0.0f);
+    EXPECT_EQ(f.course_deg, 0.0f);
     EXPECT_EQ(f.baro_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(f.imu_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);   // no receiver on this rig (REQ-FAULT-007)
@@ -112,8 +112,10 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(f.reserved_a, 0u);
-    EXPECT_EQ(f.reserved_b, 0u);
+    EXPECT_EQ(f.sequence, 0u);          // the source numbers its frames from commit 4 of format version 3
+    EXPECT_EQ(f.flags, 0u);
+    EXPECT_EQ(f.voter_status, 0u);
+    EXPECT_EQ(f.reserved_d, 0u);
 }
 
 // TC-014 step 6. A failed barometer burst holds the barometer's fields at
@@ -291,7 +293,7 @@ TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
     EXPECT_NEAR(fix.longitude, nmea_examples::kGgaLongitudeDeg, 1e-7);
     EXPECT_FLOAT_EQ(fix.gps_altitude_m, nmea_examples::kGgaAltitudeM);
     EXPECT_NEAR(fix.ground_speed_mps, nmea_examples::kRmcSpeedMps, 1e-6);
-    EXPECT_FLOAT_EQ(fix.heading_deg, nmea_examples::kRmcCourseDeg);
+    EXPECT_FLOAT_EQ(fix.course_deg, nmea_examples::kRmcCourseDeg);
     EXPECT_TRUE(fix.baro_read_ok);   // the chips are read on the same cycle as before
     EXPECT_TRUE(fix.imu_read_ok);
     // The raw-only contract: every status NOMINAL, every validity unjudged.
@@ -320,7 +322,7 @@ TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
         EXPECT_EQ(f.longitude, fix.longitude) << i;
         EXPECT_EQ(f.gps_altitude_m, fix.gps_altitude_m) << i;
         EXPECT_EQ(f.ground_speed_mps, fix.ground_speed_mps) << i;
-        EXPECT_EQ(f.heading_deg, fix.heading_deg) << i;
+        EXPECT_EQ(f.course_deg, fix.course_deg) << i;
     }
     const std::optional<GpsCounters> counters = source.gps_counters();
     ASSERT_TRUE(counters.has_value());
@@ -385,7 +387,7 @@ TEST(LiveSensorSourceTest, WithoutAPortTheGpsIsAbsent) {
         const TelemetryFrame f = source.read_frame();
         EXPECT_FALSE(f.gps_read_ok);
         EXPECT_EQ(f.latitude, 0.0);
-        EXPECT_EQ(f.heading_deg, 0.0f);
+        EXPECT_EQ(f.course_deg, 0.0f);
         EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);
     }
     EXPECT_FALSE(source.gps_counters().has_value());

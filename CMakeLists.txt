@@ -32,6 +32,7 @@ endif()
 # differs from what ships.
 add_library(telemetry_core STATIC
     src/telemetry_frame.cpp
+    src/run_mode.cpp
     src/processing/altitude.cpp
     src/processing/processor.cpp
     src/processing/kalman_filter.cpp

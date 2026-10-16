@@ -11,7 +11,8 @@
 
 #include "logging/log_format.h"
 
-UdpPublisher::UdpPublisher(const std::string& host, int port) {
+UdpPublisher::UdpPublisher(const std::string& host, int port, LogFileHeader header)
+    : header_(header) {
     // Refusals come in order of how cheap they are to explain: the port and
     // the address are checked before any system call, so the message names
     // what was typed, not what the kernel made of it.
@@ -73,7 +74,7 @@ bool UdpPublisher::publish(const TelemetryFrame& frame) {
         return false;
     }
 
-    const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame);
+    const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame, header_);
     if (!send_bytes(bytes.data(), bytes.size())) {
         stats_.send_failures++;
         return false;

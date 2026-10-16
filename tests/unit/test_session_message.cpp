@@ -91,6 +91,11 @@ TEST(SessionMessageTest, EveryModeAndStateHasAName) {
     EXPECT_STREQ(mode_name(RunMode::SIMULATED), "SIMULATED");
     EXPECT_STREQ(mode_name(RunMode::REPLAY), "REPLAY");
     EXPECT_STREQ(mode_name(RunMode::ADSB), "ADSB");
+    // UNKNOWN is a named value since format version 3 (a header older than
+    // it, or a replay of one), and a byte outside the enumeration, which a
+    // corrupt header could carry, names itself the same way.
+    EXPECT_STREQ(mode_name(RunMode::UNKNOWN), "UNKNOWN");
+    EXPECT_STREQ(mode_name(static_cast<RunMode>(9)), "UNKNOWN");
     EXPECT_STREQ(state_name(StreamState::RUNNING), "RUNNING");
     EXPECT_STREQ(state_name(StreamState::ENDED), "ENDED");
 }

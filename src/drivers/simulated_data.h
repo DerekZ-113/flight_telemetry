@@ -93,7 +93,7 @@ public:
         double longitude;
         float gps_altitude_m;
         float ground_speed_mps;
-        float heading_deg;
+        float track_deg;            // the course over ground the frame's course_deg carries
     };
 
     // A board sitting flat and still in Foster City: pressure a touch below
@@ -137,7 +137,7 @@ private:
     double last_longitude_ = 0.0;
     float last_gps_altitude_m_ = 0.0f;
     float last_ground_speed_mps_ = 0.0f;   // a fix's speed and course, held between fixes like the position
-    float last_heading_deg_ = 0.0f;
+    float last_track_deg_ = 0.0f;
 
     // The script, or null; and the scripted aircraft's position relative to
     // the scenario's spot, east and north in metres, advanced once per

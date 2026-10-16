@@ -76,15 +76,17 @@ TEST(SimulatedDataTest, ProducesRawReadingsOnly) {
         EXPECT_TRUE(f.baro_read_ok);
         EXPECT_TRUE(f.imu_read_ok);
         EXPECT_EQ(f.gps_read_ok, i == 0) << "frame " << i;
-        // Unjudged and the reserved bytes zero: the processor judges,
-        // and a reserved byte is zero by definition (REQ-PROC-007).
+        // Unjudged and the reserved pair zero: the processor judges,
+        // and a reserved field is zero by definition (REQ-PROC-007).
         EXPECT_EQ(f.baro_altitude_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.pitch_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
         EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-        EXPECT_EQ(f.reserved_a, 0u);
-        EXPECT_EQ(f.reserved_b, 0u);
+        EXPECT_EQ(f.sequence, 0u);
+        EXPECT_EQ(f.flags, 0u);
+        EXPECT_EQ(f.voter_status, 0u);
+        EXPECT_EQ(f.reserved_d, 0u);
     }
 }
 
@@ -246,7 +248,7 @@ TEST(SimulatedDataTest, ProfileReadingsInvertThroughTheFilter) {
             EXPECT_NEAR(pressure_to_altitude(f.pressure_hpa), s.altitude_m, 0.05f) << "t=" << ts;
             EXPECT_NEAR(f.gps_altitude_m, s.altitude_m, 1e-3f) << "t=" << ts;
             EXPECT_NEAR(f.ground_speed_mps, s.ground_speed_mps, 1e-3f) << "t=" << ts;
-            EXPECT_NEAR(f.heading_deg, s.track_deg, 1e-3f) << "t=" << ts;
+            EXPECT_NEAR(f.course_deg, s.track_deg, 1e-3f) << "t=" << ts;
         }
         if (ts == 60000) {
             EXPECT_TRUE(f.gps_read_ok);
@@ -286,7 +288,7 @@ TEST(SimulatedDataTest, ParkedProfileDiffersFromTheScenarioOnlyByTheScript) {
     SimulatedDataGenerator plain(42, 1000, quiet_noise());
     const TelemetryFrame p = plain.generate(0);
     EXPECT_EQ(p.ground_speed_mps, 0.0f);
-    EXPECT_EQ(p.heading_deg, 0.0f);
+    EXPECT_EQ(p.course_deg, 0.0f);
     EXPECT_NEAR(p.pressure_hpa, 1013.0f, 1e-4f);
     EXPECT_NEAR(p.gps_altitude_m, 3.0f, 1e-4f);
 
@@ -306,7 +308,7 @@ TEST(SimulatedDataTest, ParkedProfileDiffersFromTheScenarioOnlyByTheScript) {
     EXPECT_NEAR(s.longitude, -122.2711, 1e-5);
     EXPECT_NEAR(s.gps_altitude_m, 2.0f, 1e-4f);
     EXPECT_EQ(s.ground_speed_mps, 0.0f);
-    EXPECT_EQ(s.heading_deg, 90.0f);
+    EXPECT_EQ(s.course_deg, 90.0f);
     EXPECT_TRUE(s.gps_read_ok);
 }
 
