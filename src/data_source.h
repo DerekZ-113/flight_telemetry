@@ -15,7 +15,10 @@
 // baro_altitude_m, pitch/roll, fused_altitude_m, and vertical_speed_mps
 // are left at 0.0 for the pipeline to fill. If a source computed them
 // itself, replay could never verify the pipeline, because the work would
-// already be done before the pipeline ran.
+// already be done before the pipeline ran. Statuses are left NOMINAL for
+// the detector to judge, with one exception (REQ-FAULT-007): a channel the
+// source has no sensor for is reported NOT_AVAILABLE on every frame, a
+// fact of the configuration, which the detector then leaves alone.
 class DataSource {
 public:
     // Virtual destructor. Callers own sources through DataSource pointers

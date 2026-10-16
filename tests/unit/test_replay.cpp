@@ -94,6 +94,31 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     EXPECT_EQ(raw.reserved_b, 0u);
 }
 
+// TC-017 step 19 (REQ-FAULT-007, FAULT-018). The one status a source
+// asserts survives the strip: a channel recorded NOT_AVAILABLE comes back
+// NOT_AVAILABLE, so a replay reproduces the availability the source wrote
+// into every frame, while the statuses the detector judged go back to
+// NOMINAL for it to judge again, and the validities to NOT_JUDGED.
+TEST_F(ReplayTest, NotAvailableSurvivesTheStrip) {
+    TelemetryFrame processed{};
+    processed.timestamp_ms = 60;
+    processed.baro_status = ChannelStatus::DEGRADED;
+    processed.imu_status = ChannelStatus::NOT_AVAILABLE;
+    processed.gps_status = ChannelStatus::NO_DATA;
+    processed.pitch_validity = Validity::NO_COMPUTED_DATA;
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        logger.log_frame(processed);
+    }
+
+    LogReplaySource source({dir_ / "t_000.bin"});
+    const TelemetryFrame raw = source.read_frame();
+    EXPECT_EQ(raw.baro_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(raw.imu_status, ChannelStatus::NOT_AVAILABLE);
+    EXPECT_EQ(raw.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(raw.pitch_validity, Validity::NOT_JUDGED);
+}
+
 // REQ-LOG-005, TC-017 step 9. A version-1 log replays: its raw fields come
 // through as logged and its frames arrive unjudged, the reader having set
 // the version-1 padding to what version 2 means by it.

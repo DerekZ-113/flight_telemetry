@@ -26,9 +26,12 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
     frame.roll_deg = 0.0f;
     frame.fused_altitude_m = 0.0f;
     frame.vertical_speed_mps = 0.0f;
-    frame.baro_status = ChannelStatus::NOMINAL;
-    frame.imu_status = ChannelStatus::NOMINAL;
-    frame.gps_status = ChannelStatus::NOMINAL;
+    // The statuses the detector judged go back to NOMINAL for it to judge
+    // again; the one a source asserts, NOT_AVAILABLE, stays, so a replay
+    // reproduces the availability the source wrote (REQ-FAULT-007).
+    frame.baro_status = frame.baro_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
+    frame.imu_status = frame.imu_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
+    frame.gps_status = frame.gps_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
     // The pipeline's judgments go too (REQ-PROC-007): a source hands out
     // NOT_JUDGED and the processor writes every validity. The reserved
     // bytes are zero by definition (log_format.h).

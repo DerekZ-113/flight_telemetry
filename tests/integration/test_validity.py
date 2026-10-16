@@ -131,7 +131,7 @@ def test_reader_layout_names_nan_view_and_summary(tmp_path, capsys):
     assert event_dtype().fields["reserved"][1] == 10
     assert FRAME.size == 104 and EVENT.size == 16
     assert VALIDITY_NAMES == {0: "NOT_JUDGED", 1: "NO_COMPUTED_DATA", 2: "FAILURE_WARNING", 3: "NORMAL"}
-    assert STATUS_NAMES == {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA"}
+    assert STATUS_NAMES == {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA", 3: "NOT_AVAILABLE"}
 
     # The NaN view: one FAILURE_WARNING field becomes NaN there and nowhere else; the frames
     # themselves keep their numbers.

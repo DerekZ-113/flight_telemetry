@@ -10,7 +10,7 @@
 // a cell that quietly reads undefined.
 
 export type ValidityName = "NOT_JUDGED" | "NO_COMPUTED_DATA" | "FAILURE_WARNING" | "NORMAL";
-export type StatusName = "NOMINAL" | "DEGRADED" | "NO_DATA";
+export type StatusName = "NOMINAL" | "DEGRADED" | "NO_DATA" | "NOT_AVAILABLE";
 export type RunMode = "LIVE" | "SIMULATED" | "REPLAY";
 export type StreamState = "RUNNING" | "ENDED";
 

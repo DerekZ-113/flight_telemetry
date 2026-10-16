@@ -4,18 +4,22 @@
 // stale, lagging, ended or disconnected feed withdraws every value whatever
 // the fields say; then the most severe verdict among the instrument's
 // fields: a failure warning (or a DEGRADED channel) is a flag, "not judged"
-// is dashes under the PIPELINE annunciator, "no data" is dashes, NORMAL (or
-// NOMINAL) is the value. A removed value is never struck through on an
-// instrument: a struck-through altitude is still an altitude a pilot can
-// read, so the number goes and a flag takes its place.
+// is dashes under the PIPELINE annunciator, a channel the source does not
+// provide (NOT_AVAILABLE, REQ-FAULT-007) is the no-source flag, "no data" is
+// dashes, NORMAL (or NOMINAL) is the value. A removed value is never struck
+// through on an instrument: a struck-through altitude is still an altitude
+// a pilot can read, so the number goes and a flag takes its place.
 import { badgeFor } from "../badge";
 import type { StatusName, ValidityName } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
 
 export type FieldVerdict = ValidityName | StatusName;
 
-// Why a value was withdrawn: a field's own failure, or the feed's state.
-export type FlagCause = "fail" | "link" | "ended" | "stale" | "lag";
+// Why a value was withdrawn: the feed's state, a field's own failure, or a
+// channel the source does not provide (nothing failed: the flag is an
+// outline, and the strip names no cause).
+export type FeedCause = "link" | "ended" | "stale" | "lag";
+export type FlagCause = FeedCause | "fail" | "unavailable";
 
 export interface InstrumentState {
   show: "value" | "dashes" | "flag";
@@ -26,7 +30,7 @@ export interface InstrumentState {
 // The feed-level cause that removes every instrument, in order of
 // precedence (FTS-DS-001 §5), or null while the feed is good. Nothing is
 // withdrawn before a frame has arrived: dashes need no flag.
-export function feedCause(feed: FeedState): FlagCause | null {
+export function feedCause(feed: FeedState): FeedCause | null {
   if (feed.lastFrame === null) {
     return null;
   }
@@ -45,11 +49,13 @@ export function feedCause(feed: FeedState): FlagCause | null {
   return null;
 }
 
-// Worst first: a failure outranks "not judged", which outranks "no data".
+// Worst first: a failure outranks "not judged", which outranks "no source",
+// which outranks "no data" (FTS-DS-001 §2.1).
 const SEVERITY: Record<FieldVerdict, number> = {
   FAILURE_WARNING: 3,
   DEGRADED: 3,
   NOT_JUDGED: 2,
+  NOT_AVAILABLE: 1.5,
   NO_COMPUTED_DATA: 1,
   NO_DATA: 1,
   NORMAL: 0,
@@ -71,6 +77,8 @@ export function instrumentState(verdicts: FieldVerdict[], feed: FeedState): Inst
       return { show: "flag", cause: "fail" };
     case "NOT_JUDGED":
       return { show: "dashes", pipeline: true };
+    case "NOT_AVAILABLE":
+      return { show: "flag", cause: "unavailable" };
     case "NO_COMPUTED_DATA":
     case "NO_DATA":
       return { show: "dashes" };

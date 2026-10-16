@@ -36,14 +36,16 @@ describe("the ground speed readout", () => {
   });
 
   it("removes the value under the GS flag", () => {
-    for (const cause of ["fail", "stale", "ended"] as const) {
+    for (const cause of ["fail", "stale", "ended", "unavailable"] as const) {
       const c = draw(30, { show: "flag", cause });
       expect(c.querySelector('[data-testid="gs-readout"]')).toBeNull();
       expect(c.textContent).not.toContain("58");
       expect(c.querySelector('[data-testid="gs-flag"]')?.textContent).toBe("GS");
-      expect(c.querySelector('[data-testid="gs-flag"] rect')?.getAttribute("fill")).toBe(
-        cause === "ended" ? "#5a6570" : "#d0342c",
-      );
+      const box = c.querySelector('[data-testid="gs-flag"] rect');
+      // Red for a failure, grey for an end, and for a channel the source does not provide an
+      // outline on no fill: nothing failed (REQ-DISP-001, FTS-DS-001 §2.1).
+      expect(box?.getAttribute("fill")).toBe(cause === "ended" ? "#5a6570" : cause === "unavailable" ? "none" : "#d0342c");
+      expect(box?.getAttribute("stroke")).toBe(cause === "unavailable" ? "#e8edf2" : "none");
       cleanup();
     }
   });

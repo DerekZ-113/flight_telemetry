@@ -14,6 +14,7 @@ import { AttitudeIndicator } from "./AttitudeIndicator";
 import { COLORS, PANEL, STRIP } from "./geometry";
 import { GroundSpeed } from "./GroundSpeed";
 import { feedCause, feedStateText, instrumentState, lagLabel, trackShown } from "./instrumentState";
+import type { FieldVerdict } from "./instrumentState";
 import { TrackIndicator } from "./TrackIndicator";
 import { VerticalSpeed } from "./VerticalSpeed";
 
@@ -25,7 +26,6 @@ function stateColor(cause: ReturnType<typeof feedCause>, feed: FeedState): strin
       return COLORS.red;
     case "ended":
       return COLORS.dim;
-    case "fail":
     case null:
       return feed.lastFrame === null ? COLORS.dim : COLORS.normal;
   }
@@ -40,8 +40,16 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   const labelWidth = label.length * 11 + 16;
   // Each instrument's state from its own fields (REQ-DISP-001): the attitude
   // from both angles, the tape and the vertical speed from the fused fields.
+  // The attitude also takes the IMU channel's availability, and only that
+  // (REQ-FAULT-007, FTS-DS-001 §4.1): an IMU the source does not provide
+  // shows the no-source flag, while a DEGRADED IMU before the first seed
+  // keeps the dashes its validity says.
   const frame = feed.lastFrame;
-  const attitude = instrumentState(frame === null ? [] : [frame.validity.pitch_deg, frame.validity.roll_deg], feed);
+  const attitudeVerdicts: FieldVerdict[] = frame === null ? [] : [frame.validity.pitch_deg, frame.validity.roll_deg];
+  if (frame !== null && frame.status.imu === "NOT_AVAILABLE") {
+    attitudeVerdicts.push("NOT_AVAILABLE");
+  }
+  const attitude = instrumentState(attitudeVerdicts, feed);
   const altitude = instrumentState(frame === null ? [] : [frame.validity.fused_altitude_m], feed);
   const verticalSpeed = instrumentState(frame === null ? [] : [frame.validity.vertical_speed_mps], feed);
   // The raw instruments follow the GPS channel's status (REQ-DISP-002); the

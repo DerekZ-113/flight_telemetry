@@ -65,7 +65,7 @@ FRAME_FIELDS = (
 )
 EVENT_FIELDS = ("timestamp_ms", "channel", "type", "reserved", "value")
 
-STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA"}                      # ChannelStatus
+STATUS_NAMES = {0: "NOMINAL", 1: "DEGRADED", 2: "NO_DATA", 3: "NOT_AVAILABLE"}   # ChannelStatus
 VALIDITY_NAMES = {0: "NOT_JUDGED", 1: "NO_COMPUTED_DATA", 2: "FAILURE_WARNING", 3: "NORMAL"}   # Validity
 VALIDITY_NORMAL = 3
 # Each computed field and the validity byte that judges it (REQ-PROC-007).

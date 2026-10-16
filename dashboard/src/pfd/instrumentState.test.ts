@@ -20,6 +20,21 @@ describe("instrumentState", () => {
     expect(instrumentState(["NOMINAL"], feed)).toEqual({ show: "value" });
     expect(instrumentState(["NO_DATA"], feed)).toEqual({ show: "dashes" });
     expect(instrumentState(["DEGRADED"], feed)).toEqual({ show: "flag", cause: "fail" });
+    // A channel the source does not provide (REQ-FAULT-007): the no-source flag, not the failure flag.
+    expect(instrumentState(["NOT_AVAILABLE"], feed)).toEqual({ show: "flag", cause: "unavailable" });
+  });
+
+  it("ranks the no-source flag below a failure and a pipeline fault and above dashes (step 2)", () => {
+    const feed = runningFeed();
+    // The attitude indicator beside an IMU the source does not provide: its validities say "never
+    // existed", the channel says "never will"; the channel's word wins over dashes.
+    expect(instrumentState(["NO_COMPUTED_DATA", "NO_COMPUTED_DATA", "NOT_AVAILABLE"], feed)).toEqual({
+      show: "flag",
+      cause: "unavailable",
+    });
+    expect(instrumentState(["NOT_JUDGED", "NOT_AVAILABLE"], feed)).toEqual({ show: "dashes", pipeline: true });
+    expect(instrumentState(["FAILURE_WARNING", "NOT_AVAILABLE"], feed)).toEqual({ show: "flag", cause: "fail" });
+    expect(instrumentState(["NOT_AVAILABLE"], runningFeed({ stale: true }))).toEqual({ show: "flag", cause: "stale" });
   });
 
   it("shows the most severe of several fields, failure warning first (step 3)", () => {

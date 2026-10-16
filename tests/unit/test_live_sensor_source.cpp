@@ -101,7 +101,7 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.heading_deg, 0.0f);
     EXPECT_EQ(f.baro_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(f.imu_status, ChannelStatus::NOMINAL);
-    EXPECT_EQ(f.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);   // no receiver on this rig (REQ-FAULT-007)
     EXPECT_EQ(f.baro_altitude_m, 0.0f);
     EXPECT_EQ(f.pitch_deg, 0.0f);
     EXPECT_EQ(f.roll_deg, 0.0f);
@@ -386,10 +386,34 @@ TEST(LiveSensorSourceTest, WithoutAPortTheGpsIsAbsent) {
         EXPECT_FALSE(f.gps_read_ok);
         EXPECT_EQ(f.latitude, 0.0);
         EXPECT_EQ(f.heading_deg, 0.0f);
+        EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);
     }
     EXPECT_FALSE(source.gps_counters().has_value());
     EXPECT_FALSE(source.last_gps_fix().has_value());
     EXPECT_EQ(source.gps_startup_discarded(), 0u);
+}
+
+// TC-017 step 18 (REQ-FAULT-007, FAULT-018). Without a receiver the GPS
+// channel is not provided: the source reports it NOT_AVAILABLE on every
+// frame, the fields zero and never fresh, so the detector leaves it alone
+// and no timeout and no event ever follow. Until 0.12.0 the source
+// reported NOMINAL and the detector declared a failure at 2 s on every
+// bench run without a receiver. The two chips stay NOMINAL, for the
+// detector to judge.
+TEST(LiveSensorSourceTest, GpsWithoutAReceiverIsNotAvailable) {
+    Rig rig;
+    LiveSensorSource source = rig.make();
+    ASSERT_TRUE(source.ok()) << source.error();
+    for (int i = 0; i < 100; ++i) {
+        rig.clock.advance(20'000'000);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE) << i;
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.latitude, 0.0) << i;
+        EXPECT_EQ(f.gps_altitude_m, 0.0f) << i;
+        EXPECT_EQ(f.baro_status, ChannelStatus::NOMINAL) << i;
+        EXPECT_EQ(f.imu_status, ChannelStatus::NOMINAL) << i;
+    }
 }
 
 // A port that fails leaves the channel not fresh and counts the error; the

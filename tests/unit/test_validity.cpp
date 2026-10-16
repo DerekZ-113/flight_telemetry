@@ -326,6 +326,43 @@ TEST(ProcessorValidityTest, GpsBornFilterIsNormalOnTheGpsAlone) {
     }
 }
 
+// TC-017 step 20 (REQ-FAULT-007, REQ-SENS-011). A channel reported
+// NOT_AVAILABLE is not NOMINAL, so the processor never consumes it and
+// needs no rule of its own: with the barometer and the IMU not provided,
+// as in ADS-B mode, barometric altitude, pitch and roll stay
+// NO_COMPUTED_DATA at 0 on every frame, and the fused fields wait for the
+// first fresh GPS reading and are NORMAL from it, born from the GPS.
+TEST(ProcessorValidityTest, NotAvailableChannelNeverContributes) {
+    TelemetryProcessor p;
+    uint64_t ts = 0;
+    for (int i = 0; i < 100; i++, ts += 20) {
+        TelemetryFrame f = frame(ts);
+        f.baro_status = ChannelStatus::NOT_AVAILABLE;
+        f.baro_read_ok = false;
+        f.pressure_hpa = 0.0f;
+        f.imu_status = ChannelStatus::NOT_AVAILABLE;
+        f.imu_read_ok = false;
+        f.accel_z = 0.0f;
+        const bool fixed_yet = i >= 25;   // the first fix on frame 25, one a second after it
+        f.gps_status = fixed_yet ? ChannelStatus::NOMINAL : ChannelStatus::NO_DATA;
+        f.gps_read_ok = fixed_yet && (i - 25) % 50 == 0;
+        const TelemetryFrame out = p.process(f);
+        EXPECT_EQ(out.baro_altitude_validity, Validity::NO_COMPUTED_DATA) << "frame " << i;
+        EXPECT_EQ(out.pitch_validity, Validity::NO_COMPUTED_DATA) << "frame " << i;
+        EXPECT_EQ(out.roll_validity, Validity::NO_COMPUTED_DATA) << "frame " << i;
+        EXPECT_EQ(out.baro_altitude_m, 0.0f) << "frame " << i;
+        EXPECT_EQ(out.pitch_deg, 0.0f) << "frame " << i;
+        if (fixed_yet) {
+            EXPECT_EQ(out.fused_altitude_validity, Validity::NORMAL) << "frame " << i;
+            EXPECT_EQ(out.fused_altitude_m, 3.0f) << "frame " << i;   // the GPS altitude, at rest
+        } else {
+            EXPECT_EQ(out.fused_altitude_validity, Validity::NO_COMPUTED_DATA) << "frame " << i;
+            EXPECT_EQ(out.fused_altitude_m, 0.0f) << "frame " << i;
+        }
+        expect_judged(out, "barometer and IMU not available");
+    }
+}
+
 // TC-017 step 8, REQ-PROC-005's missing test: through the real detector
 // and processor, on the simulator's frames, no field of any emitted frame
 // is NOT_JUDGED, and on this healthy source every field is NORMAL from

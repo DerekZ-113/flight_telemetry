@@ -11,6 +11,25 @@ import { frame, runningFeed } from "../testMessages";
 
 afterEach(cleanup);
 
+describe("the no-source flag (REQ-FAULT-007)", () => {
+  it("flags the attitude indicator for an IMU the source does not provide, and keeps dashes for a DEGRADED one before any seed", () => {
+    const absent = frame(0, { pitch_deg: "NO_COMPUTED_DATA", roll_deg: "NO_COMPUTED_DATA" });
+    absent.status.imu = "NOT_AVAILABLE";
+    absent.status.gps = "NOT_AVAILABLE";
+    const { rerender, container } = render(<Pfd feed={runningFeed({ lastFrame: absent })} />);
+    expect(container.querySelector('[data-testid="att-flag"]')?.getAttribute("data-cause")).toBe("unavailable");
+    expect(container.querySelector('[data-testid="gs-flag"]')?.getAttribute("data-cause")).toBe("unavailable");
+    expect(container.querySelector('[data-testid="trk-flag"]')?.getAttribute("data-cause")).toBe("unavailable");
+    // No cause in the strip: nothing failed.
+    expect(screen.getByTestId("pfd-state").textContent).toBe("RUNNING");
+
+    const degraded = frame(0, { pitch_deg: "NO_COMPUTED_DATA", roll_deg: "NO_COMPUTED_DATA" });
+    degraded.status.imu = "DEGRADED";
+    rerender(<Pfd feed={runningFeed({ lastFrame: degraded })} />);
+    expect(container.querySelector('[data-testid="att-flag"]')).toBeNull();
+  });
+});
+
 describe("the panel's strip", () => {
   it("shows no mode before a status, boxes SIM and REPLAY, and never shows the simulator as LIVE", () => {
     const { rerender, container } = render(<Pfd feed={runningFeed({ session: null })} />);

@@ -12,7 +12,9 @@
 //
 // The logger wrote *processed* frames. This source hands back *raw* ones:
 // before a frame leaves read_frame(), every computed field is zeroed, every
-// ChannelStatus is reset to NOMINAL and every Validity to NOT_JUDGED.
+// ChannelStatus the detector judged is reset to NOMINAL (NOT_AVAILABLE, the
+// one a source asserts, is kept, REQ-FAULT-007) and every Validity to
+// NOT_JUDGED.
 // Timestamp, sensor fields, and the read_ok flags are kept exactly as
 // logged; a version-1 log's frames arrive the same way (REQ-LOG-005). That
 // is the raw-only contract from data_source.h applied to replay: the
