@@ -195,7 +195,7 @@ The ADS-B source (REQ-SENS-008) reads one aircraft from the OpenSky Network's RE
 - **Detection:** Per field, at the parser: a null or a wrongly typed field reads as absent; a short row is skipped and counted.
 - **Response:** The aircraft is not a candidate and its vector is not a reading; the rest of the response is used. If it is the selected aircraft, FAULT-015 with the reason `incomplete`. Counted on the exit line.
 - **Requirement:** REQ-SENS-008, REQ-SENS-009
-- **Test:** `tests/unit/test_opensky_json.cpp` → `OpenSkyJsonTest.EveryNullableFieldReadsAsAbsent`, `WrongTypeInAFieldReadsAsAbsent`, `ShortOrNonArrayRowsAreSkippedAndCounted`; `AircraftSelectorTest.OnGroundClimbingAndIncompleteAreNotCandidates`
+- **Test:** `tests/unit/test_opensky_json.cpp` → `OpenSkyJsonTest.EveryNullableFieldReadsAsAbsent`, `WrongTypeInAFieldReadsAsAbsent`, `ShortOrNonArrayRowsAreSkippedAndCounted`; `AircraftSelectorTest.PicksTheNearestDescendingAircraft` (a climbing departure and a grounded aircraft nearer than the one chosen), `IncompleteStateIsReplaced`
 
 ### FAULT-017: Malformed response
 

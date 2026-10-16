@@ -52,6 +52,7 @@ add_library(telemetry_core STATIC
     src/drivers/curl_http_client.cpp
     src/drivers/opensky_json.cpp
     src/drivers/opensky_client.cpp
+    src/drivers/aircraft_selector.cpp
     src/logging/log_format.cpp
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp

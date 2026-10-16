@@ -982,7 +982,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 4 | the nearest descending candidate, reason `landed` |
   | 5 | kept with no change after one absence; the nearest candidate with reason `left` after the second; the failed poll counts nothing, so the miss count stands |
   | 6 | reason `incomplete` |
-  | 7 | reason `none` with the previous identity; then `initial` with the new |
+  | 7 | the drop's reason (`landed`) with the previous identity and no new one; then `initial` with the new |
   | 8 | kept: candidacy requires descent, keeping does not |
   | 9 | the smaller ICAO address |
   | 10 | within 1% of the haversine at every corner |
