@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from conftest import CONFIG_ARGS, SHIPPED_CONFIG, PublishedRun, run_published
+from conftest import CONFIG_ARGS, SHIPPED_CONFIG, PublishedRun, assert_replay_identical, run_published
 from pipeline.frame_format import SessionStatus
 from pipeline.log_reader import read_log
 from pipeline.receiver import FrameReceiver, UdpSource
@@ -345,10 +345,10 @@ def test_nothing_written_carries_the_secret_or_the_token(adsb_run):
     assert all("lamin=37.4500" in path for _, path, _, _ in gets), "the box in every states request"
 
 
-# --- step 17: the replay, byte-identical, says REPLAY with no identity ------------------------
+# --- step 17: the replay, identical but for its header's run mode, says REPLAY with no identity ------------------------
 
 
-def test_replay_is_byte_identical_and_names_no_identity(telemetry_bin, adsb_run):
+def test_replay_reproduces_the_records_and_names_no_identity(telemetry_bin, adsb_run):
     cwd = adsb_run.cwd.parent / "replay"
     cwd.mkdir()
     source = UdpSource("127.0.0.1", 0, timeout_ms=1000)
@@ -356,8 +356,11 @@ def test_replay_is_byte_identical_and_names_no_identity(telemetry_bin, adsb_run)
     rerun = run_published(telemetry_bin, ["--replay", str(adsb_run.run.log), "--config", str(adsb_run.config),
                                          "--udp", f"127.0.0.1:{source.port}"], cwd, receiver)
     assert rerun.returncode == 0, rerun.stdout[-800:]
-    assert "an ADS-B run by its first frame" in rerun.stdout, "the replay takes the ADS-B channel timeout"
-    assert (cwd / "logs" / "replay_000.bin").read_bytes() == adsb_run.run.log.read_bytes()
+    # The replay knows the recording's source from its header (REQ-LOG-007), never from a frame,
+    # and takes the ADS-B channel timeout for it (REQ-FAULT-001), which is what keeps it identical.
+    assert "run mode ADSB, source mode ADSB" in rerun.stdout, rerun.stdout[:600]
+    assert "an ADS-B recording by its header" in rerun.stdout, "the replay takes the ADS-B channel timeout"
+    assert_replay_identical(cwd / "logs" / "replay_000.bin", adsb_run.run.log)
     assert rerun.statuses and all(s.mode == "REPLAY" and s.identity is None for _, s in rerun.statuses)
     assert [n for n, s in rerun.statuses if s.state == "ENDED"] == [len(rerun.frames)] * ENDED_REPEATS
     assert rerun.frames and all(f.baro_status == NOT_AVAILABLE and f.imu_status == NOT_AVAILABLE for f in rerun.frames)

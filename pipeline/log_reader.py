@@ -11,6 +11,11 @@ was left, where LogReader reports "torn record at end of file" and keeps ok() tr
 An unknown tag is an error on both sides. frame_format.iter_records raises after
 yielding instead, which would make list() lose the whole file, so this module walks
 parse_record itself.
+
+Versions, the prefix rule (REQ-LOG-005): a file older than format version 3 holds 104-byte
+frames, which frame_format extends with a zero tail, so a frame of any version has one shape;
+`frame_bytes` keeps each file's own bytes, and `frames_array` packs an older file's frames to
+the version-3 layout. The header's run mode and source mode (REQ-LOG-007) are in `header`.
 """
 from __future__ import annotations
 
@@ -24,7 +29,8 @@ from typing import NamedTuple, Sequence
 from pipeline import frame_format
 from pipeline.frame_format import (
     CHANNEL_NAMES, COMPUTED_VALIDITY, EVENT, EVENT_FIELDS, FAULT_TYPE_NAMES, FRAME, FRAME_FIELDS, HEADER,
-    TAG_EVENT, TAG_FRAME, VALIDITY_FIELDS, VALIDITY_NAMES, VALIDITY_NORMAL, FaultEvent, FormatError, Frame, Header,
+    RUN_MODE_NAMES, TAG_EVENT, TAG_FRAME, VALIDITY_FIELDS, VALIDITY_NAMES, VALIDITY_NORMAL, FaultEvent, FormatError,
+    Frame, Header, frame_layout,
 )
 
 DEFAULT_PREFIX = "telemetry"    # BinaryLogger's prefix for live and simulated runs; replays use "replay"
@@ -37,7 +43,8 @@ class LogFile(NamedTuple):
     header: Header
     frames: list[Frame]
     events: list[FaultEvent]
-    frame_bytes: list[bytes]    # each frame's 104 raw bytes, in order: exact comparisons, numpy without conversion
+    frame_bytes: list[bytes]    # each frame's bytes as the file holds them (104 before format version 3,
+                                # 120 since), in order: exact comparisons, numpy without conversion
     torn_bytes: int             # bytes of an incomplete trailing record; 0 when the file ends cleanly
 
 
@@ -65,7 +72,7 @@ def read_log(path: str | Path) -> LogFile:
     while offset < len(buf):
         tag = buf[offset]
         if tag == TAG_FRAME:
-            layout = FRAME
+            layout = frame_layout(header.version)
         elif tag == TAG_EVENT:
             layout = EVENT
         else:
@@ -74,10 +81,10 @@ def read_log(path: str | Path) -> LogFile:
         if len(buf) - start < layout.size:
             torn = len(buf) - offset
             break
-        record, offset = frame_format.parse_record(buf, offset)
+        record, offset = frame_format.parse_record(buf, offset, header.version)
         if tag == TAG_FRAME:
             frames.append(record)
-            frame_bytes.append(buf[start:start + FRAME.size])
+            frame_bytes.append(buf[start:start + layout.size])
         else:
             events.append(record)
     return LogFile((path,), header, frames, events, frame_bytes, torn)
@@ -182,7 +189,7 @@ def _dtype(layout: struct.Struct, names: tuple[str, ...]):
 
 
 def frame_dtype():
-    """The TelemetryFrame layout as a numpy dtype, 104 bytes, derived from FRAME."""
+    """The TelemetryFrame layout as a numpy dtype, 120 bytes (format version 3), derived from FRAME."""
     return _dtype(FRAME, FRAME_FIELDS)
 
 
@@ -192,10 +199,14 @@ def event_dtype():
 
 
 def frames_array(log: LogFile):
-    """The frames as a structured array over the file's own bytes (read-only)."""
+    """The frames as a structured array of the version-3 layout (read-only): over the file's own
+    bytes, or, for a file older than format version 3, over its frames packed to that layout with
+    their tails zero (REQ-LOG-005)."""
     import numpy as np
 
-    return np.frombuffer(b"".join(log.frame_bytes), dtype=frame_dtype())
+    raw = b"".join(data if len(data) == FRAME.size else FRAME.pack(*frame)
+                   for frame, data in zip(log.frames, log.frame_bytes))
+    return np.frombuffer(raw, dtype=frame_dtype())
 
 
 def events_array(log: LogFile):
@@ -223,6 +234,10 @@ def summary(log: LogFile, period_ms: int = 20) -> str:
     """What a run looks like before any analysis: counts, span, steps, freshness, events."""
     lines = [f"{len(log.paths)} file(s): {len(log.frames)} frames, {len(log.events)} events, "
              f"torn bytes {log.torn_bytes}"]
+    # How the file was recorded and how its frames were produced, as its header says (REQ-LOG-007).
+    header = log.header
+    lines.append(f"format version {header.version}, run mode {RUN_MODE_NAMES.get(header.run_mode, header.run_mode)}, "
+                 f"source mode {RUN_MODE_NAMES.get(header.source_mode, header.source_mode)}")
     stamps = [frame.timestamp_ms for frame in log.frames]
     if stamps:
         lines.append(f"timestamps: {stamps[0]} .. {stamps[-1]} ms, {(stamps[-1] - stamps[0]) / 1000:.2f} s")
@@ -232,6 +247,16 @@ def summary(log: LogFile, period_ms: int = 20) -> str:
         over = sum(1 for step in steps if step > limit)
         lines.append(f"step: mean {sum(steps) / len(steps):.3f} ms, min {min(steps)}, max {max(steps)}, "
                      f"over {limit:g} ms: {over}")
+    # The source's own count (REQ-LOG-008): a break is any step other than +1, a lost frame where the
+    # timestamps can only say a gap. A file older than format version 3 has no such field.
+    sequence = [frame.sequence for frame in log.frames]
+    if sequence:
+        breaks = sum(1 for earlier, later in zip(sequence, sequence[1:]) if later != earlier + 1)
+        line = f"sequence: {sequence[0]} .. {sequence[-1]}, " + (
+            "consecutive" if breaks == 0 else f"{breaks} break{'s' if breaks != 1 else ''}")
+        if header.version in (1, 2):
+            line += " (a file older than format version 3 reads 0)"
+        lines.append(line)
     fresh = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_read_ok")) for ch in CHANNELS}
     degraded = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_status") == 1) for ch in CHANNELS}
     no_data = {ch: sum(1 for f in log.frames if getattr(f, f"{ch}_status") == 2) for ch in CHANNELS}

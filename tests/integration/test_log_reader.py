@@ -9,9 +9,11 @@ import pytest
 
 import synthetic_log as syn
 from pipeline import log_reader
-from pipeline.frame_format import EVENT, FRAME, FRAME_FIELDS, LOG_FORMAT_VERSION, FormatError
+from pipeline.frame_format import (
+    EVENT, FRAME, FRAME_FIELDS, FRAME_V2, HEADER, LOG_FORMAT_VERSION, FormatError, frame_size_for,
+)
 from pipeline.log_reader import (
-    SequenceError, event_dtype, file_index, find_log_files, frame_dtype, frames_array, read_log, read_logs,
+    SequenceError, event_dtype, file_index, find_log_files, frame_dtype, frames_array, read_log, read_logs, summary,
 )
 
 
@@ -23,6 +25,8 @@ def test_reads_what_the_binary_wrote(sim_session):
     assert [frame.timestamp_ms for frame in log.frames[:3]] == [0, 20, 40]
     assert log.frames[-1].timestamp_ms == 9980
     assert (log.header.frame_size, log.header.event_size) == (FRAME.size, EVENT.size)
+    # The header says how the file was recorded and how its frames were produced (REQ-LOG-007).
+    assert (log.header.version, log.header.run_mode, log.header.source_mode) == (LOG_FORMAT_VERSION, 2, 2)
 
 
 def test_reads_frames_and_events_in_order(tmp_path):
@@ -51,8 +55,22 @@ def test_rejects_bad_header(tmp_path, field, value, word):
         read_log(path)
 
 
+# The frame size is judged against the header's own version, since the frame grew at version 3
+# (REQ-LOG-005, TC-031 step 2; the twin of LoggingTest.FrameSizeIsJudgedPerVersion).
+@pytest.mark.parametrize("version, frame_size, expected", [
+    (3, 104, "frame size 104 in the header, 120 for version 3 in this module"),
+    (2, 120, "frame size 120 in the header, 104 for version 2 in this module"),
+    (1, 120, "frame size 120 in the header, 104 for version 1 in this module"),
+])
+def test_frame_size_is_judged_per_version(tmp_path, version, frame_size, expected):
+    header = syn.make_header(version=version, frame_size=frame_size)
+    path = syn.write_log(tmp_path / "t_000.bin", [syn.make_frame(0)], header=header)
+    with pytest.raises(FormatError, match=expected):
+        read_log(path)
+
+
 def test_torn_tail_keeps_complete_records(tmp_path):
-    # Cut 41 bytes into the second record: the tag and 40 of its 104 bytes. The C++ reader
+    # Cut 41 bytes into the second record: the tag and 40 of its 120 bytes. The C++ reader
     # returns the first frame, then stops with "torn record"; so does this one.
     path = syn.write_log(tmp_path / "t_000.bin", [syn.make_frame(0)], torn_bytes=41)
     log = read_log(path)
@@ -63,7 +81,7 @@ def test_torn_tail_keeps_complete_records(tmp_path):
 def test_unknown_tag_raises(tmp_path):
     path = tmp_path / "t_000.bin"
     path.write_bytes(syn.log_bytes([syn.make_frame(0)]) + bytes([0x7F]) + bytes(FRAME.size))
-    with pytest.raises(FormatError, match="unknown record tag 127 at offset 121"):
+    with pytest.raises(FormatError, match="unknown record tag 127 at offset 137"):
         read_log(path)
 
 
@@ -116,13 +134,23 @@ def test_read_logs_rejects_non_increasing_timestamps(tmp_path):
 
 def test_frame_dtype_matches_struct():
     dtype = frame_dtype()
-    assert dtype.itemsize == FRAME.size == 104
+    assert dtype.itemsize == FRAME.size == 120
+    assert FRAME_V2.size == 104
+    # The size each version implies, the twin of log_format.h's frame_size_for: 0 for a version neither side defines.
+    assert [frame_size_for(v) for v in (0, 1, 2, 3, 4)] == [0, 104, 104, 120, 0]
     assert event_dtype().itemsize == EVENT.size == 16
-    assert dtype.fields["reserved_a"][1] == 52         # where version 1 had the pad before the doubles
+    assert dtype.fields["sequence"][1] == 52           # where version 1 had the pad before the doubles, version 2 reserved_a
     assert dtype.fields["latitude"][1] == 56
+    assert dtype.fields["course_deg"][1] == 80
     assert dtype.fields["gps_read_ok"][1] == 97
-    assert dtype.fields["baro_altitude_validity"][1] == 98   # the five validity bytes, then reserved_b
-    assert dtype.fields["reserved_b"][1] == 103
+    assert dtype.fields["baro_altitude_validity"][1] == 98   # the five validity bytes, then the flags
+    assert dtype.fields["flags"][1] == 103
+    assert dtype.fields["gps_vertical_rate_mps"][1] == 104   # the version-3 tail (TC-031 step 11)
+    assert dtype.fields["gps_pressure_altitude_m"][1] == 108
+    assert dtype.fields["gps_fix_quality"][1] == 112
+    assert dtype.fields["gps_satellites"][1] == 113
+    assert dtype.fields["voter_status"][1] == 114
+    assert dtype.fields["reserved_d"][1] == 116
     assert event_dtype().fields["reserved"][1] == 10
     codes = log_reader._field_codes(FRAME)
     for i, name in enumerate(FRAME_FIELDS):
@@ -141,6 +169,36 @@ def test_frames_array_equals_namedtuples(tmp_path):
             assert array[name][i] == getattr(frame, name), name
 
 
+# --- TC-031 steps 3 and 11: a file older than format version 3 reads as version-3 frames --------
+
+
+@pytest.mark.parametrize("version", (1, 2))
+def test_older_file_reads_as_a_prefix_of_version_3(tmp_path, version):
+    # A version-2 source left the reserved fields zero, so sequence and flags read 0.
+    frames = [syn.make_frame(i, pressure_hpa=1013.0 + i, course_deg=270.0, gps_read_ok=bool(i % 2), sequence=0)
+              for i in range(3)]
+    path = syn.write_log(tmp_path / "old_000.bin", frames, version=version)
+    assert path.stat().st_size == HEADER.size + 3 * (1 + FRAME_V2.size), "an older file holds 104-byte frames"
+    log = read_log(path)
+    assert log.header.version == version
+    assert (log.header.frame_size, log.header.run_mode, log.header.source_mode) == (FRAME_V2.size, 0, 0)
+    assert log.frames == frames, "every old field as written, the tail zero"
+    assert all(frame.sequence == 0 and frame.flags == 0 for frame in log.frames)
+    assert all(frame.gps_fix_quality == 0 and frame.gps_satellites == 0 for frame in log.frames)
+    assert all(frame.gps_vertical_rate_mps == 0.0 and frame.gps_pressure_altitude_m == 0.0 for frame in log.frames)
+    assert all(frame.voter_status == 0 and frame.reserved_d == 0 for frame in log.frames)
+    assert [len(raw) for raw in log.frame_bytes] == [FRAME_V2.size] * 3, "the file's own bytes are kept"
+    array = frames_array(log)
+    assert array.dtype.itemsize == FRAME.size and array.shape == (3,)
+    for i, frame in enumerate(log.frames):
+        for name in FRAME_FIELDS:
+            assert array[name][i] == getattr(frame, name), name
+    text = summary(log)
+    assert "3 frames, 0 events" in text
+    assert f"format version {version}, run mode UNKNOWN, source mode UNKNOWN" in text
+    assert "sequence: 0 .. 0, 2 breaks (a file older than format version 3 reads 0)" in text
+
+
 def test_cli_summary(tmp_path, capsys):
     frames = [syn.make_frame(i, gps_read_ok=False) for i in range(3)]
     event = syn.make_event(40, 2, 0, 2020.0)
@@ -148,6 +206,8 @@ def test_cli_summary(tmp_path, capsys):
     assert log_reader.main([str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "3 frames, 1 events, torn bytes 0" in out
+    assert "format version 3, run mode SIMULATED, source mode SIMULATED" in out
+    assert "sequence: 0 .. 2, consecutive" in out
     assert "fresh: baro 3, imu 3, gps 0" in out
     assert "validity: every computed field NORMAL on 3 of 3 frames" in out
     assert "event t=40 ms channel=GPS type=COMM_TIMEOUT value=2020" in out

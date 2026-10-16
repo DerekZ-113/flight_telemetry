@@ -221,7 +221,7 @@ describe("the page", () => {
     expect(screen.getByTestId("ground-track")).toBeTruthy();
     expect(screen.getByTestId("plot-nofix").textContent).toBe("no fix");
     deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
-    deliver({ ...frame(50, {}, { ground_speed_mps: 3, heading_deg: 90 }), position: { east_m: 1, north_m: 0 } });
+    deliver({ ...frame(50, {}, { ground_speed_mps: 3, course_deg: 90 }), position: { east_m: 1, north_m: 0 } });
     expect(screen.getByTestId("plot-trail").getAttribute("points")).toBe("150,150 165,150");
     expect(screen.getByTestId("plot-marker").getAttribute("transform")).toBe("translate(165 150) rotate(90)");
     expect(screen.getByTestId("trk-readout").textContent).toBe("TRK 090°");

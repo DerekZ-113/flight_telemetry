@@ -26,7 +26,7 @@ export type ComputedField = (typeof COMPUTED_FIELDS)[number];
 export const CHANNELS = ["baro", "imu", "gps"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
-// Every field of the 104-byte frame but the two the bridge withholds
+// Every field of the 120-byte frame (format version 3) but the two the bridge withholds
 // (REQ-DISP-005): no latitude, no longitude, so the page has no slot that
 // could ever show one.
 export interface FrameFields {
@@ -42,10 +42,10 @@ export interface FrameFields {
   gyro_z: number;
   pitch_deg: number;
   roll_deg: number;
-  reserved_a: number;
+  sequence: number; // the source's count of its frames, from 0 (REQ-LOG-008)
   gps_altitude_m: number;
   ground_speed_mps: number;
-  heading_deg: number;
+  course_deg: number; // the course over ground, degrees true (heading_deg until format version 3)
   fused_altitude_m: number;
   vertical_speed_mps: number;
   baro_status: number;
@@ -59,7 +59,13 @@ export interface FrameFields {
   roll_validity: number;
   fused_altitude_validity: number;
   vertical_speed_validity: number;
-  reserved_b: number;
+  flags: number; // FrameFlag bits: NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY
+  gps_vertical_rate_mps: number; // present only under the VERTICAL_RATE bit (REQ-SENS-008)
+  gps_pressure_altitude_m: number; // present only under the PRESSURE_ALTITUDE bit (REQ-SENS-008)
+  gps_fix_quality: number; // present only under the FIX_QUALITY bit (REQ-SENS-005)
+  gps_satellites: number;
+  voter_status: number; // VoterStatus bits; zero: no voter ran
+  reserved_d: number;
 }
 
 // A position relative to the first fix the bridge saw, in metres

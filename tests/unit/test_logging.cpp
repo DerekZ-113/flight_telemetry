@@ -86,6 +86,8 @@ TEST_F(LoggingTest, HeaderCarriesTheRunModeAndTheSourceMode) {
     EXPECT_EQ(frame_size_for(1), 104u);
     EXPECT_EQ(frame_size_for(2), 104u);
     EXPECT_EQ(frame_size_for(3), 120u);
+    EXPECT_EQ(frame_size_for(0), 0u);     // a version this build does not define
+    EXPECT_EQ(frame_size_for(4), 0u);
 }
 
 // Bytes in, same bytes out. memcmp, not field-by-field with tolerance:

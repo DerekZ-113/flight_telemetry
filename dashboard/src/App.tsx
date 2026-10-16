@@ -68,7 +68,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
         <GroundTrackPlot
           trail={feed.trail}
           position={feed.lastFrame?.position ?? null}
-          trackDeg={feed.lastFrame?.frame.heading_deg ?? 0}
+          trackDeg={feed.lastFrame?.frame.course_deg ?? 0}
           trackShown={trackShown(feed)}
           state={instrumentState(feed.lastFrame === null ? [] : [feed.lastFrame.status.gps], feed)}
         />

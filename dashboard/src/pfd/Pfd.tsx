@@ -115,7 +115,7 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
       <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} unit={altitudeUnit} />
       <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
       <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={gps} />
-      <TrackIndicator trackDeg={frame?.frame.heading_deg ?? 0} shown={track} state={gps} />
+      <TrackIndicator trackDeg={frame?.frame.course_deg ?? 0} shown={track} state={gps} />
     </svg>
   );
 }

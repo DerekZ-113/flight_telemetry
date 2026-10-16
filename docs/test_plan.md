@@ -176,7 +176,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   4. Assert the frame counts are equal.
   5. Assert every raw field is identical (replay must not alter its input).
   6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status, and the five validity bytes) is identical, compared as raw bytes rather than with a floating-point tolerance; the reserved bytes are zero in both.
-- **Expected result:** 500 frames in each log. Zero field differences; the two files byte-identical; every frame's bytes equal to its repacking (the reserved bytes zero); timestamps 0 to 9980 ms in both.
+- **Expected result:** 500 frames in each log. Zero field differences; every record of the two files byte-identical, and their headers equal but for the run mode at offset 10, SIMULATED in the session's and REPLAY in the replay's since format version 3, because the header names the session that wrote the file (REQ-LOG-007; `cmp -l` lists that one byte and `cmp` from offset 16 is silent); every frame's bytes equal to its repacking (the reserved bytes zero); timestamps 0 to 9980 ms in both.
 - **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
 
 ### TC-005: Pipeline Data Integrity over ZeroMQ and UDP
@@ -891,7 +891,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-SENS-007 (also exercises REQ-SENS-006, REQ-TIME-004, REQ-LOG-003, REQ-PROC-001 and REQ-PROC-002)
 - **Level:** Unit (steps 1 through 4: `tests/unit/test_altitude.cpp`, `test_motion_profile.cpp`, `test_simulated_data.cpp`), Integration (steps 5 through 8: `tests/integration/test_motion_profile.py`), Manual (step 9)
-- **Objective:** Verify that the profile's readings are the pipeline's inverse, so that the pipeline recovers the script; that a profile run is deterministic and its replay byte-identical; that `--motion` is refused where it has no meaning; and that the stationary default's bytes do not change.
+- **Objective:** Verify that the profile's readings are the pipeline's inverse, so that the pipeline recovers the script; that a profile run is deterministic and its replay identical record for record (its header naming REPLAY since format version 3); that `--motion` is refused where it has no meaning; and that the stationary default's bytes do not change.
 - **Preconditions:** The built binary; the session fixture (the seed-42 run, TC-004); `ComplementaryFilter` and `pressure_to_altitude` as oracles.
 - **Steps:**
   1. `altitude_to_pressure` at 0, 2, 122, 1,000 and 2,000 m, each back through `pressure_to_altitude`; 898.76 hPa through `pressure_to_altitude` and back.
@@ -912,10 +912,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | pitch and roll within 0.2° of the script at 30 s and 80 s; the altitude within 5 cm; the fix at 60 s about 1,500 m east, within 2 m, and within 2 m north of the origin |
   | 4 | the first frame equals the stationary literals the existing `SimulatedDataTest` pins; the two profile sequences byte-identical |
   | 5 | pitch within 0.3° of 8, ground speed 30, every validity NORMAL on the last frame, the GPS more than 200 m east of the first fix by the test's own conversion; `Motion:    profile demo` in the summary |
-  | 6 | byte-identical; `Replay:    1000 frames, end of log reached` |
+  | 6 | every record byte-identical and the header equal but for its run mode, REPLAY in place of SIMULATED (since format version 3, REQ-LOG-007); `Replay:    1000 frames, end of log reached` |
   | 7 | exit 1 each, the first two naming the rule, the third naming `demo`; nothing built |
   | 8 | `6d43f343…` (FTS-VR-001 Entry 12 §12.4), unchanged |
-  | 9 | recorded in FTS-VR-001 Entry 17 §17.4: the hash, the paced replay byte-identical, its lateness, the page's phases as FTS-DS-001 §7 lists |
+  | 9 | recorded in FTS-VR-001 Entry 17 §17.4: the hash, the paced replay byte-identical (since format version 3, record for record, its header naming REPLAY), its lateness, the page's phases as FTS-DS-001 §7 lists |
 
 - **Pass/fail:** Steps 1 through 8 exact as listed. Any change to the session fixture's bytes, a profile run whose replay differs, a refused flag that built anything, or a filter output more than 0.3° from the script fails.
 
@@ -1035,7 +1035,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 14 | mode ADSB on every status (and the source mode ADSB since status version 3); the identity none before the first reading (or the first poll's aircraft, when the first poll completed before frame 0); a status with the new identity after the switch, before the first frame that carries it; ENDED three times |
   | 15 | two rows: the first `initial`, the second `landed`, each with both identities and the timestamp of the first frame carrying the new aircraft, equal to the statuses' places among the frames |
   | 16 | nothing found |
-  | 17 | byte-identical; mode REPLAY on every status with no identity, and since format version 3 the source mode ADSB from the log's header (REQ-LOG-007) in place of the first-frame rule; the barometer and IMU still NOT_AVAILABLE |
+  | 17 | every record byte-identical and the header equal but for its run mode, REPLAY over the recording's ADSB (since format version 3); mode REPLAY on every status with no identity, and since format version 3 the source mode ADSB from the log's header (REQ-LOG-007) in place of the first-frame rule; the barometer and IMU still NOT_AVAILABLE |
   | 18 | exit 1 each, the rule named, nothing built; the credentials path named without its contents; `adsb` named |
   | 19 | recorded in FTS-VR-001 Entry 18: the aircraft the strip names against the tracker, the switch when it lands, the tape's `ft HAE` label against the GPS altitude in the diagnostic view and the reading at touchdown, the vertical speed between polls, the attitude indicator's no-source flag, no fault event at 500 ms, the exit line's polls, ages and changes, the jitter line with the thread running; the log's replay byte-identical and labelled `REPLAY · ID UNAVAILABLE` |
 
@@ -1114,7 +1114,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 11 | 120 and the offsets of step 1; the frames' old fields as written with zero tails and sequence 0; an array of 120-byte records whose old bytes equal the file's; the summary's sequence line |
   | 12 | version 3, run mode SIMULATED, source mode SIMULATED; the sequence equal to the frame's index on all 500 frames; quality 1, 8 satellites and the FIX_QUALITY bit alone on every frame; the vertical rate, the pressure altitude, the voter status and `reserved_d` 0 |
   | 13 | exit 0; "format version 2" on stdout; the replay log version 3 with run mode REPLAY and source mode UNKNOWN; raw fields equal, sequence 0, tail zero; exit 1 naming "format version 4" and "reads 1 to 3", nothing written |
-  | 14 | the bit set on exactly the frames the selection record's timestamps name; on each the fused altitude equal to the GPS altitude and the vertical speed 0, NORMAL; the two fields the script's values with their bits; source mode ADSB on every status; the replay's statuses mode REPLAY with source mode ADSB, the log byte-identical |
+  | 14 | the bit set on exactly the frames the selection record's timestamps name; on each the fused altitude equal to the GPS altitude and the vertical speed 0, NORMAL; the two fields the script's values with their bits; source mode ADSB on every status; the replay's statuses mode REPLAY with source mode ADSB, the log's records byte-identical and its header REPLAY over ADSB |
   | 15 | `{"type":"session","mode":"REPLAY","source_mode":"ADSB",...}`; `hello`'s `session` carrying `source_mode` |
   | 16 | `REPLAY · ID UNAVAILABLE` boxed with `ft HAE`; `REPLAY` alone with `ft`; `ADS-B · TEST001` plain with `ft HAE` |
   | 17 | in every frame, the first 104 bytes equal the reference's except at offsets 52 to 55 (the sequence, the frame's index) and 103 (`08`, the FIX_QUALITY bit); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00`; every event identical; the two hashes recorded |

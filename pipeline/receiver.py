@@ -24,8 +24,10 @@ socket acknowledges nothing: a full receive buffer or a packet lost on the
 wire is invisible to the sender. Consecutive frame timestamps should differ
 by one period; a larger step means frames were missed, a step of zero or
 less means a frame arrived out of order (a datagram can), and both counts
-are reported at exit. The UDP mode is standard library only, so it runs on
-the Pi without pyzmq.
+are reported at exit. Each frame also carries its source's sequence number
+(REQ-LOG-008, since format version 3), printed beside the time; the counts
+stay on timestamps until the voter consumes it (FTS-DD-001 Section 12). The
+UDP mode is standard library only, so it runs on the Pi without pyzmq.
 
 The session status (REQ-TRANS-004) rides the same socket: the binary says which
 mode its frames are in (LIVE, SIMULATED, REPLAY, ADSB) before the first frame,
@@ -206,14 +208,15 @@ class FrameReceiver:
 
 
 def format_frame(frame: Frame) -> str:
-    """One line per frame: each computed value with its validity beside it (REQ-PROC-007), then
-    the channel statuses. A consumer reads the name next to the number, never the number alone."""
+    """One line per frame: the time and the source's sequence number (REQ-LOG-008), each computed
+    value with its validity beside it (REQ-PROC-007), then the channel statuses. A consumer reads the
+    name next to the number, never the number alone."""
     status = " ".join(
         f"{name}={frame_format.STATUS_NAMES.get(value, value)}"
         for name, value in (("baro", frame.baro_status), ("imu", frame.imu_status), ("gps", frame.gps_status))
     )
     validity = frame_format.VALIDITY_NAMES
-    return (f"t={frame.timestamp_ms:7d} ms  "
+    return (f"t={frame.timestamp_ms:7d} ms  seq={frame.sequence:7d}  "
             f"alt {frame.fused_altitude_m:8.2f} m [{validity.get(frame.fused_altitude_validity, frame.fused_altitude_validity)}]  "
             f"vs {frame.vertical_speed_mps:6.2f} m/s [{validity.get(frame.vertical_speed_validity, frame.vertical_speed_validity)}]  "
             f"pitch {frame.pitch_deg:6.2f}  roll {frame.roll_deg:6.2f} deg "
