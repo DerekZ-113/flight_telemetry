@@ -291,6 +291,41 @@ TEST(ProcessorValidityTest, NoContributingAltitudeSourceIsFailureWarning) {
     }
 }
 
+// TC-017 step 20. A filter born from the GPS (REQ-PROC-003, 0.12.0) is
+// NORMAL on the GPS alone and FAILURE_WARNING the moment the GPS is
+// DEGRADED, because the barometer never contributed; a barometer that is
+// NOMINAL but has never read counts for nothing either, which is the
+// `ever` flag on the barometer's side of the rule. The barometric altitude
+// stays NO_COMPUTED_DATA throughout. (REQ-PROC-007, REQ-PROC-003)
+TEST(ProcessorValidityTest, GpsBornFilterIsNormalOnTheGpsAlone) {
+    for (const ChannelStatus baro_never_read : {ChannelStatus::NO_DATA, ChannelStatus::NOMINAL}) {
+        TelemetryProcessor p;
+        uint64_t ts = 0;
+        for (int i = 0; i < 100; i++, ts += 20) {
+            TelemetryFrame f = frame(ts);
+            f.baro_status = baro_never_read;
+            f.baro_read_ok = false;
+            f.gps_read_ok = (i % 50 == 0);
+            const TelemetryFrame out = p.process(f);
+            EXPECT_EQ(out.baro_altitude_validity, Validity::NO_COMPUTED_DATA) << "frame " << i;
+            EXPECT_EQ(out.fused_altitude_validity, Validity::NORMAL) << "frame " << i;
+            EXPECT_EQ(out.vertical_speed_validity, Validity::NORMAL) << "frame " << i;
+            expect_judged(out, "GPS-born, GPS contributing");
+        }
+        for (int i = 0; i < 5; i++, ts += 20) {
+            TelemetryFrame f = frame(ts);
+            f.baro_status = baro_never_read;
+            f.baro_read_ok = false;
+            f.gps_status = ChannelStatus::DEGRADED;
+            f.gps_read_ok = false;
+            const TelemetryFrame out = p.process(f);
+            EXPECT_EQ(out.fused_altitude_validity, Validity::FAILURE_WARNING) << "frame " << i;
+            EXPECT_EQ(out.vertical_speed_validity, Validity::FAILURE_WARNING) << "frame " << i;
+            expect_judged(out, "GPS-born, GPS degraded, barometer never read");
+        }
+    }
+}
+
 // TC-017 step 8, REQ-PROC-005's missing test: through the real detector
 // and processor, on the simulator's frames, no field of any emitted frame
 // is NOT_JUDGED, and on this healthy source every field is NORMAL from
