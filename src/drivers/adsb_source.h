@@ -46,7 +46,10 @@
 // that two independent sensors agreed. The timestamp is the Clock seam's
 // read time since the first frame, as the live source stamps it; the
 // position's own epoch is the server's and is kept for the age on the
-// exit line.
+// exit line. The first frame carrying a newly selected aircraft is also
+// flagged NEW_VEHICLE (REQ-PROC-008), so the processor begins the new
+// aircraft from that reading instead of reading the step between two
+// aircraft's altitudes as a climb.
 //
 // The thread (design.md section 10). The HTTP request takes hundreds of
 // milliseconds, so it runs on PeriodicWorker: poll_once() fetches, selects

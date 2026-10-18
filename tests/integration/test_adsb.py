@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from conftest import CONFIG_ARGS, SHIPPED_CONFIG, PublishedRun, assert_replay_identical, run_published
-from pipeline.frame_format import SessionStatus
+from pipeline.frame_format import FLAG_NAMES, VALIDITY_NORMAL, SessionStatus
 from pipeline.log_reader import read_log
 from pipeline.receiver import FrameReceiver, UdpSource
 from test_config import run
@@ -324,6 +324,28 @@ def test_selection_record_beside_the_log(adsb_run):
     # The console says the same, at the same frame.
     assert "[ADS-B] t=0 ms none -> TEST001 (000001): initial, " in adsb_run.run.stdout
     assert f"[ADS-B] t={frames[switch].timestamp_ms} ms TEST001 (000001) -> TEST002 (000002): landed, " in adsb_run.run.stdout
+
+
+# --- TC-031 step 14: each new aircraft flagged, the filter reborn on it (REQ-PROC-008) ----------
+
+NEW_VEHICLE = 0x01
+assert FLAG_NAMES[NEW_VEHICLE] == "NEW_VEHICLE"
+
+
+def test_each_new_aircraft_is_flagged_and_the_filter_reborn_on_it(adsb_run):
+    frames = read_log(adsb_run.run.log).frames
+    flagged = [i for i, f in enumerate(frames) if f.flags & NEW_VEHICLE]
+    # Exactly the first frames carrying TEST001 and TEST002, the frames the selection record names.
+    assert flagged == [first_frame_with(frames, A), first_frame_with(frames, B)]
+    for i in flagged:
+        f = frames[i]
+        assert f.gps_read_ok, i
+        assert f.fused_altitude_m == f.gps_altitude_m, i      # born at the new aircraft's altitude
+        assert f.vertical_speed_mps == 0.0, i
+        assert (f.fused_altitude_validity, f.vertical_speed_validity) == (VALIDITY_NORMAL, VALIDITY_NORMAL), i
+    # Each aircraft holds its altitude in the script, so no frame reads a climb: the 250 m step from
+    # TEST001 to TEST002 is a new vehicle, not ±150 m/s of vertical speed (Entry 18 §18.5).
+    assert max(abs(f.vertical_speed_mps) for f in frames) < 0.1
 
 
 # --- step 16: nothing written carries the secret or the token ---------------------------------

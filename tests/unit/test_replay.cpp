@@ -245,6 +245,44 @@ TEST_F(ReplayTest, ReplayReproducesTheRecordedSequence) {
     EXPECT_FALSE(replay.has_next());
 }
 
+// REQ-PROC-008, REQ-LOG-003; TC-031 step 14's unit half. The flag is a fact
+// the source stated: the strip keeps it, so a replay re-births its filters
+// at the same frame and every processed frame matches the live one. The
+// re-birth itself shows on the flagged frame: the fused altitude born from
+// that frame's barometer with zero velocity (the GPS is between fixes).
+TEST_F(ReplayTest, NewVehicleReplaysAsTheSameRebirth) {
+    constexpr int kSwitch = 120;   // 2.4 s in, between the simulator's 1 Hz fixes
+    std::vector<TelemetryFrame> live;
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20);
+        SimulatedSource source(20, 42);
+        FaultDetector detector;
+        TelemetryProcessor processor;
+        for (int i = 0; i < 200; i++) {
+            TelemetryFrame raw = source.read_frame();
+            if (i == kSwitch) {
+                set_flag(raw, FrameFlag::NEW_VEHICLE);
+            }
+            const TelemetryFrame out = processor.process(detector.check(raw));
+            logger.log_frame(out);
+            live.push_back(out);
+        }
+    }
+    ASSERT_TRUE(has_flag(live[kSwitch], FrameFlag::NEW_VEHICLE));
+    ASSERT_FALSE(live[kSwitch].gps_read_ok);
+    EXPECT_EQ(live[kSwitch].fused_altitude_m, live[kSwitch].baro_altitude_m);
+    EXPECT_EQ(live[kSwitch].vertical_speed_mps, 0.0f);
+
+    LogReplaySource replay({dir_ / "t_000.bin"});
+    FaultDetector detector;
+    TelemetryProcessor processor;
+    for (size_t i = 0; i < live.size(); i++) {
+        ASSERT_TRUE(replay.has_next()) << i;
+        const TelemetryFrame out = processor.process(detector.check(replay.read_frame()));
+        EXPECT_EQ(std::memcmp(&out, &live[i], sizeof(TelemetryFrame)), 0) << "frame " << i;
+    }
+}
+
 // Rotated files replay as one session, in order.
 TEST_F(ReplayTest, ReplaySpansRotatedFiles) {
     const uint64_t limit = sizeof(LogFileHeader) + 3 * (1 + sizeof(TelemetryFrame));

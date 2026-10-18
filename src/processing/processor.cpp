@@ -20,6 +20,30 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // copy with no allocation.
     TelemetryFrame out = raw;
 
+    // REQ-PROC-008: the first frame of a newly presented vehicle. The
+    // source says so (FrameFlag::NEW_VEHICLE), because no filter can tell a
+    // new vehicle from a violent manoeuvre: on the ADS-B source's switch of
+    // aircraft the Kalman filter read the step between two aircraft's
+    // altitudes as a climb nobody flew (FTS-VR-001 Entry 18 §18.5). Every
+    // estimate is discarded here, before the gates, and this frame's own
+    // readings begin again by the rules that run at power-on: a fresh
+    // altitude births the Kalman filter with zero velocity, a fresh IMU
+    // sample seeds a new attitude filter (a new object, since reset() keeps
+    // the angles for the re-seed of an outage), a fresh barometer reading is
+    // converted; until then each field is 0 and NO_COMPUTED_DATA, the
+    // "never existed" of the new vehicle (REQ-PROC-007). The detector is not
+    // told: a new vehicle's first reading is a reading, and a channel's
+    // health does not depend on whose reading it is.
+    if (has_flag(raw, FrameFlag::NEW_VEHICLE)) {
+        altitude_filter_.reset();
+        attitude_filter_ = ComplementaryFilter(tuning_.complementary_alpha);
+        imu_last_fresh_ms_.reset();
+        last_baro_altitude_m_ = 0.0f;
+        baro_ever_fresh_ = false;
+        gps_ever_fresh_ = false;
+        attitude_ever_seeded_ = false;
+    }
+
     // REQ-PROC-006: a reading enters a filter only when its channel is
     // NOMINAL and the reading was taken this cycle. Health is the
     // detector's judgment over time; read_ok is this cycle's fact. Both

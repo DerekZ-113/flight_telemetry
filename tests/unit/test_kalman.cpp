@@ -372,6 +372,59 @@ TEST(KalmanTest, BornFromTheGpsWhenTheBarometerNeverReads) {
     EXPECT_EQ(moved.fused_altitude_validity, Validity::NORMAL);
 }
 
+// TC-031 step 9 (REQ-PROC-008). A frame flagged NEW_VEHICLE ends the
+// previous vehicle's estimate. With a fresh GPS reading 500 m below it the
+// filter is reborn at that reading with zero velocity, NORMAL on that
+// frame, where the same reading taken as an update would have read a
+// descent nobody flew; with no fresh reading the fused fields are 0 and
+// NO_COMPUTED_DATA, and the first reading after births the filter as at
+// power-on.
+TEST(KalmanTest, NewVehicleRebirthsTheFilterAtItsFirstReading) {
+    TelemetryProcessor flagged;
+    TelemetryProcessor unflagged;
+    // An aircraft holding 600 m, its fix fresh once in five frames; the
+    // barometer is not the source's, as in ADS-B mode.
+    const auto aircraft = [](uint64_t ts, float altitude_m, bool fix) {
+        TelemetryFrame f = fresh_frame(ts);
+        f.baro_status = ChannelStatus::NOT_AVAILABLE;
+        f.baro_read_ok = false;
+        f.gps_altitude_m = altitude_m;
+        f.gps_read_ok = fix;
+        return f;
+    };
+    uint64_t ts = 0;
+    for (int i = 0; i < 20; i++, ts += 20) {
+        flagged.process(aircraft(ts, 600.0f, i % 5 == 0));
+        unflagged.process(aircraft(ts, 600.0f, i % 5 == 0));
+    }
+
+    TelemetryFrame switched = aircraft(ts, 100.0f, true);
+    const TelemetryFrame update = unflagged.process(switched);
+    EXPECT_GT(update.fused_altitude_m, 100.0f);         // without the flag: an update toward the step
+    EXPECT_LT(update.vertical_speed_mps, -1.0f);        // and a descent nobody flew
+    set_flag(switched, FrameFlag::NEW_VEHICLE);
+    const TelemetryFrame reborn = flagged.process(switched);
+    EXPECT_EQ(reborn.fused_altitude_m, 100.0f);         // born at the new vehicle's reading
+    EXPECT_EQ(reborn.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(reborn.fused_altitude_validity, Validity::NORMAL);
+    EXPECT_EQ(reborn.vertical_speed_validity, Validity::NORMAL);
+    ts += 20;
+
+    // A flag with nothing fresh: nothing to begin from yet.
+    TelemetryFrame quiet = aircraft(ts, 100.0f, false);
+    set_flag(quiet, FrameFlag::NEW_VEHICLE);
+    const TelemetryFrame empty = flagged.process(quiet);
+    EXPECT_EQ(empty.fused_altitude_m, 0.0f);
+    EXPECT_EQ(empty.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(empty.fused_altitude_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(empty.vertical_speed_validity, Validity::NO_COMPUTED_DATA);
+    ts += 20;
+    const TelemetryFrame born = flagged.process(aircraft(ts, 250.0f, true));
+    EXPECT_EQ(born.fused_altitude_m, 250.0f);
+    EXPECT_EQ(born.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(born.fused_altitude_validity, Validity::NORMAL);
+}
+
 // TC-011 step 9 (c). Both readings fresh on the birth cycle: the filter is
 // born from the barometer, at the barometric variance, and the GPS reading
 // is then an update on the same frame. The gain arithmetic pins the order:

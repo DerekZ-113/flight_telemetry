@@ -99,6 +99,7 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     const TelemetryFrame before = source.read_frame();
     EXPECT_EQ(before.timestamp_ms, 0u);
     EXPECT_EQ(before.sequence, 0u);
+    EXPECT_EQ(before.flags, 0u);
     EXPECT_FALSE(before.gps_read_ok);
     EXPECT_EQ(before.latitude, 0.0);
     EXPECT_EQ(before.longitude, 0.0);
@@ -143,7 +144,9 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.sequence, 1u);          // the source's count (REQ-LOG-008)
-    EXPECT_EQ(f.flags, 0u);             // no fix quality: a state vector reports none (REQ-SENS-005)
+    // The first frame carrying TEST001 says so (REQ-PROC-008), and states
+    // no fix quality: a state vector reports none (REQ-SENS-005).
+    EXPECT_EQ(f.flags, static_cast<uint8_t>(FrameFlag::NEW_VEHICLE));
     EXPECT_EQ(f.gps_fix_quality, 0u);
     EXPECT_EQ(f.gps_satellites, 0u);
     EXPECT_EQ(f.voter_status, 0u);
@@ -173,6 +176,58 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
         EXPECT_EQ(g.imu_status, ChannelStatus::NOT_AVAILABLE) << i;
         EXPECT_EQ(g.gps_status, ChannelStatus::NOMINAL) << i;
     }
+}
+
+// TC-031 step 8 (REQ-PROC-008, REQ-SENS-009). The first frame that carries a
+// newly selected aircraft says so, NEW_VEHICLE, and no other does: not the
+// frames that hold it, not the one a re-poll of the same vector delivers,
+// not the one a later position time of the same aircraft makes fresh, not
+// the frame after a miss; the first frame carrying the next aircraft says
+// so again.
+TEST(AdsbSourceTest, NewVehicleFlagMarksTheFirstFrameOfEachAircraft) {
+    Rig rig;
+    AdsbSource source = rig.make();
+    EXPECT_FALSE(has_flag(source.read_frame(), FrameFlag::NEW_VEHICLE));   // nothing selected yet
+
+    rig.script_token();
+    rig.script(ex::kStatesResponse);
+    source.poll_once();
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame first = source.read_frame();
+    EXPECT_TRUE(first.gps_read_ok);
+    EXPECT_TRUE(has_flag(first, FrameFlag::NEW_VEHICLE));
+    rig.clock.advance(kPeriodNs);
+    EXPECT_FALSE(has_flag(source.read_frame(), FrameFlag::NEW_VEHICLE));   // held
+
+    rig.script(ex::kStatesResponse);
+    source.poll_once();                                          // the same vector again
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame same = source.read_frame();
+    EXPECT_FALSE(same.gps_read_ok);
+    EXPECT_FALSE(has_flag(same, FrameFlag::NEW_VEHICLE));
+
+    rig.script(with_time_position(ex::kStatesResponse, "000001", 1759999999));
+    source.poll_once();                                          // the same aircraft, a later position
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame later = source.read_frame();
+    EXPECT_TRUE(later.gps_read_ok);
+    EXPECT_FALSE(has_flag(later, FrameFlag::NEW_VEHICLE));
+
+    const std::string gone = without(ex::kStatesResponse, "000001");
+    rig.script(gone);
+    source.poll_once();                                          // one miss: kept
+    rig.clock.advance(kPeriodNs);
+    EXPECT_FALSE(has_flag(source.read_frame(), FrameFlag::NEW_VEHICLE));
+    rig.script(gone);
+    source.poll_once();                                          // two: left, TEST002 takes over
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame next = source.read_frame();
+    EXPECT_TRUE(next.gps_read_ok);
+    EXPECT_TRUE(has_flag(next, FrameFlag::NEW_VEHICLE));
+    ASSERT_TRUE(source.identity().has_value());
+    EXPECT_EQ(source.identity()->icao24, "000002");
+    rig.clock.advance(kPeriodNs);
+    EXPECT_FALSE(has_flag(source.read_frame(), FrameFlag::NEW_VEHICLE));
 }
 
 // REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero,

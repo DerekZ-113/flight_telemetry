@@ -8,9 +8,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 
 #include "drivers/simulated_source.h"
+#include "processing/altitude.h"
 #include "processing/fault_detector.h"
 #include "processing/processor.h"
 #include "telemetry_frame.h"
@@ -367,6 +369,59 @@ TEST(ProcessorValidityTest, NotAvailableChannelNeverContributes) {
 // and processor, on the simulator's frames, no field of any emitted frame
 // is NOT_JUDGED, and on this healthy source every field is NORMAL from
 // frame 0 (the simulator is fresh on every channel at t = 0).
+// TC-031 step 9 (REQ-PROC-008, REQ-PROC-007). After the flag nothing of the
+// previous vehicle remains. With nothing fresh the barometric altitude,
+// pitch, roll and the fused fields are 0 and NO_COMPUTED_DATA, the "never
+// existed" of a new vehicle, not the last vehicle's numbers held; when
+// readings are fresh on the flagged frame they begin the new vehicle on
+// that frame: the attitude seeded from its accelerometer, not blended
+// from the 30 degrees before, the barometric altitude its pressure's, the
+// fused altitude born from that barometer.
+TEST(ProcessorValidityTest, NewVehicleStartsEveryFieldAgain) {
+    TelemetryProcessor processor;
+    uint64_t ts = 0;
+    for (int i = 0; i < 20; i++, ts += 20) {
+        TelemetryFrame f = frame(ts);
+        f.accel_x = kG * 0.5f;            // the previous vehicle, pitched about 30 degrees
+        f.accel_z = kG * 0.866f;
+        const TelemetryFrame out = processor.process(f);
+        ASSERT_EQ(out.pitch_validity, Validity::NORMAL);
+        ASSERT_GT(std::abs(out.pitch_deg), 20.0f);
+    }
+
+    TelemetryFrame quiet = frame(ts);
+    quiet.baro_read_ok = false;
+    quiet.imu_read_ok = false;
+    quiet.gps_read_ok = false;
+    set_flag(quiet, FrameFlag::NEW_VEHICLE);
+    const TelemetryFrame out = processor.process(quiet);
+    expect_judged(out, "flagged, nothing fresh");
+    EXPECT_EQ(out.baro_altitude_m, 0.0f);
+    EXPECT_EQ(out.pitch_deg, 0.0f);
+    EXPECT_EQ(out.roll_deg, 0.0f);
+    EXPECT_EQ(out.fused_altitude_m, 0.0f);
+    EXPECT_EQ(out.baro_altitude_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.pitch_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.roll_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.fused_altitude_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.vertical_speed_validity, Validity::NO_COMPUTED_DATA);
+    ts += 20;
+
+    TelemetryFrame fresh = frame(ts);     // level: the accelerometer on z alone
+    fresh.gps_read_ok = false;            // so the birth is the barometer's alone
+    set_flag(fresh, FrameFlag::NEW_VEHICLE);
+    const TelemetryFrame again = processor.process(fresh);
+    expect_judged(again, "flagged, fresh");
+    EXPECT_EQ(again.pitch_deg, 0.0f);
+    EXPECT_EQ(again.roll_deg, 0.0f);
+    EXPECT_EQ(again.pitch_validity, Validity::NORMAL);
+    EXPECT_EQ(again.baro_altitude_m, pressure_to_altitude(fresh.pressure_hpa));
+    EXPECT_EQ(again.baro_altitude_validity, Validity::NORMAL);
+    EXPECT_EQ(again.fused_altitude_m, again.baro_altitude_m);
+    EXPECT_EQ(again.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(again.fused_altitude_validity, Validity::NORMAL);
+}
+
 TEST(ProcessorValidityTest, EveryEmittedFrameIsJudged) {
     SimulatedSource source(20, 42);
     FaultDetector detector;

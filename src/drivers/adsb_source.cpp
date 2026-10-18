@@ -188,6 +188,14 @@ TelemetryFrame AdsbSource::read_frame() {
                 counters_.age_max_s = std::max(counters_.age_max_s, age_s);
                 counters_.age_sum_s += static_cast<double>(age_s);
             }
+            // The first frame carrying a newly selected aircraft says so
+            // (REQ-PROC-008): the processor discards every estimate the
+            // previous aircraft left and begins again from this frame's
+            // reading, so the step between two aircraft's altitudes is
+            // never read as a climb. The source knows; no filter can.
+            if (newly_selected) {
+                set_flag(frame, FrameFlag::NEW_VEHICLE);
+            }
         }
         identity_ = report->identity;
     }

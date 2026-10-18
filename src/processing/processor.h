@@ -114,6 +114,12 @@ public:
     // depends on is not trusted, NORMAL otherwise. A field that is not
     // NORMAL holds a defined number, never NaN: 0 before its first
     // estimate, the held or coasting estimate under FAILURE_WARNING.
+    //
+    // A frame the source flags NEW_VEHICLE (REQ-PROC-008) ends every
+    // estimate before anything else happens: both filters, the IMU's
+    // freshness clock, the held barometric altitude and the "ever" flags
+    // start again, so the new vehicle's fields begin from its own readings,
+    // on that frame when they are fresh.
     TelemetryFrame process(const TelemetryFrame& raw);
 
 private:
