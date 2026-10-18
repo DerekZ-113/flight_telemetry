@@ -3,7 +3,7 @@
 > **Document ID:** FTS-SRD-001
 > **Version:** 0.13.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-15
+> **Last Updated:** 2026-10-16
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile)
 
 ## Conventions
@@ -42,7 +42,7 @@ REQ-SENS-006: The system shall provide a simulated data source that produces Tel
 
 REQ-SENS-007: When a motion profile is selected by a command-line option, the simulated data source shall produce readings that follow a scripted flight, altitude, pitch, roll, ground track, ground speed and position as functions of time, derived as the inverse of the processing pipeline's own models: pressure from the scripted altitude by the inverse of REQ-PROC-001's relation, accelerometer and gyroscope readings that REQ-PROC-002's filter inverts to the scripted attitude, and GPS fixes integrated from the scripted ground speed and track at the configured GPS rate, with the configured noise added as for the stationary scenario. Without the option the source's output shall be unchanged, byte for byte.
 
-> **Rationale:** the stationary scenario moves nothing, and an instrument that never moves proves nothing; the display's instruments (REQ-DISP-002) and the replay demo need a flight through the real pipeline. Readings derived as the inverse of the pipeline's own models make the pipeline recover the script, which is an oracle for the instruments: the attitude indicator must read the scripted pitch and the tape the scripted altitude. A scenario is not a tunable (FTS-DD-001 Section 3), so the profile is a flag, `--motion <name>`, not a key; the stationary default is guarded by the seed-42 session's hash (FTS-VR-001 Entry 12 §12.4) and by the generator's draw order, which the profile leaves untouched.
+> **Rationale:** the stationary scenario moves nothing, and an instrument that never moves proves nothing; the display's instruments (REQ-DISP-002) and the replay demo need a flight through the real pipeline. Readings derived as the inverse of the pipeline's own models make the pipeline recover the script, which is an oracle for the instruments: the attitude indicator must read the scripted pitch and the tape the scripted altitude. A scenario is not a tunable (FTS-DD-001 Section 3), so the profile is a flag, `--motion <name>`, not a key; the stationary default is guarded by the seed-42 session's hash (FTS-VR-001 Entry 12 §12.4; Entry 19 §19.4 since format version 3) and by the generator's draw order, which the profile leaves untouched.
 
 REQ-SENS-008: The system shall provide an ADS-B data source, selected by a command-line option, that presents one aircraft's state from the OpenSky Network REST API as raw telemetry: latitude and longitude, the geometric altitude as the GPS altitude, the ground speed, the track over ground as the course and, when the state vector carries them, the vertical rate and the pressure altitude as raw fields of their own, each marked present, read on a configurable interval for a configurable bounding box through an HTTP client behind a seam. Fields ADS-B does not carry (pressure, temperature, acceleration, angular rate) shall hold zero with their read flags false. The poll shall never block the processing loop.
 

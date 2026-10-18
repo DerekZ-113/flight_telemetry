@@ -33,8 +33,8 @@ Every message is one JSON text frame. `src/feed.ts` types them and mirrors `pipe
 | `type` | Carries |
 |---|---|
 | `hello` | first on every connection: `stale_ms`, `period_ms`, the last `session` or `null`, the receiver's `frames_received`, `gaps`, `out_of_order`; `track_min_speed_mps` and `lag_ms`, the two display thresholds (REQ-DISP-002, REQ-DISP-006) |
-| `session` | `mode` (`LIVE`, `SIMULATED`, `REPLAY`, `ADSB`), `state` (`RUNNING`, `ENDED`), `identity` (`{icao24, callsign}` in ADS-B mode while an aircraft is selected, otherwise `null`; always `null` when the bridge runs with `--hide-identity`), `received_at_ms` |
-| `frame` | `frame` (every field of the 104-byte frame but `latitude` and `longitude`), `validity` (each computed field's name: `NOT_JUDGED`, `NO_COMPUTED_DATA`, `FAILURE_WARNING`, `NORMAL`), `status` (each channel's: `NOMINAL`, `DEGRADED`, `NO_DATA`), `received_at_ms`, `position` (`east_m` and `north_m` relative to the first fix, or `null` before one) |
+| `session` | `mode` (`LIVE`, `SIMULATED`, `REPLAY`, `ADSB`), `state` (`RUNNING`, `ENDED`), `identity` (`{icao24, callsign}` in ADS-B mode while an aircraft is selected, otherwise `null`; always `null` when the bridge runs with `--hide-identity`), `source_mode` (the mode the frames were produced in: the run's own, a replay's from its log's header, `UNKNOWN` for a log older than format version 3; the tape's datum, a replay's `ID UNAVAILABLE` and the attribution follow it), `received_at_ms` |
+| `frame` | `frame` (every field of the 120-byte frame (format version 3) but `latitude` and `longitude`), `validity` (each computed field's name: `NOT_JUDGED`, `NO_COMPUTED_DATA`, `FAILURE_WARNING`, `NORMAL`), `status` (each channel's: `NOMINAL`, `DEGRADED`, `NO_DATA`), `received_at_ms`, `position` (`east_m` and `north_m` relative to the first fix, or `null` before one) |
 
 `received_at_ms` is the bridge's monotonic clock; the page judges staleness from its own clock at arrival, since the two machines share no clock and no frame carries an age.
 

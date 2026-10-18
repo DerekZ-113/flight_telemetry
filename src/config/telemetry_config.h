@@ -82,7 +82,7 @@ struct LoggingConfig {
     // REQ-LOG-001. The jitter CSV (REQ-TIME-002) and the configuration
     // record (REQ-CFG-003) are written to the same directory.
     std::string directory = "logs";
-    // REQ-LOG-002. At least one record: header, tag and frame, 121 bytes.
+    // REQ-LOG-002. At least one record: header, tag and frame, 137 bytes since format version 3.
     uint64_t max_file_bytes = 1u << 20;
 };
 

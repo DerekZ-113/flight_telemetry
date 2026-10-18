@@ -3,7 +3,7 @@
 > **Document ID:** FTS-DS-001
 > **Version:** 0.3.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-15
+> **Last Updated:** 2026-10-16
 > **Related:** FTS-SRD-001 v0.13.0 (REQ-DISP-001 to REQ-DISP-007, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2 and 12), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030, TC-031), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
 
 ## 1. Purpose and Scope
@@ -146,7 +146,7 @@ The strip at the top of the panel shows, left to right, the mode label, the feed
 
 ## 6. The ground track plot (REQ-DISP-002, REQ-DISP-005)
 
-- **Source:** `position.east_m` and `position.north_m` from the bridge, in metres from the first NOMINAL fresh fix the bridge saw after its start, after an ENDED, after a backwards timestamp, or after the identity the session status names changed (the origin is never sent); `gps_read_ok` marks a fresh fix; `heading_deg` and the speed rule of 4.5 orient the marker; `gps_status` is the channel rule.
+- **Source:** `position.east_m` and `position.north_m` from the bridge, in metres from the first NOMINAL fresh fix the bridge saw after its start, after an ENDED, after a backwards timestamp, or after the identity the session status names changed (the origin is never sent); `gps_read_ok` marks a fresh fix; `course_deg` and the speed rule of 4.5 orient the marker; `gps_status` is the channel rule.
 - **The trail:** one point per fresh fix, capped at 3,600 (an hour at 1 Hz), cleared when the origin resets and when the identity changes.
 - **Geometry:** `viewBox="0 0 300 300"`, north up, the origin at the centre. The half-extent is max(10 m, 1.2 × the trail's largest |east| or |north|), so the scale is 150 px per half-extent; the grid step is the 1-2-5 value nearest to a quarter of the half-extent (2 m at the 10 m minimum, 1 km for a 3 km trail), with grid lines at multiples of the step through the origin; the scale bar at the bottom left is one step long, labelled in m, or in km from 1,000 m. The trail is one polyline; the current position is a triangle rotated to the track while the track is shown (4.5), a dot otherwise. A `N` arrow and the title `GROUND TRACK · relative to first fix`. No image element, no tiles, no coordinate anywhere: a test searches the DOM.
 - **Update:** the trail on each fresh fix; the marker every frame.
@@ -175,7 +175,7 @@ The readings are the pipeline's inverse: the pressure from the scripted altitude
 
 What the instruments show, by phase (seen on 2026-10-15, FTS-VR-001 Entry 17): parked, ALT reads 10 ft (2 m under the 10 ft rounding), VS settles from the Kalman filter's startup transient to 0, GS 0, `TRK ---` with no rose, the plot a dot; the takeoff roll, GS rising to 58 kt, TRK 090° and the rose from 2 kt, the marker moving east; rotation and climb, the horizon 32 px down (8°), VS +600, ALT rising to 400 ft; the turn, the horizon rotated 20° counterclockwise, TRK sweeping 090 → 270, the plot's half circle; the descent, the horizon 16 px up, VS −400, ALT to 200 ft; level and slowing; then ENDED, grey flags, the trail kept.
 
-Commands: record with `./build/telemetry --motion demo --cycles 7500` (150 s; 7,500 frames, 787,516 bytes, under one rotation); then, with the bridge (`.venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555`) and the page (`cd dashboard && npm run dev`, `http://127.0.0.1:5173`) running, replay with `./build/telemetry --replay logs/telemetry_000.bin --pace --zmq tcp://127.0.0.1:5555`. The page labels the recording SIM and the replay REPLAY; the replay's log is byte-identical to the recording (REQ-TIME-004, REQ-LOG-003). The log is 7,500 frames in 787,516 bytes; its bytes depend on the toolchain's `normal_distribution`, so its hash is recorded per platform in FTS-VR-001 (Entry 17: `caba9aeb…` on the development Mac) and the log is regenerated, not committed.
+Commands: record with `./build/telemetry --motion demo --cycles 7500` (150 s; 7,500 frames, 907,516 bytes at format version 3, under one rotation); then, with the bridge (`.venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555`) and the page (`cd dashboard && npm run dev`, `http://127.0.0.1:5173`) running, replay with `./build/telemetry --replay logs/telemetry_000.bin --pace --zmq tcp://127.0.0.1:5555`. The page labels the recording SIM and the replay REPLAY; every record of the replay's log is byte-identical to the recording's, its header naming REPLAY where the recording's names SIMULATED (REQ-TIME-004, REQ-LOG-003, REQ-LOG-007). The log is 7,500 frames in 907,516 bytes (787,516 at format version 2); its bytes depend on the toolchain's `normal_distribution`, so its hash is recorded per platform in FTS-VR-001 (Entry 17: `caba9aeb…` on the development Mac at format version 2; recorded again with the demo) and the log is regenerated, not committed.
 
 ## 8. The diagnostic view
 

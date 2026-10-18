@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-15
+> **Last Updated:** 2026-10-16
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1505,3 +1505,76 @@ The drivers scope's fall from Entry 17's 95.8% to 89.0% is the ADS-B source's pa
 - The four exception-edge lines of §18.7 without a marker (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) take it in the next commit that touches their files.
 - Phase B (design §12): the vertical rate as the filter's third measurement and the pressure altitude, the mode in the log, the selection's altitude term, the re-birth on a switch, all with format version 3.
 - Entry 17's open items stand: §17.7 from the CI run, TC-025 step 8, the Pi.
+
+## Entry 19 — 2026-10-15 and 16, Format version 3: the run mode in the header, the sequence number, the new-vehicle flag and the re-birth, the ADS-B vertical rate and pressure altitude, the fix quality, the voter's status (macOS preview)
+
+Three requirements (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008; SRD 0.12.0 → 0.13.0, 54 → 57 statements) and five amended (REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004, REQ-DISP-007), FTS-FM-001 0.5.0 → 0.6.0, FTS-DS-001 0.2.0 → 0.3.0, TC-031 and nine cards amended (TC-004, TC-008, TC-017, TC-021, TC-022, TC-023, TC-026, TC-029, TC-030), one new header pair (`src/run_mode.h`), the frame from 104 to 120 bytes with version 2 as its prefix, the session status at version 3; eight commits on `claude/ads-b-phase-a-opensky-87da4f` after Entry 18's eleven, off `main` until after the v0.1.0 tag. The voter's status field was assigned on Derek's amendment the evening of 2026-10-15, before commit 2 was committed, so the voter never needs a format version 4.
+
+### 19.1 What was built
+
+- Documents (commit 1): the SRD statements above; FAULT-015's re-birth and FAULT-003's bytes in place; FTS-DS-001 §3, §4.2, §4.5 and §5 by source mode; FTS-DD-001 §3, §7 (the flags byte), §9 (the version-3 layout, the header's two modes, the prefix rule, the status at version 3), §11.1, §11.2 and §12 (five bullets decided, the 2D-fix bullet amended); TC-031, seventeen steps.
+- `src/telemetry_frame.*`, `src/run_mode.*`, `src/logging/*`, `src/replay/log_replay_source.cpp`, both publishers, `src/main.cpp` (commit 2): `sequence` at 52, `course_deg` at 80, `flags` at 103 (`FrameFlag`: NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY), the tail `gps_vertical_rate_mps` 104, `gps_pressure_altitude_m` 108, `gps_fix_quality` 112, `gps_satellites` 113, `voter_status` 114 (`VoterStatus`: VOTED, LANE_1_FAULTED to LANE_3_FAULTED, NO_MAJORITY; zero, no voter ran), `reserved_d` 116; `RunMode` with UNKNOWN as its zero; the header's `run_mode` and `source_mode`, `frame_size_for`, the prefix read, the header handed to the logger and both publishers; the replay's source mode from its input's header, the first-frame rule of Entry 18 §18.5 deleted (REQ-LOG-005, REQ-LOG-007).
+- `pipeline/frame_format.py`, `log_reader.py`, `receiver.py`, `tests/integration/synthetic_log.py`, the page's types (commit 3): `FRAME` at 120 and `FRAME_V2` as its prefix, one `Frame` shape for every version, the header's modes, the name tables, the summary's header and sequence lines, `seq=` on the receiver's line, `course_deg` on the page; the file-level identity stated by its one header byte (§19.5) (REQ-LOG-005, REQ-LOG-007, REQ-TEST-002).
+- `src/data_source.h` and the three sources, the injector (commit 4): `next_sequence()`, the count from zero; the live source's GGA quality and satellites under FIX_QUALITY, held with the fix; the simulator's 1 and 8 on every frame; a held GPS reading held whole by the injector (REQ-LOG-008, REQ-SENS-005).
+- `src/transport/session_message.*`, the publishers, `main.cpp`, the Python status, the receiver, the bridge, the page (commit 5): `SessionStatus`, the source mode in byte 7 at version 3; the tape's `ft HAE`, a replay's `ID UNAVAILABLE` and the attribution by the source mode (REQ-TRANS-004, REQ-DISP-007, REQ-LOG-007).
+- `src/drivers/adsb_source.cpp`, `src/processing/processor.*` (commit 6): NEW_VEHICLE on the first frame of a newly selected aircraft; the re-birth before the gates (REQ-PROC-008).
+- `src/drivers/adsb_source.*` (commit 7): the vertical rate and the pressure altitude with their presence bits, held with the vector (REQ-SENS-008).
+- Tests: unit +17, 395 → 412 (`test_telemetry_frame` +2, `test_logging` +3, `test_replay` +3, `test_simulated_data` +1, `test_live_sensor_source` +2, `test_adsb_source` +3, `test_fault_detection` +1, `test_kalman` +1, `test_validity` +1); pytest +11, 131 → 142 (`test_log_reader` +5, `test_adsb` +2, `test_validity` +1, `test_replay_identity` +1, `test_session_status` +1, `test_bridge` +1); page 73, unchanged in number, its label, datum and attribution tests extended by source mode.
+
+### 19.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 412 of 412 (395 before), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 142 of 142 in 127 s (131 before) |
+| Page (Vitest 4.1, jsdom) | 73 of 73 in 12 files; `npm run build` clean |
+| cppcheck 2.21.0 | 0 findings with CI's flags at every commit |
+| The byte checks | §19.4 |
+
+Red first at every commit: commit 2's tests failed to compile against the old layout; commit 3's suite could not import the twin's new names and the page's track read `rotate(0)`; commit 4's ten, commit 5's three layers, commit 6's five and commit 7's six failed before their code. The expected values that changed beyond the plan's list are in §19.5.
+
+### 19.3 Coverage preview
+
+Not run on the Mac; §19.7 takes the CI figures on GCC. No new conditional line combines a decision with a string temporary, a standard-library call that can throw, or an iterator range: `has_flag` in `processor.cpp` is tested in a function that holds no object with a destructor, the ADS-B source's `set_flag` calls sit on lines of their own, and `optional::has_value()` cannot throw. Any exception edge the record shows goes into §19.7 under the marker rule. One outcome no test reached was pinned before it could show: `frame_size_for` answering 0 for a version neither twin defines (commit 3).
+
+### 19.4 The byte checks
+
+| Item | Observed |
+|---|---|
+| The seed-42 500-frame session (TC-031 step 17) | `7720966cb87473bc429f975794ffb4fdfcba1652b7c1a0bec54bc15da2f15ae3` (format version 2: `6d43f343…`, Entry 12 §12.4). Against the kept version-2 reference, frame by frame by a script: the first 104 bytes of every frame identical but offsets 52 and 53, the sequence, the frame's index (498 and 244 frames: frames 0 and 256 share byte 52's zero, and only frames 256 to 499 have a second byte), and 103, `08`, the FIX_QUALITY bit (all 500); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00` on every frame, quality 1 and 8 satellites; no event in either; the sequence equal to the frame's index on all 500. The bytes moved at commit 2 only in the header and the zero tail (`c23357c4…`) and at commit 4 as above; commits 5 to 7 change no byte of a simulated log |
+| Its replay | `703f621cca12153e267be4794a28dd28a8be4df58a929d8ce40c1c9a55b01269`: every record identical to the session's; the header differing in byte 10 alone, the run mode, SIMULATED (2) against REPLAY (3), the source mode SIMULATED in both; `cmp -l` prints `11 2 3` and `cmp` from offset 16 prints nothing |
+| A version-2 log replayed (TC-031 step 13) | the version-2 reference itself, beside its record: `Replay input:` names format version 2, run mode UNKNOWN, source mode UNKNOWN and the version-3 replay log; the replay's header REPLAY over UNKNOWN; every frame's first 104 bytes equal to the reference's, the sequence 0 and the tail zero; NORMAL on all 500 |
+| A version-1 log replayed | the same file with its header's version set to 1, the two versions sharing every byte position: the same result, byte for byte, the reader having set the version-1 frames' validity and former reserved bytes to what version 2 means by them |
+| The live run's log of Entry 18, replayed (version 2, kept under the scratchpad and never committed, its first file of 9,986 frames) | the source mode UNKNOWN by its header, so the GPS channel takes the UART timeout, 2,000 ms, against the run's 5 s polls: one COMM_TIMEOUT at about 2 s and the channel DEGRADED from there, never recovering, since every poll's reading is followed by more than 2 s of silence; the fused fields FAILURE_WARNING on 9,885 of 9,986 frames, where the run had no event and NORMAL throughout; frames 0 to 100 identical to the recording. The first-frame rule this replaces would have taken the ADS-B timeout. The remedy: `--config` naming a copy of the record with `fault.uart_timeout_ms` set to the ADS-B timeout, 20,000 ms, which replays all 9,986 frames byte for byte in their 104 bytes with no event; the `Configuration:` line says identity is not claimed, which is right, since the configuration differs. The only version-2 ADS-B logs are this run's |
+| The ADS-B stand-in run (pytest, TC-031 step 14) | NEW_VEHICLE on frames 0 and 151 (t = 0 and 3,025 ms), exactly the two rows of `telemetry_adsb.csv`; on each the fused altitude born at the GPS altitude, 480 m and 730 m, the vertical speed 0, both NORMAL; the largest vertical speed over the 600 frames 0.0 m/s across the 250 m step from TEST001 to TEST002, the kind of step the live run read as up to ±185 m/s (Entry 18 §18.5); the vertical rate −3.5 m/s and the pressure altitude 450 m then 700 m, both bits set, on every frame; no fix quality. Its replay: every record identical, the header REPLAY over the recording's ADSB, and every status's source mode ADSB |
+| The rotation | a frame record is now 121 bytes, so a 1 MiB file holds 8,665 frames where it held 9,986 (the live log's replay rotated into two files of 8,665 and 1,321); the demo's 7,500-frame recording is 907,516 bytes, still one file |
+
+### 19.5 Decisions taken, and deviations from the plan
+
+- **The voter's status (Derek's amendment, 2026-10-15).** `reserved_c` became `voter_status`, zero meaning no voter ran, with bits for the approved voter decisions; every writer puts zero; the replay's strip zeroes it as a verdict the voter will recompute, as it zeroes validity; `reserved_d` stays reserved. It traces to REQ-LOG-001 until the REQ-RED drafts enter the SRD (FTS-DD-001 §11.1).
+- **The run-mode byte and the file-level identity (found in commit 3).** REQ-LOG-007 records the run mode of the session that wrote each file, so a session's log and its replay's differ in exactly one header byte, the run mode, where four pytests compared whole files. The plan's deviation rule (an existing test's expected value changing) applied; Derek had asked to carry on, so it was built as approved: the four tests compare every record and the header but for that byte (`conftest.assert_replay_identical`), and TC-004, TC-026, TC-029, TC-031, design §9, README.md and CLAUDE.md say so. The alternative, dropping the run-mode byte, which nothing reads, would have restored whole-file identity at the cost of REQ-LOG-007's words; on 2026-10-16 Derek continued with the byte as built. REQ-LOG-003 claims identical processing outputs, which are the records; it holds.
+- **The attribution follows the source mode (commit 5).** Not in the plan. With the datum moved to the source mode, a replayed ADS-B recording would have shown the network's data under `ft HAE` without the attribution the data license requires; under the standing instruction to attribute OpenSky as its terms require, the attribution follows the source mode too (FTS-DS-001 §8, TC-030 step 7).
+- **The injector holds a GPS reading whole (commit 4).** The plan said only that the sequence passes through. A held or failed GPS now holds the fix quality, the satellites and the two ADS-B fields with their presence bits, as the live source holds its last fix; NEW_VEHICLE and the sequence pass through.
+- **A new vehicle gets a new attitude filter (commit 6).** `ComplementaryFilter::reset()` keeps the angles for an outage's re-seed (design §6), which on a new vehicle would have shown the old one's pitch under NO_COMPUTED_DATA; a new object reads 0, as REQ-PROC-007 asks of a field that never existed.
+- **The matrix summary after commit 2** counted REQ-LOG-007 as Not started while its row said Partial; commit 3 corrected it.
+- **The first-frame rule deleted (decision 3).** §19.4 shows the cost for the one kind of log it served and the remedy.
+- **The receiver prints the source mode only where it differs from the run mode**, so TC-021's `session: mode=SIMULATED state=ENDED` line is unchanged.
+
+### 19.6 Library and toolchain facts this entry rests on
+
+- Python's `struct.Struct.format` is a `str`, so the prefix rule is asserted at import as `FRAME.format.startswith(FRAME_V2.format)`; numpy's `align=True` dtype is 120 bytes, a multiple of the 8-byte alignment; `np.frombuffer` reads an older file's frames packed to version 3.
+- C++17 aggregates keep aggregate initialization with default member initializers (`SessionStatus{mode, source, state, identity}`); the 120-byte frame stays standard-layout, so `offsetof` pins every field.
+- macOS's BSD `cmp`: `-l` prints one line per differing byte, its 1-based position and the two values in octal; `cmp a b 16 16` skips 16 bytes of each.
+
+### 19.7 Measurement of record
+
+Reserved for the CI run on the branch's head after the push.
+
+### 19.8 Open
+
+- §19.7 from the CI run.
+- Phase B (design §12): the vertical rate, recorded since commit 7, as the filter's third measurement; the pressure altitude; the selection's altitude term.
+- FAULT-003b: the detector's judgment of the fix quality and the satellite count the frame now carries.
+- The voter (design §11.1), whose status field waits for it.
+- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made.
+- Entry 18's open items stand: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines; and Entry 17's: §17.7, TC-025 step 8, the Pi.
