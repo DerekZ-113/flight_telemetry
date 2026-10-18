@@ -515,7 +515,8 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // (REQ-TRANS-001, REQ-TRANS-002).
 //
 // The session status (REQ-TRANS-004) goes to the same publishers: RUNNING
-// with the run's mode before frame 0 and every `status_every_cycles` after
+// with the run's mode and the source mode of its frames (REQ-LOG-007, the
+// run's own except in a replay) before frame 0 and every `status_every_cycles` after
 // it (one second of cycles), so a consumer that joins late learns the mode
 // from the next one, and at once when the identity it names changes;
 // ENDED after the last frame, repeated, because a lost datagram carrying
@@ -527,7 +528,7 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
                   FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
-                  std::optional<int> frame_count, RunMode mode, int status_every_cycles,
+                  std::optional<int> frame_count, RunMode mode, RunMode source_mode, int status_every_cycles,
                   const std::function<SessionIdentity()>& identity) {
     ValidityTally tally;
     SessionIdentity published_identity;
@@ -559,7 +560,7 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
         const SessionIdentity current = identity();
         if (i % status_every_cycles == 0 || current != published_identity) {
             for (Publisher* publisher : publishers) {
-                publisher->publish_status(mode, StreamState::RUNNING, current);
+                publisher->publish_status(SessionStatus{mode, source_mode, StreamState::RUNNING, current});
             }
             published_identity = current;
         }
@@ -605,7 +606,7 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
     // a receiver treats the repeats as one (REQ-TRANS-004).
     for (int k = 0; k < kEndedRepeats; k++) {
         for (Publisher* publisher : publishers) {
-            publisher->publish_status(mode, StreamState::ENDED, published_identity);
+            publisher->publish_status(SessionStatus{mode, source_mode, StreamState::ENDED, published_identity});
         }
     }
     return tally;
@@ -986,7 +987,7 @@ int main(int argc, char* argv[]) {
                                     replaying ? nullptr : &scheduler,
                                     options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,
-                                    cycles, mode, status_every_cycles, identity_after_read);
+                                    cycles, mode, source_mode, status_every_cycles, identity_after_read);
 
     // The poll thread is joined before the exit lines read its counters.
     if (adsb != nullptr) {

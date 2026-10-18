@@ -138,9 +138,12 @@ def identity_message(identity: tuple[str, str] | None) -> dict[str, str] | None:
 
 
 def session_message(status: SessionStatus, received_at_ms: float, hide_identity: bool = False) -> dict[str, Any]:
+    """A status as the page sees it: the run mode, the state, the identity unless hidden, and the
+    source mode of the frames (REQ-LOG-007), by which the page labels a replay's identity, the
+    tape's datum and the attribution (REQ-DISP-007)."""
     return {"type": "session", "mode": status.mode, "state": status.state,
             "identity": None if hide_identity else identity_message(status.identity),
-            "received_at_ms": received_at_ms}
+            "source_mode": status.source_mode, "received_at_ms": received_at_ms}
 
 
 class Bridge:
@@ -217,7 +220,8 @@ class Bridge:
         session = self.receiver.session
         return {"type": "hello", "stale_ms": self.stale_ms, "period_ms": self.period_ms,
                 "session": ({"mode": session.mode, "state": session.state,
-                             "identity": None if self.hide_identity else identity_message(session.identity)}
+                             "identity": None if self.hide_identity else identity_message(session.identity),
+                             "source_mode": session.source_mode}
                             if session is not None else None),
                 "frames_received": self.receiver.received, "gaps": self.receiver.gaps,
                 "out_of_order": self.receiver.out_of_order,
@@ -338,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
             await stop.wait()
             receiver = bridge.receiver
             session = (f"session {receiver.session.mode} {receiver.session.state.lower()}"
+                       + (f" source {receiver.session.source_mode}"
+                          if receiver.session.source_mode != receiver.session.mode else "")
                        if receiver.session is not None else "no session status received")
             print(f"\nforwarded {bridge.forwarded} frames and {bridge.statuses} statuses to {bridge.clients} client(s); "
                   f"received {receiver.received} frames, gaps {receiver.gaps} frames, "

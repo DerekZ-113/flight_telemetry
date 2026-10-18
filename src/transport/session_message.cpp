@@ -47,16 +47,15 @@ SessionIdentity session_identity(const std::string& icao24_hex, const std::strin
     return identity;
 }
 
-std::array<uint8_t, kSessionMessageBytes> session_message(RunMode mode, StreamState state,
-                                                          const SessionIdentity& identity) {
+std::array<uint8_t, kSessionMessageBytes> session_message(const SessionStatus& status) {
     std::array<uint8_t, kSessionMessageBytes> out{};
     std::memcpy(out.data(), "FTSS", 4);
     out[4] = kSessionMessageVersion;
-    out[5] = static_cast<uint8_t>(mode);
-    out[6] = static_cast<uint8_t>(state);
-    out[7] = 0;   // reserved: zero until a version assigns it
-    std::memcpy(out.data() + 8, identity.icao24.data(), identity.icao24.size());
-    std::memcpy(out.data() + 11, identity.callsign.data(), identity.callsign.size());
+    out[5] = static_cast<uint8_t>(status.mode);
+    out[6] = static_cast<uint8_t>(status.state);
+    out[7] = static_cast<uint8_t>(status.source_mode);   // reserved at version 2 (REQ-LOG-007)
+    std::memcpy(out.data() + 8, status.identity.icao24.data(), status.identity.icao24.size());
+    std::memcpy(out.data() + 11, status.identity.callsign.data(), status.identity.callsign.size());
     return out;
 }
 

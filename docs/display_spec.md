@@ -181,4 +181,4 @@ Commands: record with `./build/telemetry --motion demo --cycles 7500` (150 s; 7,
 
 The verdict table of REQ-DISP-003's first screen stays below the instruments, unchanged in its rendering: each computed field with its validity by name beside the number in SI, a FAILURE_WARNING value struck through in the warning colour, every value struck through and dimmed while the feed is stale, each channel's status with fresh or held, the counters, and the two lag numbers. It exists to show what the feed carries; the instruments exist to show only what can be trusted (FTS-DD-001 Section 12).
 
-In ADS-B mode the diagnostic view ends with the attribution the data license requires: `Traffic data: The OpenSky Network (opensky-network.org)`.
+Whenever the session status's source mode is ADS-B, live or replayed (REQ-LOG-007), the diagnostic view ends with the attribution the data license requires: `Traffic data: The OpenSky Network (opensky-network.org)`. A replayed recording shows the network's data as much as a live run does; until 0.3.0 the attribution followed the run mode, so a replay showed none.

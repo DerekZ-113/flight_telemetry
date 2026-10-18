@@ -28,13 +28,14 @@ from synthetic_log import log_bytes, make_frame
 PERIOD_MS = 20
 
 
-def status(mode: int, state: int, identity: bytes = bytes(11)) -> bytes:
-    """A status as the binary writes one (version 2): the eleven identity bytes zero unless given."""
-    return b"FTSS" + bytes([2, mode, state, 0]) + identity
+def status(mode: int, state: int, identity: bytes = bytes(11), source: int | None = None) -> bytes:
+    """A status as the binary writes one (version 3): the source mode the mode itself unless given (a
+    replay names its recording's), the eleven identity bytes zero unless given."""
+    return b"FTSS" + bytes([3, mode, state, mode if source is None else source]) + identity
 
 
-RUNNING = status(3, 1)   # REPLAY, RUNNING
-ENDED = status(3, 2)     # REPLAY, ENDED
+RUNNING = status(3, 1, source=2)   # REPLAY of a simulated recording, RUNNING
+ENDED = status(3, 2, source=2)     # the same, ENDED
 IDENTITY_A = bytes.fromhex("a1b2c3") + b"TEST001 "
 IDENTITY_B = bytes.fromhex("b2c3d4") + b"TEST002 "
 ADSB_A = status(4, 1, IDENTITY_A)   # ADSB, RUNNING, the first aircraft
@@ -153,11 +154,12 @@ def test_session_status_is_forwarded_and_greets_a_later_client():
                 source.feed(RUNNING)
                 session = await recv_json(first)
                 assert session["type"] == "session"
-                assert (session["mode"], session["state"]) == ("REPLAY", "RUNNING")
+                assert (session["mode"], session["state"], session["source_mode"]) == ("REPLAY", "RUNNING", "SIMULATED")
                 assert isinstance(session["received_at_ms"], (int, float))
                 async with connect(ws_url(bridge)) as second:
                     hello = await recv_json(second)
-                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None}
+                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None,
+                                                "source_mode": "SIMULATED"}
                     source.feed(ENDED)
                     for ws in (first, second):
                         ended = await recv_json(ws)
@@ -231,7 +233,7 @@ def test_paced_replay_reaches_a_client_at_the_recorded_cadence(telemetry_bin, tm
     span = arrivals[-1] - arrivals[0]
     expected = (len(frames) - 1) * PERIOD_MS / 1000
     assert 0.8 * expected < span < 1.3 * expected, f"{len(frames)} frames over {span:.2f} s, not about {expected:.2f}"
-    assert ended["mode"] == "REPLAY"
+    assert (ended["mode"], ended["source_mode"]) == ("REPLAY", "SIMULATED")   # the session log's header says SIMULATED
     print(f"{len(frames)} paced frames through the bridge over {span:.2f} s (recorded span {expected:.2f} s)")
 
 
@@ -341,8 +343,32 @@ def test_identity_is_forwarded_in_session_and_hello():
     session, hello, none_selected = asyncio.run(check())
     assert (session["type"], session["mode"], session["state"]) == ("session", "ADSB", "RUNNING")
     assert session["identity"] == {"icao24": "a1b2c3", "callsign": "TEST001"}
-    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "a1b2c3", "callsign": "TEST001"}}
+    assert session["source_mode"] == "ADSB"
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "a1b2c3", "callsign": "TEST001"},
+                                "source_mode": "ADSB"}
     assert none_selected["identity"] is None
+
+
+# --- TC-031 step 15: the source mode, forwarded and greeted (REQ-TRANS-004, REQ-DISP-007) -------
+
+
+def test_source_mode_is_forwarded_in_session_and_hello():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as first:
+                await recv_json(first)
+                source.feed(status(3, 1, source=4))   # the replay of an ADS-B recording
+                session = await recv_json(first)
+                async with connect(ws_url(bridge)) as second:
+                    hello = await recv_json(second)
+        return session, hello
+
+    session, hello = asyncio.run(check())
+    assert (session["type"], session["mode"], session["source_mode"]) == ("session", "REPLAY", "ADSB")
+    assert session["identity"] is None
+    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None, "source_mode": "ADSB"}
 
 
 def test_origin_is_retaken_when_the_identity_changes():
@@ -384,7 +410,7 @@ def test_hide_identity_forwards_none_and_keeps_the_origin_rule():
 
     messages, hello = asyncio.run(check())
     assert messages[0]["identity"] is None and messages[3]["identity"] is None
-    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": None}
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": None, "source_mode": "ADSB"}
     assert messages[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
     assert messages[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
     assert messages[4]["position"] == {"east_m": 0.0, "north_m": 0.0}, "the hidden identity still re-takes the origin"

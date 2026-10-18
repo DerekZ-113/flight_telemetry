@@ -1,6 +1,15 @@
 // Messages the tests deliver, built the way the bridge builds them, and a
 // feed state built by hand for the instruments' tests.
-import type { ComputedField, FrameMessage, HelloMessage, Identity, Session, SessionMessage, ValidityName } from "./feed";
+import type {
+  ComputedField,
+  FrameMessage,
+  HelloMessage,
+  Identity,
+  Session,
+  SessionMessage,
+  SourceMode,
+  ValidityName,
+} from "./feed";
 import type { FeedState } from "./useTelemetryFeed";
 
 export const PERIOD_MS = 20;
@@ -30,12 +39,16 @@ export function hello(session: Session | null = null, staleMs = STALE_MS, extra:
   };
 }
 
+// A status as the bridge forwards one: the source mode is the run's own
+// unless given, and a replay's is UNKNOWN unless given, as for a log older
+// than format version 3 (REQ-LOG-007).
 export function session(
   mode: Session["mode"],
   state: Session["state"] = "RUNNING",
   identity: Identity | null = null,
+  sourceMode: SourceMode = mode === "REPLAY" ? "UNKNOWN" : mode,
 ): SessionMessage {
-  return { type: "session", mode, state, identity, received_at_ms: 0 };
+  return { type: "session", mode, state, identity, source_mode: sourceMode, received_at_ms: 0 };
 }
 
 // The two synthetic aircraft the tests show (nothing from the service).
@@ -111,7 +124,7 @@ export function runningFeed(overrides: Partial<FeedState> = {}): FeedState {
   return {
     connection: "open",
     opened: true,
-    session: { mode: "SIMULATED", state: "RUNNING", identity: null },
+    session: { mode: "SIMULATED", state: "RUNNING", identity: null, source_mode: "SIMULATED" },
     staleMs: STALE_MS,
     lastFrame: frame(0),
     lastArrivalMs: 0,

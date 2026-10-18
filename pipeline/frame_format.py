@@ -12,8 +12,9 @@ This module is the Python side of five C++ definitions and must change with them
 A log file is HEADER followed by {tag byte, record} pairs; a frame message on either
 transport is HEADER followed by exactly one such pair (FTS-DD-001 section 9). The one
 message that is not a log record is the session status, nineteen bytes under its own magic
-(SESSION below): the run mode, whether the stream has ended and, in ADS-B mode, the identity
-of the aircraft the frames present, which the frames cannot say.
+(SESSION below): the run mode, the source mode of the frames (REQ-LOG-007, since status version
+3), whether the stream has ended and, in ADS-B mode, the identity of the aircraft the frames
+present, which the frames cannot say.
 A reader tells the two apart by the first four bytes and never finds a status in a file. The C++ side
 writes the structs' in-memory bytes verbatim, so the formats here use '@':
 native byte order and native alignment. Format version 2 named every byte the compiler used to
@@ -97,8 +98,8 @@ RUN_MODE_NAMES = {0: "UNKNOWN", 1: "LIVE", 2: "SIMULATED", 3: "REPLAY", 4: "ADSB
 
 # The session status message (REQ-TRANS-004): src/transport/session_message.h.
 SESSION_MAGIC = b"FTSS"
-SESSION_MESSAGE_VERSION = 2                                     # kSessionMessageVersion: version 1 (eight bytes) is no longer read
-SESSION = struct.Struct("@4sBBBB3s8s")                          # 19 bytes: magic, version, mode, state, reserved, icao24, callsign
+SESSION_MESSAGE_VERSION = 3                                     # kSessionMessageVersion: versions 1 and 2 are no longer read
+SESSION = struct.Struct("@4sBBBB3s8s")                          # 19 bytes: magic, version, mode, state, source_mode, icao24, callsign
 NO_IDENTITY = bytes(11)                                         # the eleven identity bytes zero: nothing selected, or another mode
 MODE_NAMES = {1: "LIVE", 2: "SIMULATED", 3: "REPLAY", 4: "ADSB"}   # RunMode as the status names the run
 STATE_NAMES = {1: "RUNNING", 2: "ENDED"}                        # StreamState
@@ -127,11 +128,13 @@ class Header(NamedTuple):
 
 
 class SessionStatus(NamedTuple):
-    """One status message, by name: the run mode, the stream's state and, in ADS-B mode, the
-    selected aircraft's identity (REQ-SENS-009, REQ-DISP-007)."""
+    """One status message, by name: the run mode, the stream's state, in ADS-B mode the selected
+    aircraft's identity (REQ-SENS-009, REQ-DISP-007), and the source mode of the frames
+    (REQ-LOG-007): the run mode, except in a replay, which names its recording's."""
     mode: str                                 # LIVE, SIMULATED, REPLAY or ADSB
     state: str                                # RUNNING or ENDED
     identity: tuple[str, str] | None = None   # (icao24 as six hex digits, callsign stripped), or None
+    source_mode: str = "UNKNOWN"              # LIVE, SIMULATED, ADSB, or UNKNOWN for a log older than version 3
 
 
 class FormatError(ValueError):
@@ -205,23 +208,25 @@ def iter_records(buf: bytes) -> Iterator[Frame | FaultEvent]:
 
 
 def parse_session(buf: bytes) -> SessionStatus:
-    """The status in `buf`, by name; a length, version, mode or state this module does not
-    know is refused, as a header it cannot read is. The identity is None when its eleven
-    bytes are zero; otherwise the address as hex digits and the callsign with its padding
+    """The status in `buf`, by name; a length, version, mode, state or source mode this module
+    does not know is refused, as a header it cannot read is. The identity is None when its
+    eleven bytes are zero; otherwise the address as hex digits and the callsign with its padding
     stripped (an aircraft without a callsign reads as an empty string, not as None)."""
     if len(buf) != SESSION.size:
         raise FormatError(f"session status of {len(buf)} bytes, expected {SESSION.size}")
-    _magic, version, mode, state, _reserved, icao24, callsign = SESSION.unpack(buf)
+    _magic, version, mode, state, source_mode, icao24, callsign = SESSION.unpack(buf)
     if version != SESSION_MESSAGE_VERSION:
         raise FormatError(f"session status version {version}; this module reads {SESSION_MESSAGE_VERSION}")
     if mode not in MODE_NAMES:
         raise FormatError(f"session status mode {mode} is not one this module names")
     if state not in STATE_NAMES:
         raise FormatError(f"session status state {state} is not one this module names")
+    if source_mode not in RUN_MODE_NAMES:   # UNKNOWN is a source mode a replay may name; the run mode never is
+        raise FormatError(f"session status source mode {source_mode} is not one this module names")
     identity = None
     if icao24 + callsign != NO_IDENTITY:
         identity = (icao24.hex(), callsign.decode("ascii", "replace").rstrip(" \0"))
-    return SessionStatus(MODE_NAMES[mode], STATE_NAMES[state], identity)
+    return SessionStatus(MODE_NAMES[mode], STATE_NAMES[state], identity, RUN_MODE_NAMES[source_mode])
 
 
 def parse_message(buf: bytes) -> Frame | FaultEvent | SessionStatus:

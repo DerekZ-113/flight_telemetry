@@ -263,7 +263,8 @@ TEST(UdpPublisherTest, PortUnreachableIsCountedNotThrown) {
     refused = false;
     for (int attempt = 0; attempt < 300 && !refused; attempt++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        refused = !publisher.publish_status(RunMode::SIMULATED, StreamState::RUNNING, SessionIdentity{});
+        refused = !publisher.publish_status(
+            SessionStatus{RunMode::SIMULATED, RunMode::SIMULATED, StreamState::RUNNING, SessionIdentity{}});
     }
     ASSERT_TRUE(refused) << "the kernel never reported the unreachable port to the status send";
     EXPECT_EQ(publisher.stats().send_failures, 2u);
@@ -323,12 +324,12 @@ TEST(UdpPublisherTest, StatusDatagramIsNineteenBytes) {
     UdpPublisher publisher(kLoopback, receiver.port());
     ASSERT_TRUE(publisher.ok());
 
-    ASSERT_TRUE(publisher.publish_status(RunMode::SIMULATED, StreamState::ENDED, SessionIdentity{}));
+    const SessionStatus status{RunMode::SIMULATED, RunMode::SIMULATED, StreamState::ENDED, SessionIdentity{}};
+    ASSERT_TRUE(publisher.publish_status(status));
 
     std::vector<uint8_t> datagram;
     ASSERT_EQ(receiver.receive(datagram), static_cast<ssize_t>(kSessionMessageBytes));
-    const std::array<uint8_t, kSessionMessageBytes> expected =
-        session_message(RunMode::SIMULATED, StreamState::ENDED, SessionIdentity{});
+    const std::array<uint8_t, kSessionMessageBytes> expected = session_message(status);
     EXPECT_TRUE(std::equal(datagram.begin(), datagram.end(), expected.begin()));
     EXPECT_EQ(publisher.stats().status_published, 1u);
     EXPECT_EQ(publisher.stats().published, 0u);
@@ -339,7 +340,7 @@ TEST(UdpPublisherTest, StatusDatagramIsNineteenBytes) {
 TEST(UdpPublisherTest, NotOkCountsAStatusFailure) {
     UdpPublisher publisher("not-an-address", 5556);
     ASSERT_FALSE(publisher.ok());
-    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::RUNNING, SessionIdentity{}));
+    EXPECT_FALSE(publisher.publish_status(SessionStatus{RunMode::LIVE, RunMode::LIVE, StreamState::RUNNING, SessionIdentity{}}));
     EXPECT_EQ(publisher.stats().send_failures, 1u);
     EXPECT_EQ(publisher.stats().status_published, 0u);
 }

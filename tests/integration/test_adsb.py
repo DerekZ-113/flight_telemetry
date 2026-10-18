@@ -294,9 +294,10 @@ def test_statuses_carry_the_mode_and_the_identity(adsb_run):
     assert len(adsb_run.run.frames) == CYCLES, "every datagram must arrive on the loopback for the positions below"
     assert statuses and all(s.mode == "ADSB" for _, s in statuses)
     running = [(n, s) for n, s in statuses if s.state == "RUNNING"]
-    assert running[0] == (0, SessionStatus("ADSB", "RUNNING", ("000001", "TEST001"))), "the first poll's aircraft before frame 0"
+    assert running[0] == (0, SessionStatus("ADSB", "RUNNING", ("000001", "TEST001"), "ADSB")), \
+        "the first poll's aircraft before frame 0"
     switch = first_frame_with(frames, B)
-    assert (switch, SessionStatus("ADSB", "RUNNING", ("000002", "TEST002"))) in running, \
+    assert (switch, SessionStatus("ADSB", "RUNNING", ("000002", "TEST002"), "ADSB")) in running, \
         "a status with the new identity before the first frame that carries it"
     assert all(s.identity == ("000001", "TEST001") for n, s in running if n < switch)
     assert all(s.identity == ("000002", "TEST002") for n, s in running if n >= switch)
@@ -361,7 +362,10 @@ def test_replay_reproduces_the_records_and_names_no_identity(telemetry_bin, adsb
     assert "run mode ADSB, source mode ADSB" in rerun.stdout, rerun.stdout[:600]
     assert "an ADS-B recording by its header" in rerun.stdout, "the replay takes the ADS-B channel timeout"
     assert_replay_identical(cwd / "logs" / "replay_000.bin", adsb_run.run.log)
-    assert rerun.statuses and all(s.mode == "REPLAY" and s.identity is None for _, s in rerun.statuses)
+    # REPLAY with no identity, and since status version 3 the recording's source mode from its header,
+    # which is what lets a page label the replay's datum and attribution (REQ-DISP-007).
+    assert rerun.statuses and all(s.mode == "REPLAY" and s.identity is None and s.source_mode == "ADSB"
+                                  for _, s in rerun.statuses)
     assert [n for n, s in rerun.statuses if s.state == "ENDED"] == [len(rerun.frames)] * ENDED_REPEATS
     assert rerun.frames and all(f.baro_status == NOT_AVAILABLE and f.imu_status == NOT_AVAILABLE for f in rerun.frames)
     assert "ADS-B:" not in rerun.stdout.split("Replay input:")[1].split("\n", 1)[1][:200]

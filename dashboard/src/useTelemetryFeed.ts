@@ -177,7 +177,12 @@ function applyMessage(state: FeedInternal, message: BridgeMessage, nowMs: number
       );
     }
     case "session": {
-      const session: Session = { mode: message.mode, state: message.state, identity: message.identity ?? null };
+      const session: Session = {
+        mode: message.mode,
+        state: message.state,
+        identity: message.identity ?? null,
+        source_mode: message.source_mode,
+      };
       const ended = session.state === "ENDED";
       // An end closes the lag origin: the next frame is a new session's
       // first. The trail stays drawn until that frame arrives. A new

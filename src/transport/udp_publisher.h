@@ -59,7 +59,7 @@ public:
 
     // The nineteen-byte session status (REQ-TRANS-004) as one datagram,
     // counted apart from frames.
-    bool publish_status(RunMode mode, StreamState state, const SessionIdentity& identity) override;
+    bool publish_status(const SessionStatus& status) override;
 
     const PublishStats& stats() const override { return stats_; }
 

@@ -7,12 +7,14 @@
 // flagged or stale value on screen, struck through; the instruments remove
 // it under a flag (FTS-DS-001 §8). No coordinate anywhere, by construction:
 // the bridge sends a position relative to the first fix and nothing else.
-// In ADS-B mode the view ends with the attribution the data license
-// requires (REQ-DISP-007, FTS-DS-001 §8).
+// Whenever the frames came from the ADS-B source, live or replayed, the view
+// ends with the attribution the data license requires (REQ-DISP-007,
+// FTS-DS-001 §8): a replayed recording shows the network's data as much as a
+// live run does.
 import type { JSX } from "react";
 
 import { badgeFor } from "./badge";
-import { CHANNELS, COMPUTED_FIELDS, stripLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
+import { CHANNELS, COMPUTED_FIELDS, adsbSource, stripLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
 import { GroundTrackPlot } from "./pfd/GroundTrackPlot";
 import { instrumentState, trackShown } from "./pfd/instrumentState";
 import { Pfd } from "./pfd/Pfd";
@@ -143,7 +145,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
         })}
       </section>
 
-      {feed.session?.mode === "ADSB" ? (
+      {adsbSource(feed.session) ? (
         <footer className="attribution" data-testid="attribution">
           Traffic data: The OpenSky Network (opensky-network.org)
         </footer>

@@ -20,8 +20,8 @@
 // The session status (REQ-TRANS-004) travels the same way: publish_status
 // sends the nineteen bytes of session_message through the same socket a
 // frame goes through, counted apart from frames, so a consumer can tell the
-// mode of the data, the end of the stream and the aircraft an ADS-B run
-// presents, which the frames cannot say.
+// mode of the run and of the data, the end of the stream and the aircraft an
+// ADS-B run presents, which the frames cannot say.
 
 struct PublishStats {
     uint64_t published = 0;       // frames the transport accepted
@@ -40,7 +40,7 @@ public:
 
     // Hands one session status to the transport and returns at once
     // (REQ-TRANS-004). false means it was not sent; counted like a frame.
-    virtual bool publish_status(RunMode mode, StreamState state, const SessionIdentity& identity) = 0;
+    virtual bool publish_status(const SessionStatus& status) = 0;
 
     virtual const PublishStats& stats() const = 0;
 };

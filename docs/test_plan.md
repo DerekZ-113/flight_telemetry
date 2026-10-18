@@ -1045,7 +1045,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-DISP-007, REQ-DISP-004, REQ-DISP-001 (also exercises REQ-DISP-005 and REQ-FAULT-007)
 - **Level:** Integration (steps 1 through 3: `tests/integration/test_bridge.py`), Page (steps 4 through 9: `dashboard/src/pfd/Pfd.test.tsx`, `AltitudeTape.test.tsx`, `useTelemetryFeed.test.ts`, `App.test.tsx`, the instrument tests; Vitest with jsdom)
-- **Objective:** Verify that the identity reaches the page in every session message and in `hello`, that the plot's origin and the trail start over when it changes, that the bridge withholds it on request, that the page shows `ADS-B` plain with the identity after it and never as LIVE, says `ID UNAVAILABLE` in a replay of an ADS-B recording and nothing in any other replay, names the altitude datum whenever the source mode is ADS-B, attributes the data in ADS-B mode only, and shows the no-source flag for a channel the source does not provide.
+- **Objective:** Verify that the identity reaches the page in every session message and in `hello`, that the plot's origin and the trail start over when it changes, that the bridge withholds it on request, that the page shows `ADS-B` plain with the identity after it and never as LIVE, says `ID UNAVAILABLE` in a replay of an ADS-B recording and nothing in any other replay, names the altitude datum whenever the source mode is ADS-B, attributes the data whenever the source mode is ADS-B, live or replayed, and in no other mode, and shows the no-source flag for a channel the source does not provide.
 - **Preconditions:** The bridge fed from a list as in TC-022; the page's fake socket and fake clock; `testMessages.session()` extended with an identity.
 - **Steps:**
   1. Feed an ADSB status with an identity, frames with fresh fixes, a status with another identity, a frame with a fresh fix; connect a client and read `hello`.
@@ -1054,7 +1054,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   4. Render the panel with an ADSB status and an identity; with an ADSB status and none; with an identity whose callsign is empty; with a REPLAY status (since status version 3, one whose source mode is ADSB and one whose source mode is SIMULATED); with LIVE and with SIM.
   5. Deliver two fresh fixes under one identity, a status with another, then one fresh fix; deliver a status repeating the identity, then a fix.
   6. Render the altitude tape in ADS-B mode and in SIM; since status version 3, in REPLAY with the source mode ADSB and with SIMULATED.
-  7. Render the page in ADS-B mode and in the three other modes; search for the attribution text.
+  7. Render the page in ADS-B mode and in the three other modes; since status version 3, in REPLAY with the source mode ADSB and with SIMULATED; search for the attribution text each time.
   8. Render the attitude indicator with the IMU NOT_AVAILABLE; GS and TRK with the GPS NOT_AVAILABLE.
   9. The existing mode tests of TC-022 and TC-023.
 - **Expected result:**
@@ -1067,7 +1067,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 4 | `ADS-B · TEST001` plain, not boxed, "LIVE" absent from the panel; `ADS-B · ---`; `ADS-B · 000001`; `REPLAY · ID UNAVAILABLE` boxed (since status version 3, for the ADS-B recording only, and `REPLAY` alone for the simulator's); `LIVE` and `SIM` with nothing after them |
   | 5 | the trail cleared and started again with the one fix; the trail kept |
   | 6 | `ft HAE`; `ft`; `ft HAE`; `ft` |
-  | 7 | `Traffic data: The OpenSky Network` present in ADS-B mode only |
+  | 7 | `Traffic data: The OpenSky Network` present whenever the source mode is ADSB, live or replayed, and in no other mode |
   | 8 | the no-source flag naming the instrument, an outline and not red, no cause in the strip, the value gone |
   | 9 | unchanged |
 
@@ -1116,7 +1116,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 13 | exit 0; "format version 2" on stdout; the replay log version 3 with run mode REPLAY and source mode UNKNOWN; raw fields equal, sequence 0, tail zero; exit 1 naming "format version 4" and "reads 1 to 3", nothing written |
   | 14 | the bit set on exactly the frames the selection record's timestamps name; on each the fused altitude equal to the GPS altitude and the vertical speed 0, NORMAL; the two fields the script's values with their bits; source mode ADSB on every status; the replay's statuses mode REPLAY with source mode ADSB, the log's records byte-identical and its header REPLAY over ADSB |
   | 15 | `{"type":"session","mode":"REPLAY","source_mode":"ADSB",...}`; `hello`'s `session` carrying `source_mode` |
-  | 16 | `REPLAY · ID UNAVAILABLE` boxed with `ft HAE`; `REPLAY` alone with `ft`; `ADS-B · TEST001` plain with `ft HAE` |
+  | 16 | `REPLAY · ID UNAVAILABLE` boxed with `ft HAE` and the attribution; `REPLAY` alone with `ft` and no attribution; `ADS-B · TEST001` plain with `ft HAE` and the attribution |
   | 17 | in every frame, the first 104 bytes equal the reference's except at offsets 52 to 55 (the sequence, the frame's index) and 103 (`08`, the FIX_QUALITY bit); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00`; every event identical; the two hashes recorded |
 
 - **Pass/fail:** Steps 1 through 16 exact as listed. A byte of a version-2 field that moved, an older file refused or misread, a version accepted outside 1 to 3, a mode inferred from a frame, a sequence the loop assigned, a filter that carried an estimate across a flagged frame, a presence bit set over a field that was absent or clear over one that was present, or a replayed ADS-B recording labelled `ft` fails. Step 17 is recorded in FTS-VR-001 Entry 19; any difference beyond those listed fails.

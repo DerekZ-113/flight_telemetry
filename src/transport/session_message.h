@@ -18,19 +18,26 @@
 //
 // Nineteen bytes under a magic of their own:
 //
-//   "FTSS" | version (2) | mode | state | reserved (0) | icao24 (3) | callsign (8)
+//   "FTSS" | version (3) | mode | state | source mode | icao24 (3) | callsign (8)
+//
+// The source mode (REQ-LOG-007, since version 3 in the byte version 2
+// reserved) is how the frames were originally produced: the run mode, except
+// in a replay, where main reads it from the input's header, UNKNOWN for a log
+// older than format version 3. A page labels a replayed ADS-B recording's
+// identity, datum and attribution by it, the properties of the data rather
+// than of the run.
 //
 // The identity is the selected aircraft's ICAO address as three bytes and
 // its callsign as eight ASCII bytes padded with spaces, all eleven zero
 // when nothing is selected and in every other mode. A reader dispatches on
 // the first four bytes: "FTLG" is a frame message, "FTSS" a status,
 // anything else is refused as before. The status is not a log record and
-// is never logged: the log's prefix says replay and its end is its end, so
-// the log format and the frame message are unchanged and the format
-// version stays at 2 (FTS-DD-001 section 9). The version byte lets the
+// is never logged: the log's header says how it was recorded (REQ-LOG-007)
+// and its end is its end (FTS-DD-001 section 9). The version byte lets the
 // status grow on its own: version 2 since 2026-10-15, with the identity;
-// version 1, eight bytes, is no longer read, because nothing persists a
-// status and a mismatched pair should fail by name.
+// version 3 the same day, with the source mode; earlier versions are no
+// longer read, because nothing persists a status and a mismatched pair
+// should fail by name.
 //
 // Cadence (main.cpp): RUNNING before the first frame, at least once per
 // second after it, and at once when the identity changes, because pub/sub
@@ -66,7 +73,16 @@ bool operator!=(const SessionIdentity& a, const SessionIdentity& b);
 // spaces, which is not "none".
 SessionIdentity session_identity(const std::string& icao24_hex, const std::string& callsign);
 
-constexpr uint8_t kSessionMessageVersion = 2;
+// One status as main builds it: how this session runs, how its frames were
+// produced, whether it has ended, and the aircraft an ADS-B run presents.
+struct SessionStatus {
+    RunMode mode = RunMode::UNKNOWN;          // the run's own mode; main never sends UNKNOWN
+    RunMode source_mode = RunMode::UNKNOWN;   // REQ-LOG-007: the mode the frames were produced in
+    StreamState state = StreamState::RUNNING;
+    SessionIdentity identity{};               // zero unless an ADS-B run has an aircraft selected
+};
+
+constexpr uint8_t kSessionMessageVersion = 3;
 constexpr size_t kSessionMessageBytes = 19;
 
 // At least one RUNNING status per this many milliseconds of cycles.
@@ -74,7 +90,6 @@ constexpr int kStatusIntervalMs = 1000;
 // How many times ENDED is sent after the last frame.
 constexpr int kEndedRepeats = 3;
 
-std::array<uint8_t, kSessionMessageBytes> session_message(RunMode mode, StreamState state,
-                                                          const SessionIdentity& identity);
+std::array<uint8_t, kSessionMessageBytes> session_message(const SessionStatus& status);
 
 const char* state_name(StreamState state);   // mode_name is run_mode.h's

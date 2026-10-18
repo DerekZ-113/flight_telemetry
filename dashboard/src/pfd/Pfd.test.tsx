@@ -38,19 +38,24 @@ describe("the panel's strip", () => {
     expect(mode.dataset.mode).toBe("UNKNOWN");
     expect(mode.dataset.boxed).toBe("true");
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "SIMULATED", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "SIMULATED", state: "RUNNING", identity: null, source_mode: "SIMULATED" } })} />);
     mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("SIM");
     expect(mode.dataset.boxed).toBe("true");
     expect(container.textContent).not.toMatch(/LIVE/);
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" } })} />);
     mode = screen.getByTestId("pfd-mode");
-    expect(mode.textContent).toBe("REPLAY \u00b7 ID UNAVAILABLE"); // a replay carries no identity (REQ-DISP-007)
+    expect(mode.textContent).toBe("REPLAY \u00b7 ID UNAVAILABLE"); // an ADS-B recording's replay carries no identity (REQ-DISP-007)
     expect(mode.dataset.boxed).toBe("true");
     expect(container.textContent).not.toMatch(/LIVE/);
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "SIMULATED" } })} />);
+    mode = screen.getByTestId("pfd-mode");
+    expect(mode.textContent).toBe("REPLAY"); // a replayed simulator run never had an identity to lose
+    expect(mode.dataset.boxed).toBe("true");
+
+    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null, source_mode: "LIVE" } })} />);
     mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("LIVE");
     expect(mode.dataset.boxed).toBe("false");
@@ -102,7 +107,7 @@ describe("the panel's strip", () => {
 describe("the identity after the label", () => {
   it("shows the aircraft after ADS-B, plain and never LIVE, dashes with none, ID UNAVAILABLE after REPLAY, nothing after LIVE and SIM", () => {
     const { rerender, container } = render(
-      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001 } })} />,
+      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001, source_mode: "ADSB" } })} />,
     );
     let mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("ADS-B \u00b7 TEST001");
@@ -111,29 +116,35 @@ describe("the identity after the label", () => {
     expect(container.textContent).not.toMatch(/LIVE/);
 
     const nameless = { icao24: "a1b2c3", callsign: "" };
-    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: nameless } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: nameless, source_mode: "ADSB" } })} />);
     expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 a1b2c3");
-    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: null, source_mode: "ADSB" } })} />);
     expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 ---");
 
-    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" } })} />);
     mode = screen.getByTestId("pfd-mode");
     expect(mode.textContent).toBe("REPLAY \u00b7 ID UNAVAILABLE");
     expect(mode.dataset.boxed).toBe("true");
-    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null } })} />);
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "UNKNOWN" } })} />);
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("REPLAY"); // a log older than format version 3: nothing to say
+    rerender(<Pfd feed={runningFeed({ session: { mode: "LIVE", state: "RUNNING", identity: null, source_mode: "LIVE" } })} />);
     expect(screen.getByTestId("pfd-mode").textContent).toBe("LIVE");
     rerender(<Pfd feed={runningFeed()} />);
     expect(screen.getByTestId("pfd-mode").textContent).toBe("SIM");
   });
 
-  it("labels the altitude tape ft HAE in ADS-B mode and ft otherwise", () => {
+  it("labels the altitude tape ft HAE whenever the source mode is ADS-B, live or replayed, and ft otherwise", () => {
     const { rerender, container } = render(
-      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001 } })} />,
+      <Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: TEST001, source_mode: "ADSB" } })} />,
     );
-    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft HAE");
+    const unit = (): string | null | undefined => container.querySelector('[data-testid="alt-unit"]')?.textContent;
+    expect(unit()).toBe("ALT ft HAE");
     rerender(<Pfd feed={runningFeed()} />);
-    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft");
-    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null } })} />);
-    expect(container.querySelector('[data-testid="alt-unit"]')?.textContent).toBe("ALT ft");
+    expect(unit()).toBe("ALT ft");
+    // The datum is a property of the data, not of the run (TC-031 step 16).
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" } })} />);
+    expect(unit()).toBe("ALT ft HAE");
+    rerender(<Pfd feed={runningFeed({ session: { mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "SIMULATED" } })} />);
+    expect(unit()).toBe("ALT ft");
   });
 });

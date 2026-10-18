@@ -30,7 +30,8 @@ stay on timestamps until the voter consumes it (FTS-DD-001 Section 12). The
 UDP mode is standard library only, so it runs on the Pi without pyzmq.
 
 The session status (REQ-TRANS-004) rides the same socket: the binary says which
-mode its frames are in (LIVE, SIMULATED, REPLAY, ADSB) before the first frame,
+mode it runs in (LIVE, SIMULATED, REPLAY, ADSB) and, since status version 3, the
+mode its frames were produced in (a replay names its recording's) before the first frame,
 about once a second after it and at once when the aircraft an ADS-B run
 presents changes, and says ENDED after the last. The receiver reads it like
 any record, keeps the latest in `session`, prints it with the aircraft's
@@ -234,6 +235,8 @@ def format_identity(identity: tuple[str, str] | None) -> str:
 
 def format_session(status: SessionStatus) -> str:
     line = f"session: mode={status.mode} state={status.state}"
+    if status.source_mode != status.mode:   # a replay's: the recording's source (REQ-LOG-007)
+        line += f" source={status.source_mode}"
     if status.mode == "ADSB":
         line += f" aircraft={format_identity(status.identity)}"
     return line
@@ -296,6 +299,8 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             pass
         session = (f"session {receiver.session.mode} {receiver.session.state.lower()}"
+                   + (f" source {receiver.session.source_mode}"
+                      if receiver.session.source_mode != receiver.session.mode else "")
                    + (f" aircraft {format_identity(receiver.session.identity)}" if receiver.session.mode == "ADSB" else "")
                    if receiver.session is not None else "no session status received")
         print(f"received {receiver.received} frames, gaps {receiver.gaps} frames, "

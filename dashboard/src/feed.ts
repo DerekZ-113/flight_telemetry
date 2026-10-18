@@ -12,6 +12,10 @@
 export type ValidityName = "NOT_JUDGED" | "NO_COMPUTED_DATA" | "FAILURE_WARNING" | "NORMAL";
 export type StatusName = "NOMINAL" | "DEGRADED" | "NO_DATA" | "NOT_AVAILABLE";
 export type RunMode = "LIVE" | "SIMULATED" | "REPLAY" | "ADSB";
+// How the frames were produced (REQ-LOG-007): the run's own mode, except in a
+// replay, which names its recording's; UNKNOWN for a log older than format
+// version 3, whose source nobody recorded.
+export type SourceMode = RunMode | "UNKNOWN";
 export type StreamState = "RUNNING" | "ENDED";
 
 export const COMPUTED_FIELDS = [
@@ -97,6 +101,7 @@ export interface Session {
   mode: RunMode;
   state: StreamState;
   identity: Identity | null;
+  source_mode: SourceMode; // since status version 3
 }
 
 export interface SessionMessage extends Session {
@@ -170,12 +175,20 @@ export function sameIdentity(a: Identity | null, b: Identity | null): boolean {
   return a.icao24 === b.icao24 && a.callsign === b.callsign;
 }
 
+// Whether the frames came from the ADS-B source, live or replayed
+// (REQ-LOG-007): the tape's datum, a replay's identity statement and the
+// data license's attribution follow the data, not the run (REQ-DISP-007).
+export function adsbSource(session: Session | null): boolean {
+  return session?.source_mode === "ADSB";
+}
+
 // What follows the mode label (REQ-DISP-007, FTS-DS-001 §5): in ADS-B mode
 // the aircraft the instruments show, its callsign, or its address when no
-// callsign is reported, or dashes when none is selected (or hidden); in
-// REPLAY mode a statement that the identity is unavailable, because a
-// replay carries none and a blank would read as "none selected"; nothing
-// after LIVE and SIM, which are own-ship.
+// callsign is reported, or dashes when none is selected (or hidden); in a
+// REPLAY of an ADS-B recording a statement that the identity is
+// unavailable, because a replay carries none and a blank would read as
+// "none selected"; nothing after any other replay, which never had an
+// identity to lose, nor after LIVE and SIM, which are own-ship.
 export function identityLabel(session: Session | null): string | null {
   if (session === null) {
     return null;
@@ -187,7 +200,7 @@ export function identityLabel(session: Session | null): string | null {
       }
       return session.identity.callsign !== "" ? session.identity.callsign : session.identity.icao24;
     case "REPLAY":
-      return "ID UNAVAILABLE";
+      return adsbSource(session) ? "ID UNAVAILABLE" : null;
     case "LIVE":
     case "SIMULATED":
       return null;

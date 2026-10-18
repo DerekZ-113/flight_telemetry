@@ -55,12 +55,14 @@ describe("useTelemetryFeed", () => {
     expect(FakeSocket.latest().url).toBe(URL);
   });
 
-  it("takes the threshold and the session from hello", () => {
+  it("takes the threshold and the session, its source mode with it, from hello and from a status", () => {
     const { result } = renderHook(() => useTelemetryFeed(URL, options));
-    openWithHello(hello({ mode: "REPLAY", state: "RUNNING", identity: null }, 2500));
+    openWithHello(hello({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" }, 2500));
     expect(result.current.connection).toBe("open");
     expect(result.current.staleMs).toBe(2500);
-    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING", identity: null });
+    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" });
+    deliver(session("REPLAY", "RUNNING", null, "SIMULATED"));
+    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "SIMULATED" });
   });
 
   it("marks the feed stale from its own clock and clears it on the next frame (step 11)", () => {
@@ -238,7 +240,7 @@ describe("useTelemetryFeed", () => {
 
   it("clears the trail when the identity changes and keeps it when a status repeats it", () => {
     const { result } = renderHook(() => useTelemetryFeed(URL, options));
-    openWithHello(hello({ mode: "ADSB", state: "RUNNING", identity: TEST001 }));
+    openWithHello(hello({ mode: "ADSB", state: "RUNNING", identity: TEST001, source_mode: "ADSB" }));
     expect(result.current.session?.identity).toEqual(TEST001);
     for (let i = 0; i <= 50; i++) {
       deliver({ ...frame(i), position: { east_m: i, north_m: 0 } }); // fresh on 0 and 50

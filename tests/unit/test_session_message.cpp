@@ -1,8 +1,9 @@
 // Tests for src/transport/session_message (REQ-TRANS-004, REQ-DISP-007).
-// Test card TC-021 step 1: the status is nineteen bytes under its own
-// magic, which no frame reader accepts, carrying the identity of the
-// selected aircraft or eleven zero bytes, and every mode and state has a
-// name.
+// Test cards TC-021 step 1 and TC-031 step 10: the status is nineteen bytes
+// under its own magic, which no frame reader accepts, carrying the mode,
+// the state, since version 3 the source mode of REQ-LOG-007 in the byte
+// version 2 reserved, and the identity of the selected aircraft or eleven
+// zero bytes; every mode and state has a name.
 
 #include <gtest/gtest.h>
 
@@ -14,42 +15,50 @@
 #include "logging/log_format.h"
 #include "transport/session_message.h"
 
-TEST(SessionMessageTest, BytesAreMagicVersionModeStateIdentity) {
+TEST(SessionMessageTest, BytesAreMagicVersionModeStateSourceAndIdentity) {
+    EXPECT_EQ(kSessionMessageVersion, 3);
     const std::array<uint8_t, kSessionMessageBytes> bytes =
-        session_message(RunMode::REPLAY, StreamState::RUNNING, SessionIdentity{});
+        session_message(SessionStatus{RunMode::REPLAY, RunMode::ADSB, StreamState::RUNNING, SessionIdentity{}});
     const std::array<uint8_t, kSessionMessageBytes> expected = {
         0x46, 0x54, 0x53, 0x53,   // "FTSS"
-        0x02,                     // kSessionMessageVersion
+        0x03,                     // kSessionMessageVersion
         0x03,                     // REPLAY
         0x01,                     // RUNNING
-        0x00,                     // reserved
+        0x04,                     // the source mode: the replay of an ADS-B recording
         0x00, 0x00, 0x00,         // no address
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   // no callsign: none selected
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   // no callsign: a replay carries none
     };
     EXPECT_EQ(bytes, expected);
 
-    const std::array<uint8_t, kSessionMessageBytes> with_identity =
-        session_message(RunMode::ADSB, StreamState::RUNNING, session_identity("a1b2c3", "TEST001"));
+    const std::array<uint8_t, kSessionMessageBytes> with_identity = session_message(
+        SessionStatus{RunMode::ADSB, RunMode::ADSB, StreamState::RUNNING, session_identity("a1b2c3", "TEST001")});
     const std::array<uint8_t, kSessionMessageBytes> expected_identity = {
-        0x46, 0x54, 0x53, 0x53, 0x02, 0x04, 0x01, 0x00,
+        0x46, 0x54, 0x53, 0x53, 0x03, 0x04, 0x01, 0x04,
         0xa1, 0xb2, 0xc3,
         'T', 'E', 'S', 'T', '0', '0', '1', ' ',   // space-padded to eight
     };
     EXPECT_EQ(with_identity, expected_identity);
 }
 
+// Every mode, every source mode a status can name (UNKNOWN for a replay of
+// a log older than format version 3) and every state, each in its byte.
 TEST(SessionMessageTest, EveryModeAndStateEncodes) {
     const std::array<RunMode, 4> modes = {RunMode::LIVE, RunMode::SIMULATED, RunMode::REPLAY, RunMode::ADSB};
+    const std::array<RunMode, 4> sources = {RunMode::UNKNOWN, RunMode::LIVE, RunMode::SIMULATED, RunMode::ADSB};
     const std::array<StreamState, 2> states = {StreamState::RUNNING, StreamState::ENDED};
     for (const RunMode mode : modes) {
-        for (const StreamState state : states) {
-            const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(mode, state, SessionIdentity{});
-            EXPECT_EQ(std::memcmp(bytes.data(), "FTSS", 4), 0);
-            EXPECT_EQ(bytes[4], kSessionMessageVersion);
-            EXPECT_EQ(bytes[5], static_cast<uint8_t>(mode));
-            EXPECT_EQ(bytes[6], static_cast<uint8_t>(state));
-            for (size_t i = 7; i < bytes.size(); i++) {
-                EXPECT_EQ(bytes[i], 0u) << i;
+        for (const RunMode source : sources) {
+            for (const StreamState state : states) {
+                const std::array<uint8_t, kSessionMessageBytes> bytes =
+                    session_message(SessionStatus{mode, source, state, SessionIdentity{}});
+                EXPECT_EQ(std::memcmp(bytes.data(), "FTSS", 4), 0);
+                EXPECT_EQ(bytes[4], kSessionMessageVersion);
+                EXPECT_EQ(bytes[5], static_cast<uint8_t>(mode));
+                EXPECT_EQ(bytes[6], static_cast<uint8_t>(state));
+                EXPECT_EQ(bytes[7], static_cast<uint8_t>(source));
+                for (size_t i = 8; i < bytes.size(); i++) {
+                    EXPECT_EQ(bytes[i], 0u) << i;
+                }
             }
         }
     }
@@ -81,7 +90,7 @@ TEST(SessionMessageTest, IdentityEncodesAddressAndCallsign) {
 TEST(SessionMessageTest, IsRefusedAsAFrameHeader) {
     LogFileHeader header{};
     const std::array<uint8_t, kSessionMessageBytes> bytes =
-        session_message(RunMode::SIMULATED, StreamState::ENDED, SessionIdentity{});
+        session_message(SessionStatus{RunMode::SIMULATED, RunMode::SIMULATED, StreamState::ENDED, SessionIdentity{}});
     std::memcpy(&header, bytes.data(), sizeof(header));
     EXPECT_EQ(header_problem(header), "bad magic: not a telemetry log");
 }

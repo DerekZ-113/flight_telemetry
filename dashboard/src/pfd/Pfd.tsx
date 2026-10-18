@@ -7,7 +7,7 @@
 // the tests build that state by hand.
 import type { JSX } from "react";
 
-import { COMPUTED_FIELDS, stripLabel } from "../feed";
+import { COMPUTED_FIELDS, adsbSource, stripLabel } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
 import { AltitudeTape } from "./AltitudeTape";
 import { AttitudeIndicator } from "./AttitudeIndicator";
@@ -39,10 +39,12 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   const label = stripLabel(feed.session);
   const mode = feed.session?.mode;
   const boxed = mode !== "LIVE" && mode !== "ADSB";
-  // The tape names its datum in ADS-B mode (REQ-DISP-007, FTS-DS-001 §4.2):
-  // the aircraft's altitude is a GNSS height above the WGS-84 ellipsoid, not
-  // the bench receiver's height above mean sea level.
-  const altitudeUnit = mode === "ADSB" ? "ft HAE" : "ft";
+  // The tape names its datum whenever the frames came from the ADS-B source,
+  // live or replayed (REQ-DISP-007, REQ-LOG-007, FTS-DS-001 §4.2): the
+  // aircraft's altitude is a GNSS height above the WGS-84 ellipsoid, not the
+  // bench receiver's height above mean sea level, and a replay does not
+  // change what the numbers are.
+  const altitudeUnit = adsbSource(feed.session) ? "ft HAE" : "ft";
   const pipeline =
     feed.lastFrame !== null && COMPUTED_FIELDS.some((field) => feed.lastFrame?.validity[field] === "NOT_JUDGED");
   const labelWidth = label.length * 11 + 16;

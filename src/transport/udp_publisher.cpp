@@ -83,7 +83,7 @@ bool UdpPublisher::publish(const TelemetryFrame& frame) {
     return true;
 }
 
-bool UdpPublisher::publish_status(RunMode mode, StreamState state, const SessionIdentity& identity) {
+bool UdpPublisher::publish_status(const SessionStatus& status) {
     if (!ok_) {
         stats_.send_failures++;
         return false;
@@ -91,7 +91,7 @@ bool UdpPublisher::publish_status(RunMode mode, StreamState state, const Session
 
     // Nineteen bytes under their own magic (session_message.h), one
     // datagram like a frame, never a log record.
-    const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(mode, state, identity);
+    const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(status);
     if (!send_bytes(bytes.data(), bytes.size())) {
         stats_.send_failures++;
         return false;
