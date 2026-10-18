@@ -119,7 +119,8 @@ def test_frame_is_forwarded_by_name_without_coordinates():
                                         latitude=37.5, longitude=-122.25,
                                         baro_status=0, imu_status=1, gps_status=2, imu_read_ok=False,
                                         baro_altitude_validity=3, pitch_validity=2, roll_validity=1,
-                                        fused_altitude_validity=0, vertical_speed_validity=3))
+                                        fused_altitude_validity=0, vertical_speed_validity=3,
+                                        flags=0x06, gps_vertical_rate_mps=-3.5, gps_pressure_altitude_m=450.0))
                 message = await recv_json(ws)
             assert bridge.forwarded == 1
         return message
@@ -131,6 +132,11 @@ def test_frame_is_forwarded_by_name_without_coordinates():
     assert message["frame"]["pressure_hpa"] == pytest.approx(1001.5)
     assert message["frame"]["gps_altitude_m"] == pytest.approx(12.5)
     assert message["frame"]["imu_read_ok"] is False and message["frame"]["baro_read_ok"] is True
+    # The version-3 fields by name like every other (REQ-SENS-008): the ADS-B vertical rate and
+    # pressure altitude with the flags byte that says they are present.
+    assert message["frame"]["flags"] == 0x06
+    assert message["frame"]["gps_vertical_rate_mps"] == pytest.approx(-3.5)
+    assert message["frame"]["gps_pressure_altitude_m"] == pytest.approx(450.0)
     assert message["validity"] == {"baro_altitude_m": "NORMAL", "pitch_deg": "FAILURE_WARNING",
                                    "roll_deg": "NO_COMPUTED_DATA", "fused_altitude_m": "NOT_JUDGED",
                                    "vertical_speed_mps": "NORMAL"}

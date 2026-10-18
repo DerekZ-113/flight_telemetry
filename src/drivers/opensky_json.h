@@ -32,11 +32,11 @@ struct AircraftState {
     int64_t last_contact = 0;
     std::optional<double> longitude;
     std::optional<double> latitude;
-    std::optional<float> baro_altitude_m;    // the aircraft's pressure altitude; not mapped (design.md section 12)
+    std::optional<float> baro_altitude_m;    // the aircraft's pressure altitude: the frame's gps_pressure_altitude_m since format version 3
     bool on_ground = false;
     std::optional<float> velocity_mps;
     std::optional<float> true_track_deg;
-    std::optional<float> vertical_rate_mps;  // positive climbing; not mapped (design.md section 12)
+    std::optional<float> vertical_rate_mps;  // positive climbing: the frame's gps_vertical_rate_mps since format version 3
     std::optional<float> geo_altitude_m;     // GNSS height above the WGS-84 ellipsoid
 };
 

@@ -70,13 +70,30 @@ std::string with_time_position(const std::string& body, const std::string& icao2
     return body.substr(0, field) + std::to_string(time_position) + body.substr(comma);
 }
 
-// TEST001's vector, as the six raw fields.
+// TEST001's vector, as the raw fields: the five a reading always fills,
+// and since format version 3 the vertical rate and the pressure altitude
+// with the bits that say they are present (REQ-SENS-008).
 void expect_test001(const TelemetryFrame& f) {
     EXPECT_NEAR(f.latitude, 37.6002, 1e-9);
     EXPECT_NEAR(f.longitude, -122.3289, 1e-9);
     EXPECT_FLOAT_EQ(f.gps_altitude_m, 480.0f);
     EXPECT_FLOAT_EQ(f.ground_speed_mps, 72.0f);
     EXPECT_FLOAT_EQ(f.course_deg, 298.0f);
+    EXPECT_FLOAT_EQ(f.gps_vertical_rate_mps, -3.5f);
+    EXPECT_FLOAT_EQ(f.gps_pressure_altitude_m, 450.0f);
+    EXPECT_TRUE(has_flag(f, FrameFlag::VERTICAL_RATE));
+    EXPECT_TRUE(has_flag(f, FrameFlag::PRESSURE_ALTITUDE));
+}
+
+// The example with one field of `icao24`'s row replaced: `old` must occur in
+// that row, and is replaced there alone.
+std::string with_field(const std::string& body, const std::string& icao24, const std::string& old,
+                       const std::string& replacement) {
+    const size_t row = body.find("[\"" + icao24 + "\"");
+    EXPECT_NE(row, npos) << icao24;
+    const size_t at = body.find(old, row);
+    EXPECT_LT(at, body.find(']', row)) << old;
+    return body.substr(0, at) + replacement + body.substr(at + old.size());
 }
 
 long long elapsed_ms(std::chrono::steady_clock::time_point since) {
@@ -144,9 +161,12 @@ TEST(AdsbSourceTest, FrameIsRawOnlyWithTheAbsentChannelsNotAvailable) {
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.sequence, 1u);          // the source's count (REQ-LOG-008)
-    // The first frame carrying TEST001 says so (REQ-PROC-008), and states
-    // no fix quality: a state vector reports none (REQ-SENS-005).
-    EXPECT_EQ(f.flags, static_cast<uint8_t>(FrameFlag::NEW_VEHICLE));
+    // The first frame carrying TEST001 says so (REQ-PROC-008); its vertical
+    // rate and pressure altitude are present (REQ-SENS-008); it states no
+    // fix quality, since a state vector reports none (REQ-SENS-005).
+    EXPECT_EQ(f.flags, static_cast<uint8_t>(static_cast<uint8_t>(FrameFlag::NEW_VEHICLE) |
+                                            static_cast<uint8_t>(FrameFlag::VERTICAL_RATE) |
+                                            static_cast<uint8_t>(FrameFlag::PRESSURE_ALTITUDE)));
     EXPECT_EQ(f.gps_fix_quality, 0u);
     EXPECT_EQ(f.gps_satellites, 0u);
     EXPECT_EQ(f.voter_status, 0u);
@@ -228,6 +248,62 @@ TEST(AdsbSourceTest, NewVehicleFlagMarksTheFirstFrameOfEachAircraft) {
     EXPECT_EQ(source.identity()->icao24, "000002");
     rig.clock.advance(kPeriodNs);
     EXPECT_FALSE(has_flag(source.read_frame(), FrameFlag::NEW_VEHICLE));
+}
+
+// TC-031 step 7 (REQ-SENS-008). The broadcast's vertical rate and pressure
+// altitude are raw fields of the GPS channel, each with the bit that says
+// it is present, held with the vector between polls as the position is.
+// A vector without one leaves that field 0 and its bit clear, and the
+// other's untouched: zero is a rate, so only the bit can say "absent".
+TEST(AdsbSourceTest, VerticalRateAndPressureAltitudeAreRawFieldsWithPresenceBits) {
+    Rig rig;
+    AdsbSource source = rig.make();
+    const TelemetryFrame before = source.read_frame();
+    EXPECT_EQ(before.gps_vertical_rate_mps, 0.0f);
+    EXPECT_EQ(before.gps_pressure_altitude_m, 0.0f);
+    EXPECT_FALSE(has_flag(before, FrameFlag::VERTICAL_RATE));
+    EXPECT_FALSE(has_flag(before, FrameFlag::PRESSURE_ALTITUDE));
+
+    rig.script_token();
+    rig.script(ex::kStatesResponse);
+    source.poll_once();
+    for (int i = 0; i < 100; ++i) {                  // fresh once, then held with its bits
+        rig.clock.advance(kPeriodNs);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.gps_read_ok, i == 0) << i;
+        expect_test001(f);
+    }
+
+    // The kept aircraft's next vector lacks its vertical rate: still usable,
+    // so kept and fresh, the rate absent and the pressure altitude present.
+    std::string no_rate = with_time_position(ex::kStatesResponse, "000001", 1759999999);
+    no_rate = with_field(no_rate, "000001", "-3.5,null", "null,null");
+    rig.script(no_rate);
+    source.poll_once();
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame rateless = source.read_frame();
+    EXPECT_TRUE(rateless.gps_read_ok);
+    EXPECT_EQ(rateless.gps_vertical_rate_mps, 0.0f);
+    EXPECT_FALSE(has_flag(rateless, FrameFlag::VERTICAL_RATE));
+    EXPECT_FLOAT_EQ(rateless.gps_pressure_altitude_m, 450.0f);
+    EXPECT_TRUE(has_flag(rateless, FrameFlag::PRESSURE_ALTITUDE));
+
+    // And the next lacks its pressure altitude, the rate back.
+    std::string no_pressure = with_time_position(ex::kStatesResponse, "000001", 1760000000);
+    no_pressure = with_field(no_pressure, "000001", "37.6002,450.0,", "37.6002,null,");
+    rig.script(no_pressure);
+    source.poll_once();
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame pressureless = source.read_frame();
+    EXPECT_TRUE(pressureless.gps_read_ok);
+    EXPECT_FLOAT_EQ(pressureless.gps_vertical_rate_mps, -3.5f);
+    EXPECT_TRUE(has_flag(pressureless, FrameFlag::VERTICAL_RATE));
+    EXPECT_EQ(pressureless.gps_pressure_altitude_m, 0.0f);
+    EXPECT_FALSE(has_flag(pressureless, FrameFlag::PRESSURE_ALTITUDE));
+    rig.clock.advance(kPeriodNs);
+    const TelemetryFrame held = source.read_frame();
+    EXPECT_FALSE(held.gps_read_ok);
+    EXPECT_EQ(held.flags, pressureless.flags & static_cast<uint8_t>(~static_cast<uint8_t>(FrameFlag::NEW_VEHICLE)));
 }
 
 // REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero,

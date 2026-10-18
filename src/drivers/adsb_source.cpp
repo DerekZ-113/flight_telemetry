@@ -9,8 +9,10 @@ namespace {
 
 AdsbReading reading_of(const AircraftIdentity& identity, const opensky_json::AircraftState& state,
                        int64_t server_time) {
-    // Every optional is present: the selector keeps a state only when it
-    // is usable, which is exactly these six fields.
+    // Every optional the five fields read is present: the selector keeps a
+    // state only when it is usable, which is exactly these. The vertical
+    // rate and the pressure altitude may be absent and are carried as they
+    // came (REQ-SENS-008).
     AdsbReading reading;
     reading.identity = identity;
     reading.latitude = *state.latitude;
@@ -18,6 +20,8 @@ AdsbReading reading_of(const AircraftIdentity& identity, const opensky_json::Air
     reading.gps_altitude_m = *state.geo_altitude_m;
     reading.ground_speed_mps = *state.velocity_mps;
     reading.track_deg = *state.true_track_deg;
+    reading.vertical_rate_mps = state.vertical_rate_mps;
+    reading.pressure_altitude_m = state.baro_altitude_m;
     reading.time_position = *state.time_position;
     reading.server_time = server_time;
     return reading;
@@ -207,6 +211,18 @@ TelemetryFrame AdsbSource::read_frame() {
         frame.gps_altitude_m = held_->gps_altitude_m;
         frame.ground_speed_mps = held_->ground_speed_mps;
         frame.course_deg = held_->track_deg;
+        // The broadcast's vertical rate and pressure altitude (REQ-SENS-008,
+        // format version 3): raw readings of the same channel, each marked
+        // present, since a vector may lack either and zero is a rate. Held
+        // with the vector, so the bits describe the held vector.
+        if (held_->vertical_rate_mps.has_value()) {
+            frame.gps_vertical_rate_mps = *held_->vertical_rate_mps;
+            set_flag(frame, FrameFlag::VERTICAL_RATE);
+        }
+        if (held_->pressure_altitude_m.has_value()) {
+            frame.gps_pressure_altitude_m = *held_->pressure_altitude_m;
+            set_flag(frame, FrameFlag::PRESSURE_ALTITUDE);
+        }
     }
     frame.gps_read_ok = fresh;
 

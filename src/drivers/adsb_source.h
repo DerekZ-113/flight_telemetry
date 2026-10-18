@@ -32,8 +32,11 @@
 // their fields zero, never fresh, and NOT_AVAILABLE on every frame
 // (REQ-FAULT-007), the one status a source asserts. A pressure derived
 // from the reported altitude would be a fabrication posing as a
-// measurement, and the pressure altitude and the vertical rate the vector
-// carries have no raw field until the next format version.
+// measurement. The pressure altitude and the vertical rate the vector
+// carries are raw fields of their own since format version 3, each with a
+// presence bit (REQ-SENS-008): a vector may lack either, and zero is a
+// rate. Nothing consumes them yet; the vertical rate is Phase B's third
+// measurement.
 //
 // Sample-and-hold (REQ-SENS-010). The service answers every few seconds
 // and the loop runs at 50 Hz, so one vector serves many frames, and it is
@@ -72,8 +75,9 @@
 // No credential, token, header or body reaches a message, a counter or a
 // frame (REQ-CFG-004): a refusal names the status and the file's path.
 
-// One state vector of the selected aircraft: the six raw fields a reading
-// fills, and the times that say how old it is.
+// One state vector of the selected aircraft: the raw fields a reading
+// fills, the two the vector may lack as optionals, and the times that say
+// how old it is.
 struct AdsbReading {
     AircraftIdentity identity;
     double latitude = 0.0;
@@ -81,6 +85,8 @@ struct AdsbReading {
     float gps_altitude_m = 0.0f;      // the geometric altitude: GNSS height above the WGS-84 ellipsoid
     float ground_speed_mps = 0.0f;
     float track_deg = 0.0f;           // the track over ground: the frame's course_deg (REQ-SENS-005)
+    std::optional<float> vertical_rate_mps;     // positive climbing; the frame's gps_vertical_rate_mps (REQ-SENS-008)
+    std::optional<float> pressure_altitude_m;   // at 1013.25 hPa; the frame's gps_pressure_altitude_m (REQ-SENS-008)
     int64_t time_position = 0;        // the position's own epoch, the server's unix seconds
     int64_t server_time = 0;          // the response's time; the difference is the position's age
 };

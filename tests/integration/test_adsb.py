@@ -328,8 +328,9 @@ def test_selection_record_beside_the_log(adsb_run):
 
 # --- TC-031 step 14: each new aircraft flagged, the filter reborn on it (REQ-PROC-008) ----------
 
-NEW_VEHICLE = 0x01
-assert FLAG_NAMES[NEW_VEHICLE] == "NEW_VEHICLE"
+NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY = 0x01, 0x02, 0x04, 0x08
+assert [FLAG_NAMES[bit] for bit in (NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY)] == \
+    ["NEW_VEHICLE", "VERTICAL_RATE", "PRESSURE_ALTITUDE", "FIX_QUALITY"]
 
 
 def test_each_new_aircraft_is_flagged_and_the_filter_reborn_on_it(adsb_run):
@@ -346,6 +347,20 @@ def test_each_new_aircraft_is_flagged_and_the_filter_reborn_on_it(adsb_run):
     # Each aircraft holds its altitude in the script, so no frame reads a climb: the 250 m step from
     # TEST001 to TEST002 is a new vehicle, not ±150 m/s of vertical speed (Entry 18 §18.5).
     assert max(abs(f.vertical_speed_mps) for f in frames) < 0.1
+
+
+def test_vertical_rate_and_pressure_altitude_are_recorded_with_their_bits(adsb_run):
+    # The stand-in reports every aircraft descending at 3.5 m/s, its pressure altitude 30 m below its
+    # geometric one: both are raw fields since format version 3, present on every frame from the
+    # first, the held vector's (REQ-SENS-008, TC-031 step 14); the vector reports no fix quality.
+    frames = read_log(adsb_run.run.log).frames
+    switch = first_frame_with(frames, B)
+    for i, f in enumerate(frames):
+        aircraft = A if i < switch else B
+        assert f.flags & VERTICAL_RATE and f.flags & PRESSURE_ALTITUDE, i
+        assert f.gps_vertical_rate_mps == pytest.approx(-3.5), i
+        assert f.gps_pressure_altitude_m == pytest.approx(aircraft["geo"] - 30.0), i
+        assert not f.flags & FIX_QUALITY and (f.gps_fix_quality, f.gps_satellites) == (0, 0), i
 
 
 # --- step 16: nothing written carries the secret or the token ---------------------------------
