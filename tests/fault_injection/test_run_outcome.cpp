@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "campaign_run.h"
 #include "run_outcome.h"
@@ -198,6 +199,31 @@ TEST(OutcomeTest, EachInvariantBrokenOnceIsCounted) {
     tl.frames[40].voter_status = kVoted | kNoMajority;
     const RunOutcome o = classify(s, tl, kTiming);
     EXPECT_EQ(o.invariant_violations, 4);
+}
+
+// FTS-FI-001 Section 5.6's measures, over every frame: frames holding every
+// value under FAILURE_WARNING (one value flagged is not that), the last
+// frame's verdict, and frames that emitted a value that is not a number.
+TEST(OutcomeTest, TheValidityMeasuresAreCounted) {
+    RunSchedule s;
+    s.end_ms = 2000;
+    Timeline tl = healthy(2000);
+    ASSERT_EQ(tl.frames.size(), 100u);
+    const RunOutcome clean = classify(s, tl, kTiming);
+    EXPECT_EQ(clean.held_frames, 0);
+    EXPECT_TRUE(clean.normal_at_end);
+    EXPECT_EQ(clean.nonfinite_voted_frames, 0);
+    for (std::size_t i = 10; i < 50; i++) {
+        tl.frames[i].validity.fill(Validity::FAILURE_WARNING);
+    }
+    tl.frames[5].validity[0] = Validity::FAILURE_WARNING;
+    tl.frames[60].voted[2] = std::numeric_limits<float>::infinity();
+    tl.frames[61].voted[2] = -std::numeric_limits<float>::infinity();
+    tl.frames.back().validity[3] = Validity::FAILURE_WARNING;
+    const RunOutcome o = classify(s, tl, kTiming);
+    EXPECT_EQ(o.held_frames, 40);
+    EXPECT_FALSE(o.normal_at_end);
+    EXPECT_EQ(o.nonfinite_voted_frames, 2);
 }
 
 // The precondition: a channel not NOMINAL, or a value not NORMAL, on the

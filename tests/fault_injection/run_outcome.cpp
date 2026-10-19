@@ -189,6 +189,15 @@ RunOutcome classify(const RunSchedule& s, const Timeline& timeline, const Campai
         if (!voted || bit_count(static_cast<uint16_t>(f.voter_status & kLaneBits)) > 1 || values_nan) {
             out.invariant_violations++;
         }
+        const bool every_value_held = std::all_of(f.validity.begin(), f.validity.end(),
+                                                  [](Validity v) { return v == Validity::FAILURE_WARNING; });
+        if (every_value_held) {
+            out.held_frames++;
+        }
+        const bool any_nonfinite = std::any_of(f.voted.begin(), f.voted.end(), [](float v) { return !std::isfinite(v); });
+        if (any_nonfinite) {
+            out.nonfinite_voted_frames++;
+        }
         if (lane_cell && voted && !nm) {
             for (std::size_t v = 0; v < kComputedCount; v++) {
                 if (!same_bits(f.voted[v], f.reference[v])) {
@@ -223,5 +232,8 @@ RunOutcome classify(const RunSchedule& s, const Timeline& timeline, const Campai
         out.invariant_violations++;
     }
     out.roll_infinite_normal = roll_inf_all && saw_after_onset;
+    out.normal_at_end = !timeline.frames.empty() &&
+                        std::all_of(timeline.frames.back().validity.begin(), timeline.frames.back().validity.end(),
+                                    [](Validity v) { return v == Validity::NORMAL; });
     return out;
 }

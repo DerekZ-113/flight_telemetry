@@ -132,6 +132,7 @@ std::string csv_header() {
         r.add(std::string("err_") + name);
     }
     r.add(std::string("normal_error_frames")).add(std::string("roll_infinite_normal"));
+    r.add(std::string("held_frames")).add(std::string("normal_at_end")).add(std::string("nonfinite_voted_frames"));
     return r.str();
 }
 
@@ -204,6 +205,7 @@ std::string csv_row(const RunSchedule& s, const RunOutcome& o, const Verdict& v,
         r.add_double(e);
     }
     r.add(static_cast<int64_t>(o.normal_error_frames)).add(o.roll_infinite_normal);
+    r.add(static_cast<int64_t>(o.held_frames)).add(o.normal_at_end).add(static_cast<int64_t>(o.nonfinite_voted_frames));
     return r.str();
 }
 

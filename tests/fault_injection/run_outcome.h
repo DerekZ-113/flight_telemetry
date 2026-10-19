@@ -52,6 +52,11 @@ struct RunOutcome {
     std::array<double, kComputedCount> max_error{};
     int normal_error_frames = 0;    // frames from onset with a NORMAL value off the twin's
     bool roll_infinite_normal = false;   // every frame from onset: roll +inf, NORMAL, voted with a majority
+
+    // The validity's story over every frame of the run (FTS-FI-001 Section 5.6).
+    int held_frames = 0;                 // every computed value FAILURE_WARNING
+    bool normal_at_end = false;          // the run's last frame has every computed value NORMAL
+    int nonfinite_voted_frames = 0;      // the emitted frame carries a computed value that is NaN or infinite
 };
 
 RunOutcome classify(const RunSchedule& schedule, const Timeline& timeline, const CampaignTiming& timing);
