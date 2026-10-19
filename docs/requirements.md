@@ -3,7 +3,7 @@
 > **Document ID:** FTS-SRD-001
 > **Version:** 0.15.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-18
+> **Last Updated:** 2026-10-19
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile), FTS-FI-001 (fault-injection report)
 
 ## Conventions
@@ -130,7 +130,7 @@ REQ-RED-002: On every cycle the voter shall compare the outputs of the lanes in 
 
 REQ-RED-003: A lane in the vote that is outside the majority on 3 consecutive cycles on which a majority exists shall be excluded from the vote until the system restarts and named in the voter status of every later frame. The voter shall log one event when a lane first falls outside the majority and one when it is excluded.
 
-> **Rationale:** the vote masks a wrong lane on every frame; the count decides only when to stop trusting it, separating a one-cycle upset in a lane's output, which leaves its state intact, from damage to its state, which a filter carries forward. One would discard a healthy lane for good after a single upset; a larger count leaves a damaged lane in the vote longer, giving a second fault longer to leave no majority. Three is stated here, a named constant and not a key (REQ-CFG-001), so every recorded configuration still replays; FTS-DD-001 Section 12 records why three, and the sweep of the fault-injection campaign (REQ-TEST-005, FTS-FI-001) is its evidence. Only cycles with a majority count, in either direction: without one nothing says which lane is wrong, and blaming none keeps at least two lanes in the vote. A lane is not readmitted.
+> **Rationale:** the vote masks a wrong lane on every frame; the count decides only when to stop trusting it, separating a one-cycle upset in a lane's output, which leaves its state intact, from damage to its state, which a filter carries forward. One would discard a healthy lane for good after a single upset; a larger count leaves a damaged lane in the vote longer, where an identical second fault arriving within the count joins it in a wrong majority that outvotes and excludes the healthy lane, the more often the larger the count, while two different faults leave no majority at any count (FTS-FI-001 Section 6.5). Three is stated here, a named constant and not a key (REQ-CFG-001), so every recorded configuration still replays; FTS-DD-001 Section 12 records why three, with the trade the fault-injection campaign's sweep measured (REQ-TEST-005, FTS-FI-001). Only cycles with a majority count, in either direction: without one nothing says which lane is wrong, and blaming none keeps at least two lanes in the vote. A lane is not readmitted.
 
 REQ-RED-004: (a) With one lane excluded, the voter shall continue on the remaining two while they agree, as REQ-RED-002 states. (b) When no majority exists, the remaining two lanes disagreeing or no two of three agreeing, the voter shall output the checked frame with NO_MAJORITY in its voter status and each computed field holding its last voted value with validity FAILURE_WARNING, or 0 with NO_COMPUTED_DATA where its last voted validity is NO_COMPUTED_DATA or none has been voted since start or since the last new-vehicle frame (REQ-PROC-008); it shall log one event when the condition begins, and processing shall continue.
 
