@@ -7,9 +7,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -907,4 +909,151 @@ TEST(FaultDetectionTest, NotAvailableChannelIsLeftAloneWithNoEvent) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].channel, Channel::BARO);
     EXPECT_EQ(events[0].type, FaultType::COMM_TIMEOUT);
+}
+
+// ---------------------------------------------------------------------------
+// The field modes the fault-injection campaign needs (REQ-TEST-005): one
+// raw field held, replaced or offset while the rest of its channel passes
+// through. Each is checked against a twin simulator with the same seed, so
+// the fields the mode must not touch are compared bit for bit.
+// ---------------------------------------------------------------------------
+
+// FAULT-006 on one axis: the held field repeats its value from the frame
+// before the hold, the channel's other axes and read flag go on, and a
+// release returns the live value.
+TEST(FaultInjectingSourceTest, HoldFieldRepeatsTheFrameBeforeTheHold) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    SimulatedSource twin(kDtMs, 42);
+    const TelemetryFrame before = source.read_frame();
+    twin.read_frame();
+    source.hold_field(RawField::ACCEL_X, true);
+    for (int i = 0; i < 5; i++) {
+        const TelemetryFrame held = source.read_frame();
+        const TelemetryFrame live = twin.read_frame();
+        EXPECT_EQ(held.accel_x, before.accel_x);
+        EXPECT_NE(held.accel_x, live.accel_x);
+        EXPECT_EQ(held.accel_y, live.accel_y);
+        EXPECT_EQ(held.gyro_z, live.gyro_z);
+        EXPECT_TRUE(held.imu_read_ok);
+        EXPECT_EQ(held.sequence, live.sequence);
+    }
+    source.hold_field(RawField::ACCEL_X, true);   // already held: the value is not taken again
+    EXPECT_EQ(source.read_frame().accel_x, before.accel_x);
+    twin.read_frame();
+    source.hold_field(RawField::ACCEL_X, false);
+    EXPECT_EQ(source.read_frame().accel_x, twin.read_frame().accel_x);
+}
+
+// A hold set before the first frame has no frame before it, so it holds
+// the first frame's own value.
+TEST(FaultInjectingSourceTest, HoldFieldBeforeTheFirstFrameHoldsThatFrame) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    source.hold_field(RawField::GYRO_Z, true);
+    const TelemetryFrame first = source.read_frame();
+    EXPECT_EQ(source.read_frame().gyro_z, first.gyro_z);
+    EXPECT_EQ(source.read_frame().gyro_z, first.gyro_z);
+}
+
+// FAULT-008 to FAULT-010 and FAULT-024: any one raw field replaced by a
+// constant, an infinity and a NaN included, until cleared.
+TEST(FaultInjectingSourceTest, OverrideFieldReplacesOneRawField) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    SimulatedSource twin(kDtMs, 42);
+    source.override_field(RawField::TEMPERATURE, 150.0f);
+    source.override_field(RawField::GYRO_X, std::numeric_limits<float>::infinity());
+    source.override_field(RawField::GPS_ALTITUDE, std::numeric_limits<float>::quiet_NaN());
+    source.override_field(RawField::ACCEL_Z, Mpu6050::kAccelNegativeRailMps2);
+    const TelemetryFrame out = source.read_frame();
+    const TelemetryFrame live = twin.read_frame();
+    EXPECT_EQ(out.temperature_c, 150.0f);
+    EXPECT_TRUE(std::isinf(out.gyro_x));
+    EXPECT_TRUE(std::isnan(out.gps_altitude_m));
+    EXPECT_EQ(out.accel_z, Mpu6050::kAccelNegativeRailMps2);
+    EXPECT_EQ(out.pressure_hpa, live.pressure_hpa);
+    EXPECT_EQ(out.gyro_y, live.gyro_y);
+    source.clear_override(RawField::TEMPERATURE);
+    source.clear_override(RawField::GYRO_X);
+    source.clear_override(RawField::GPS_ALTITUDE);
+    source.clear_override(RawField::ACCEL_Z);
+    const TelemetryFrame cleared = source.read_frame();
+    const TelemetryFrame live2 = twin.read_frame();
+    EXPECT_EQ(cleared.temperature_c, live2.temperature_c);
+    EXPECT_EQ(cleared.gyro_x, live2.gyro_x);
+    EXPECT_EQ(cleared.gps_altitude_m, live2.gps_altitude_m);
+    EXPECT_EQ(cleared.accel_z, live2.accel_z);
+}
+
+// The pressure override is the field override of PRESSURE: one mechanism,
+// so clearing either clears it.
+TEST(FaultInjectingSourceTest, PressureOverrideIsTheFieldOverride) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    source.override_pressure(200.0f);
+    EXPECT_EQ(source.read_frame().pressure_hpa, 200.0f);
+    source.clear_override(RawField::PRESSURE);
+    EXPECT_NE(source.read_frame().pressure_hpa, 200.0f);
+    source.override_field(RawField::PRESSURE, 250.0f);
+    EXPECT_EQ(source.read_frame().pressure_hpa, 250.0f);
+    source.clear_pressure_override();
+    EXPECT_NE(source.read_frame().pressure_hpa, 250.0f);
+}
+
+// FAULT-023: a bias step adds a constant to the live value and a drift a
+// rate times the time since its first frame, every reading still varying.
+TEST(FaultInjectingSourceTest, BiasFieldAddsAStepOrADrift) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    SimulatedSource twin(kDtMs, 42);
+    source.bias_field(RawField::PRESSURE, 2.5f, 0.0f);
+    source.bias_field(RawField::ACCEL_Y, 0.0f, 0.5f);
+    for (int i = 0; i < 10; i++) {
+        const TelemetryFrame out = source.read_frame();
+        const TelemetryFrame live = twin.read_frame();
+        EXPECT_NEAR(out.pressure_hpa - live.pressure_hpa, 2.5f, 1e-3f);
+        EXPECT_NEAR(out.accel_y - live.accel_y, 0.5f * static_cast<float>(i) * 0.02f, 1e-6f) << "frame " << i;
+        EXPECT_EQ(out.accel_x, live.accel_x);
+    }
+    source.clear_bias(RawField::PRESSURE);
+    source.clear_bias(RawField::ACCEL_Y);
+    const TelemetryFrame out = source.read_frame();
+    const TelemetryFrame live = twin.read_frame();
+    EXPECT_EQ(out.pressure_hpa, live.pressure_hpa);
+    EXPECT_EQ(out.accel_y, live.accel_y);
+}
+
+// An override is applied last, so it wins over a hold or a bias of the
+// same field; a channel's failed read still holds its fields as before.
+TEST(FaultInjectingSourceTest, OverrideWinsOverHoldAndBias) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    source.read_frame();
+    source.hold_field(RawField::PRESSURE, true);
+    source.bias_field(RawField::PRESSURE, 1.0f, 0.0f);
+    source.override_field(RawField::PRESSURE, 999.0f);
+    EXPECT_EQ(source.read_frame().pressure_hpa, 999.0f);
+}
+
+// The campaign's stuck axis through the detector: one held gyroscope axis,
+// the axis the attitude filter ignores, trips STUCK on the IMU on the
+// ninth held frame, 160 ms after the hold began (FAULT-007, REQ-FAULT-002).
+TEST(FaultDetectionTest, StuckAxisViaInjector) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42));
+    FaultDetector d;
+    for (int i = 0; i < 100; i++) {
+        d.check(source.read_frame());
+    }
+    source.hold_field(RawField::GYRO_Z, true);
+    uint64_t onset = 0;
+    uint64_t degraded_at = 0;
+    for (int i = 0; i < 20 && degraded_at == 0; i++) {
+        const TelemetryFrame f = source.read_frame();
+        if (onset == 0) {
+            onset = f.timestamp_ms;
+        }
+        if (d.check(f).imu_status == ChannelStatus::DEGRADED) {
+            degraded_at = f.timestamp_ms;
+        }
+    }
+    EXPECT_EQ(degraded_at - onset, 160u);
+    const std::vector<FaultEvent> events = d.take_events();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].channel, Channel::IMU);
+    EXPECT_EQ(events[0].type, FaultType::STUCK);
 }
