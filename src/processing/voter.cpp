@@ -127,7 +127,11 @@ TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<Telem
     // A new vehicle (REQ-PROC-008): every lane is reborn on this frame, so
     // the held vote is the previous vehicle's and goes; the exclusions
     // stay, a lane's health being no more the vehicle's than a channel's.
-    if (has_flag(checked, FrameFlag::NEW_VEHICLE)) {
+    // The call on a line of its own, the decision on the next: GCC gives
+    // the call an unwind edge, which a marker would remove together with
+    // the decision (FTS-VR-001 Entry 11 §11.7, Entry 20 §20.7).
+    const bool new_vehicle = has_flag(checked, FrameFlag::NEW_VEHICLE);
+    if (new_vehicle) {
         clear_held();
     }
 
@@ -164,7 +168,7 @@ TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<Telem
         degrade(out);
         if (!in_no_majority_) {
             in_no_majority_ = true;
-            const auto lanes_in = std::count_if(lanes_.begin(), lanes_.end(),
+            const auto lanes_in = std::count_if(lanes_.begin(), lanes_.end(),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the line makes no decision
                                                 [](const LaneState& lane) { return !lane.faulted; });
             record_event(checked.timestamp_ms, FaultType::NO_MAJORITY, static_cast<float>(lanes_in));
         }

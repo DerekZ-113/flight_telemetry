@@ -1626,7 +1626,7 @@ One correction to Entry 18, made with this record: §18.7's cppcheck row read 40
 
 ## Entry 20 — 2026-10-18, The redundancy voter: three identical processing lanes behind one detector, a majority voter, the voter's status on every frame (macOS preview)
 
-Six requirements (REQ-RED-001 to REQ-RED-006) and one for the display (REQ-DISP-008; SRD 0.13.0 → 0.14.0, 57 → 64 statements), five amended (REQ-PROC-007's statement, REQ-CFG-001's, and the rationales of REQ-LOG-003, REQ-LOG-008 and REQ-PROC-008), four fault entries (FAULT-019 to FAULT-022; FTS-FM-001 0.6.0 → 0.7.0), three test cards (TC-032 to TC-034) and five amended (TC-004, TC-009, TC-017, TC-026, TC-031), FTS-DS-001 0.3.0 → 0.4.0, design Section 13, two new C++ pairs and a header-only interface, the voter panel on the page; no format change, no key, no thread. Ten commits on `claude/redundancy-voter-phase-1-3e0ca4`, stacked on the ADS-B branch at `a7461a3` (Entry 19 §19.7), off `main` until after the v0.1.0 tag, the first recording the single-lane references before any code; §20.7 waits for CI.
+Six requirements (REQ-RED-001 to REQ-RED-006) and one for the display (REQ-DISP-008; SRD 0.13.0 → 0.14.0, 57 → 64 statements), five amended (REQ-PROC-007's statement, REQ-CFG-001's, and the rationales of REQ-LOG-003, REQ-LOG-008 and REQ-PROC-008), four fault entries (FAULT-019 to FAULT-022; FTS-FM-001 0.6.0 → 0.7.0), three test cards (TC-032 to TC-034) and five amended (TC-004, TC-009, TC-017, TC-026, TC-031), FTS-DS-001 0.3.0 → 0.4.0, design Section 13, two new C++ pairs and a header-only interface, the voter panel on the page; no format change, no key, no thread. Ten commits on `claude/redundancy-voter-phase-1-3e0ca4`, stacked on the ADS-B branch at `a7461a3` (Entry 19 §19.7), off `main` until after the v0.1.0 tag, the first recording the single-lane references before any code; §20.7 records the CI run.
 
 ### 20.1 What was built
 
@@ -1699,11 +1699,55 @@ The two new hashes are recorded once each: the seed-42 one in TC-026 step 8, the
 
 ### 20.7 Measurement of record
 
-Reserved for the CI run on the push that carries these commits.
+CI run 39192240395 on `1366efa`, the branch's head, on the draft pull request (number 3, to `main`, stacked on the ADS-B branch), 2026-10-19 02:55 to 02:59 UTC, the one push that carried the topic's ten commits (`a7461a3..1366efa`); both jobs green.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 456 of 456 in 14.9 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binary) | 145 of 145 in 131.2 s, `test_voter.py`'s three among them |
+| lcov over `src/` | lines 98.3% (2,979 of 3,031), functions 97.1% (331 of 341), branches 93.3% (1,412 of 1,514) |
+| cppcheck (the runner's package, 2.13.0), 41 files | 0 findings |
+| `page` job (Node 22.23.3, Vitest with coverage, `npm run build`) | 84 of 84 in 13 files; statements 99.14%, branches 98.99%, functions 97.82%, lines 99.7%; `VoterPanel.tsx` 100% on all four; the build clean in 134 ms |
+| Wall time | the C++ job 4 min 6 s; the page job 26 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside Entry 19's record and this entry's Mac preview (§20.3):
+
+| Scope | Record (GCC) | Entry 19 record (GCC) | §20.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 99.1% | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 86.8% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 95.0% | 95.0% | 100.0% | 80% |
+| drivers | 89.2% | 89.2% | 91.0% | 70% |
+| overall | 93.3% | 93.0% | 93.9% | 80% |
+
+The files the ten commits added or changed under lcov's scope, on GCC (`main.cpp` outside it, as since Entry 5; the other changed headers carry no code the report counts):
+
+| File | Lines | Branches | Functions | At Entry 19 |
+|---|---|---|---|---|
+| `processing/voter.cpp` (new) | 143 of 143 | 86 of 88 | 20 of 20 | — |
+| `processing/redundant_processor.cpp` (new) | 19 of 19 | 6 of 6 | 3 of 3 | — |
+| `processing/lane_fault_hook.h` (new) | 1 of 1 | none | 1 of 2 | — |
+| `processing/fault_detector.cpp` | 154 of 154 | 70 of 70 | 13 of 13 | 149 of 149, 70 of 70 |
+| `drivers/fault_injecting_source.cpp` | 74 of 74 | 16 of 16 | 8 of 8 | 72 of 72, 16 of 16 |
+| `replay/log_replay_source.cpp`, `replay/log_replay_source.h` | 44 of 44, 2 of 2 | 19 of 20, none | 5 of 5, 2 of 2 | the same |
+
+The record reconciles with Entry 19's file by file: a script read both runs' reports, and every file but the first five in the table has the counts it had. The ten commits added 170 lines and every one ran: `voter.cpp` 143, `redundant_processor.cpp` 19, `fault_detector.cpp` 5 (the new enumerators' cases in `channel_name` and `fault_type_name`), `fault_injecting_source.cpp` 2 (the VOTER cases of `fail_reads` and `hold_values`; `copy_channel`'s two are excluded, §20.3), `lane_fault_hook.h` 1; 2,809 and 170 make the 2,979. Those cases sit in switches whose lines carry `LCOV_EXCL_BR_LINE` (§1.3), so they add lines and no branch. The commits added 25 functions and 24 ran: the one that did not is `LaneFaultHook`'s deleting destructor (`D0`), which never runs for an abstract class: a `delete` through the base calls the derived class's deleting destructor, which calls the base's `D2` (Entry 11 §11.7). Its `D2` ran 10 times, and the six other interface headers in the report show the same pair (`data_source.h`, `clock.h`, `publisher.h`, `http_client.h`, `i2c_bus.h`, `serial_port.h`), four of them on objects the code does delete through the base, the compiler-generated variants §1.2 describes. They added 94 branches and 92 are taken: `redundant_processor.cpp`'s 6, and 86 of `voter.cpp`'s 88, against the 68 of 68 clang's preview counted in the same file: GCC counts each operand of the short-circuit chains and the ternary as a decision of its own (sixteen more, all taken, as Entry 11 §11.7 describes) and the returning and unwinding edges of the calls on lines 130 and 167 (four); 1,320 and 92 make the 1,412, and 1,420 and 94 the 1,514.
+
+The two untaken branches are exception-unwind edges, each on a line the topic wrote (line numbers here are the run's, `1366efa`), and nothing else untaken or unrun sits on a line it changed: a script set every untaken branch and unrun line in the report's pages for the seven changed files under lcov's scope against the lines `git diff a7461a3 1366efa` changed in them, after checking that its reading of the pages reproduces every file's totals in both runs (102 untaken branches and 52 unrun lines here, 100 and 52 at Entry 19). The other seven changed files are headers the report does not count, and `main.cpp`. The untaken branch in `log_replay_source.cpp` (line 34) is Entry 19's, on a line the topic left alone.
+
+- `voter.cpp:130`, `if (has_flag(checked, FrameFlag::NEW_VEHICLE))`: four branches, the call returning (49,649 times) and unwinding (never), and the condition's two legs (7 and 49,642). `has_flag` is not `noexcept` and is defined in `telemetry_frame.cpp`; the same call in `processor.cpp:37` carries no unwind edge, so what gives this one its edge lies in what GCC builds for `Voter::vote`, which this record does not establish.
+- `voter.cpp:167`, `std::count_if` over the lane states: two branches, the call returning (34 times) and unwinding (never). The predicate on line 168 ran 102 times and makes no branch.
+
+§20.3 said an edge this record showed would go under the marker rule, but on the runner's lcov 2.0 the marker removes every branch on its line, the decision's as well as the unwind edges (Entry 11 §11.7; the seven marked lines carry no branch data in this run), so marking line 130 would take the NEW_VEHICLE decision out of the measurement. The commit that records this run applies instead the style rule Entry 11 §11.7 names, which Entry 8 used in the live source and §20.3 in the tally: the call moves to a statement line of its own, `const bool new_vehicle = has_flag(...)`, and the `if` on the next line tests the local. In this run the statement lines in `voter.cpp` that call one of the project's functions without deciding (`find_representative` at 153, `record_event` at 169 and 199, `lane_bit` at 255) carry no branch data, so the call's edges should leave and the decision's two legs stay. Line 167 makes no decision, so it takes the marker, which there removes only the call's two edges: `// LCOV_EXCL_EXCEPTION_BR_LINE` with a one-line reason, the source's eighth. Line 62's `std::find_if`, the same shape, carries no branch data, and why line 167 keeps its edge is not established here either. The run of that commit should read `voter.cpp` 84 of 84 branches over 144 lines, processing 100.0% (230 of 230) and overall 93.4% (1,410 of 1,510), which the next record reconciles.
+
+The page: branches 98.99% against Entry 19's 98.93%. Every branch the topic added is taken (`VoterPanel.tsx` 100% on all four measures, `voterState` and `lanesIn` with no uncovered line), and the uncovered lines the table names in `src/pfd`, `geometry.ts:123` and `instrumentState.ts:147` and `150`, are Entry 19's lines 110, 107 and 110, moved down by the lines the topic inserted above them; `badge.ts:29`, the fourth, is Entry 19's too, in a file the topic did not change.
 
 ### 20.8 Open
 
-- §20.7 from CI: the per-scope branch coverage on GCC, the exception edges under the marker rule, cppcheck's file count (41 expected).
+- §20.7's two remedies, read from the run of the commit that makes them: `voter.cpp` 84 of 84 branches, processing 100.0%, line 130's decision still counted on its new line.
 - TC-009 step 8 on the Pi: the three lanes' cost, paired against a build of `a7461a3` (missed cycles 0, jitter within the run-to-run spread, the cost per replayed frame under 2 ms).
 - The fault-injection harness, the next topic: it drives `LaneFaultHook`, builds `Voter(persistence)` directly to sweep the count, and counts isolation latency, healthy lanes thrown out and no-majority events from the public output; its scenarios go under `tests/fault_injection/`, which FTS-TP-001 §2.3 names.
 - Entry 19's open items stand: Phase B, FAULT-003b; and Entry 18's: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines without a marker.
