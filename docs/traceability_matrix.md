@@ -135,7 +135,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Requirement | Implementation | Test | Test Card | Status | Notes |
 |---|---|---|---|---|---|
 | REQ-RED-001 | | | TC-034, TC-009 (step 8) | Not started | Entered 2026-10-18: three lanes, each a processor with state of its own, behind one detector, in the loop's thread. TC-009 step 8 (the three lanes' cost on the Pi) is a hand step. |
-| REQ-RED-002 | | | TC-032, TC-034 | Not started | Entered 2026-10-18: the one comparison, bit for bit over the thirteen compared fields, a NaN agreeing with nothing; the checked frame with the majority's computed fields and validities; VOTED. |
+| REQ-RED-002 | `src/processing/voter.h` / `.cpp` (`lanes_agree`, the one comparison: `floats_agree` on the bits, a NaN agreeing with nothing; `kLaneCount`) | `test_voter.cpp: LanesAgreeTest.IdenticalFramesAgree`, `EveryComparedFieldBreaksAgreement`, `UncomparedFieldsDoNotTakePart`, `NegativeZeroDisagreesWithZero`, `NaNAgreesWithNothing` | TC-032, TC-034 | Partial | The comparison (commit 4 of the topic); the majority follows. Entered 2026-10-18: the one comparison, bit for bit over the thirteen compared fields, a NaN agreeing with nothing; the checked frame with the majority's computed fields and validities; VOTED. |
 | REQ-RED-003 | `src/processing/fault_detector.h` / `.cpp` (`Channel::VOTER`, the lane `FaultType`s and their names, new values of the event's bytes), `pipeline/frame_format.py` (`CHANNEL_NAMES`, `FAULT_TYPE_NAMES`) | `test_fault_detection.cpp: FaultDetectionTest.EventNamesAreReadable` (the names and the numbers), `FaultInjectingSourceTest.VoterIsNotASensorChannel`; `tests/integration/test_voter.py` (`test_voter_event_names`) | TC-032 | Partial | The event vocabulary (commit 3 of the topic); the count and the exclusion follow. Entered 2026-10-18: excluded after 3 consecutive misses on majority cycles, until restart; the onset and exclusion events; the lane's bit on every later frame. |
 | REQ-RED-004 | `src/processing/fault_detector.h` / `.cpp` (`Channel::VOTER`, the lane `FaultType`s and their names, new values of the event's bytes), `pipeline/frame_format.py` (`CHANNEL_NAMES`, `FAULT_TYPE_NAMES`) | `test_fault_detection.cpp: FaultDetectionTest.EventNamesAreReadable` (the names and the numbers), `FaultInjectingSourceTest.VoterIsNotASensorChannel`; `tests/integration/test_voter.py` (`test_voter_event_names`) | TC-033 | Partial | The NO_MAJORITY event type (commit 3 of the topic); the rule follows. Entered 2026-10-18: (a) two agreeing lanes carry on; (b) no majority: NO_MAJORITY, held values under FAILURE_WARNING or 0 under NO_COMPUTED_DATA, one event, the loop continues. |
 | REQ-RED-005 | | | TC-032, TC-034 | Not started | Entered 2026-10-18: the lane-fault interface, each lane's input and output, for verification only; the binary never sets it. |
@@ -146,9 +146,9 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 47 | SENS-006, SENS-007, SENS-009, SENS-010, SENS-011, PROC-001, PROC-002, PROC-003, PROC-005, PROC-006, PROC-007, PROC-008, FAULT-001, FAULT-002, FAULT-004, FAULT-005, FAULT-006, FAULT-007, LOG-001, LOG-002, LOG-003, LOG-004, LOG-005, LOG-006, LOG-007, LOG-008, TIME-001, TIME-002, TIME-004, TRANS-001, TRANS-002, TRANS-003, TRANS-004, DISP-001, DISP-002, DISP-003, DISP-004, DISP-005, DISP-006, DISP-007, CFG-001, CFG-002, CFG-003, CFG-004, TEST-001, TEST-002, TEST-003 |
-| Partial | 13 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, SENS-008, PROC-004, FAULT-003, TIME-003, TEST-004, RED-003, RED-004, RED-006 |
+| Partial | 14 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, SENS-008, PROC-004, FAULT-003, TIME-003, TEST-004, RED-002, RED-003, RED-004, RED-006 |
 | Implemented | 0 | |
-| Not started | 4 | RED-001, RED-002, RED-005, DISP-008 |
+| Not started | 3 | RED-001, RED-005, DISP-008 |
 | **Total** | **64** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
@@ -196,6 +196,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002, REQ-PROC-007 (`seeded`) |
 | `src/processing/fault_detector.h` / `.cpp` | REQ-FAULT-001, REQ-FAULT-002, REQ-FAULT-003, REQ-FAULT-004, REQ-FAULT-005, REQ-FAULT-006, REQ-FAULT-007 (a NOT_AVAILABLE channel left alone), REQ-LOG-001 (`FaultEvent::reserved`), REQ-RED-003, REQ-RED-004, REQ-RED-006 (`Channel::VOTER` and the four lane fault types, new values of the event's bytes, and their names) |
+| `src/processing/voter.h` / `.cpp` | REQ-RED-002 (`lanes_agree`, the one comparison; `kLaneCount`, REQ-RED-001) |
 | `src/processing/processor.h` / `.cpp` | REQ-PROC-001, REQ-PROC-002, REQ-PROC-003, REQ-PROC-005, REQ-PROC-006, REQ-PROC-007 (`judge`, the only writer of validity), REQ-PROC-008 (the re-birth on NEW_VEHICLE), REQ-CFG-001 (`ProcessorConfig`) |
 
 Adding a file under `src/` without adding it to this table is a traceability failure.
