@@ -1,15 +1,15 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.6.0
+> **Version:** 0.7.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-15
+> **Last Updated:** 2026-10-18
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
-Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9).
+Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9). The channel is a sensor channel, or VOTER for the voter's own events (FAULT-019 to FAULT-022), new values of the existing channel and type bytes since 0.7.0, with no format change.
 
-Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants, and the ADS-B entries' (FAULT-012 to FAULT-015), whose keys sit in the optional `adsb` block (REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
+Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants; the ADS-B entries' (FAULT-012 to FAULT-015), whose keys sit in the optional `adsb` block (REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001); and the lane entries' persistence count, three, which REQ-RED-003 states and the voter holds as a named constant (FTS-DD-001 Section 12); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
 
 Where a response says a computed field is "marked invalid" or "flagged", the frame's validity byte for that field reads FAILURE_WARNING (REQ-PROC-007): the field keeps a defined number, held or coasting, and the flag is what the display acts on. A raw field (position, heading, ground speed, GPS altitude, pressure) carries no validity byte of its own; it is invalid when its channel's status says so. See "Start-up and validity" before the degradation table.
 
@@ -236,6 +236,52 @@ The ADS-B source (REQ-SENS-008) reads one aircraft from the OpenSky Network's RE
 
 Barometric altitude depends on the barometer; pitch and roll on the IMU and a seeded filter; fused altitude and vertical speed on an altitude source the filter has taken a measurement from, barometer or GPS, so they stay NORMAL on either alone and read FAILURE_WARNING, at once and for as long as it lasts, with neither. A channel reported NOT_AVAILABLE is not NOMINAL, so it contributes nothing and the fields that depend on it stay NO_COMPUTED_DATA. No field ever holds NaN.
 
+---
+
+## Processing Lane Failures
+
+Since 0.7.0 every checked frame is processed by three identical lanes and a voter chooses the frame the system emits (REQ-RED-001 to REQ-RED-006, FTS-DD-001 Section 13). Identical code on identical input agrees bit for bit, so every entry below is a defect, an upset confined to one lane, or an injection through REQ-RED-005's interface; none is a sensor fault, which every lane sees alike and the detector reports once (the entries above). A single fault is assumed: the voter masks one wrong lane on every frame and isolates it, and a second fault leaves no majority. The voter's events carry the channel VOTER; their value is the lane's number (1 to 3), or for FAULT-021 the number of lanes still in the vote.
+
+### FAULT-019: Transient lane disagreement
+
+- **What:** One lane's output differs from the majority in a computed field, a validity or a channel status on one or two consecutive cycles that have a majority, and agrees again.
+- **Cause:** Nondeterminism in the processor (undefined behaviour, a read of uninitialized memory), an upset confined to one lane's output for one cycle, or an injection.
+- **Likelihood:** Remote. None occurred over 10,000 simulated frames by test (TC-034).
+- **Detection:** `lanes_agree`, bit for bit, against the representative of the majority (REQ-RED-002); a NaN agrees with nothing.
+- **Response:** The lane is outvoted, so the output is the majority's and unchanged by it. A LANE_DISAGREEMENT event (value: the lane) is logged when the lane first falls outside the majority; its count resets on the next cycle it agrees. No bit of the voter status marks it, and the display does not show it (REQ-DISP-008): the log and the console carry it.
+- **Requirement:** REQ-RED-002, REQ-RED-003
+- **Test:** `tests/unit/test_voter.cpp` → `VoterTest.OneBadLaneIsOutvotedInEveryField`, `VoterTest.TransientDisagreementResetsTheCount`; `tests/unit/test_redundant_processor.cpp` → `RedundantProcessorTest.PerturbedLaneOutputIsIsolated`
+
+### FAULT-020: Persistent lane fault
+
+- **What:** One lane outside the majority on 3 consecutive cycles that have a majority.
+- **Cause:** Damage to a lane's state that its filters carry forward (an upset in its input or its memory), a persistent defect in one lane, or an injection.
+- **Likelihood:** Remote.
+- **Detection:** The lane's persistence count, which advances on each majority cycle the lane is outside the majority and resets on each it is inside (REQ-RED-003); cycles with no majority leave it unchanged.
+- **Response:** A LANE_FAULTED event (value: the lane) on the third cycle. The lane is excluded from every later vote until restart, and every later frame carries its LANE_k_FAULTED bit. Processing continues on the remaining two lanes with full capability (REQ-RED-004 (a)). The excluded lane still runs every cycle, so the cycle's work stays the same; its output is ignored.
+- **Requirement:** REQ-RED-003, REQ-RED-004
+- **Test:** `VoterTest.ThreeConsecutiveDisagreementsFaultTheLane`, `VoterTest.FaultedLaneStaysOutUntilRestart`, `VoterTest.PersistenceIsAParameter`; `RedundantProcessorTest.PerturbedLaneInputDivergesOnlyThatLane`
+
+### FAULT-021: No majority
+
+- **What:** No two lanes in the vote agree: the remaining two disagree after an exclusion, or every pair of three disagrees.
+- **Cause:** A second fault after a lane was excluded, two simultaneous faults in different fields, or a NaN every lane shares.
+- **Likelihood:** Extremely remote with identical lanes (it needs two faults).
+- **Detection:** No eligible pair of lanes agrees (REQ-RED-002).
+- **Response:** The frame carries NO_MAJORITY. Each computed field holds its last voted value under FAILURE_WARNING, or 0 under NO_COMPUTED_DATA where nothing was voted (REQ-RED-004 (b)); the channel statuses stay the detector's, so the raw instruments are unaffected. One NO_MAJORITY event (value: the lanes still in the vote) when the condition begins. No lane's count moves while it lasts, so no lane is excluded without a majority and at least two lanes always remain in the vote. The loop continues; the display shows the VOTE failure flag (REQ-DISP-008) beside the instruments' own flags.
+- **Requirement:** REQ-RED-004, REQ-PROC-007
+- **Test:** `VoterTest.TwoDisagreeingLanesHaveNoMajority`, `VoterTest.NoMajorityAmongThreeLanes`, `VoterTest.NoMajorityHoldsTheCounters`, `VoterTest.NeverBelowTwoLanes`, `VoterTest.TwoNaNLanesNeverFormAMajority`
+
+### FAULT-022: Lane timing overrun
+
+- **What:** A lane hands the voter an output for another frame than the one it was given: its timestamp or its sequence number differs from the checked frame's.
+- **Cause:** A defect that returns a cached output, or an injection modelling a lane computer that did not finish in time and left its previous output. In the processing loop's one thread the lanes run one after another and cannot be late in time; a cycle that overruns as a whole is the scheduler's (REQ-TIME-001, REQ-TIME-003: re-phased, counted in the jitter file, never in the log).
+- **Likelihood:** Remote.
+- **Detection:** The output's `timestamp_ms` and `sequence` against the checked frame's (REQ-RED-006); both, because frames of a version-1 or version-2 log all carry sequence 0.
+- **Response:** The lane takes no part in that cycle's vote, so two stale lanes can never outvote a current one. On a cycle with a majority it counts as outside it toward FAULT-020's three, and its onset event is LANE_OVERRUN (value: the lane) when staleness is that cycle's reason.
+- **Requirement:** REQ-RED-006, REQ-RED-003
+- **Test:** `VoterTest.StaleLaneIsAnOverrun`, `VoterTest.TwoStaleLanesNeverOutvoteACurrentOne`, `VoterTest.StaleThenDisagreeingCountsOnce`
+
 ## System-Level Degradation Summary
 
 | Sensors Available | System Capability |
@@ -251,6 +297,14 @@ Barometric altitude depends on the barometer; pitch and roll on the IMU and a se
 | A channel before its first reading (NO_DATA) | The fields that depend on it NO_COMPUTED_DATA; the others as the rows above. A fault on it degrades it as from NOMINAL. |
 | A channel the source does not provide (NOT_AVAILABLE) | The fields that depend on it NO_COMPUTED_DATA, with no event ever; the others as the rows above. |
 | ADS-B mode | Barometer and IMU NOT_AVAILABLE; attitude and barometric altitude NO_COMPUTED_DATA; fused altitude and vertical speed on the GPS channel alone, stepping at each poll; position and track from the aircraft, flagged when it is gone (FAULT-015) for longer than the timeout. |
+
+The processing lanes degrade apart from the sensors (the rows above are unchanged by them):
+
+| Lanes | System Capability |
+|---|---|
+| Three in the vote | Full operation; one wrong lane is outvoted on every frame (FAULT-019) |
+| One excluded (FAULT-020) | Full operation on the remaining two; the frame names the excluded lane, the display shows it as a caution |
+| No majority (FAULT-021) | Every computed field FAILURE_WARNING over its last voted value (NO_COMPUTED_DATA where nothing was voted); channel statuses and raw instruments as the rows above; the VOTE failure flag; the loop continues |
 
 The system never stops. A crashed telemetry process is worse than a degraded one producing partial data. This is the fundamental principle: degrade gracefully, never crash.
 
