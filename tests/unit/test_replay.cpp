@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "drivers/fault_injecting_source.h"
@@ -16,7 +17,9 @@
 #include "logging/log_reader.h"
 #include "processing/fault_detector.h"
 #include "processing/processor.h"
+#include "processing/redundant_processor.h"
 #include "replay/log_replay_source.h"
+#include "scripted_lane_faults.h"
 
 namespace fs = std::filesystem;
 
@@ -41,8 +44,8 @@ protected:
 // status NOMINAL, validity NOT_JUDGED, the reserved bytes zero, everything
 // the sensors said and the read_ok flags kept (TC-017 step 9); since format
 // version 3 the sequence, the flags and the tail's raw fields are kept too,
-// facts the source stated, while the voter's status, a verdict the voter
-// will recompute, and the reserved field are zeroed (TC-031 step 4).
+// facts the source stated, while the voter's status, a verdict the replay's
+// voter recomputes, and the reserved field are zeroed (TC-031 step 4).
 TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     TelemetryFrame processed{};
     processed.timestamp_ms = 40;
@@ -70,7 +73,7 @@ TEST_F(ReplayTest, ReplayStripsComputedFieldsAndStatus) {
     processed.gps_pressure_altitude_m = 300.0f;
     processed.gps_fix_quality = 2;
     processed.gps_satellites = 9;
-    processed.voter_status = 0x0011;   // VOTED | NO_MAJORITY: a verdict the voter will recompute
+    processed.voter_status = 0x0011;   // VOTED | NO_MAJORITY: a verdict the replay's voter recomputes
     processed.reserved_d = 1;
     {
         BinaryLogger logger(dir_, "t", 1 << 20);
@@ -435,10 +438,11 @@ TEST_F(ReplayTest, SimulatedSourceAlwaysHasNext) {
 
 // REQ-LOG-003, TC-004 at unit level. This is the thesis test.
 //
-// Live: simulator with injected faults -> detector -> processor -> log.
-// Replay: log -> LogReplaySource -> fresh detector -> fresh processor.
-// Every processed frame and every fault event must be bit-identical.
-// A tolerance is not acceptable here; the requirement says identical.
+// Live: simulator with injected faults -> detector -> three lanes and the
+// voter (REQ-RED-001) -> log. Replay: log -> LogReplaySource -> fresh
+// detector -> fresh lanes and voter. Every processed frame and every fault
+// event, the detector's and the voter's, must be bit-identical. A
+// tolerance is not acceptable here; the requirement says identical.
 TEST_F(ReplayTest, ReplayReproducesLiveSession) {
     constexpr int kFrames = 500;
     const uint64_t limit = sizeof(LogFileHeader) + 120 * (1 + sizeof(TelemetryFrame));  // force rotation
@@ -448,7 +452,7 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
     {
         FaultInjectingSource source(std::make_unique<SimulatedSource>(20, 42));
         FaultDetector detector;
-        TelemetryProcessor processor;
+        RedundantProcessor processor;
         BinaryLogger logger(dir_, "live", limit);
 
         for (int i = 0; i < kFrames; i++) {
@@ -460,7 +464,12 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
             const TelemetryFrame processed = processor.process(detector.check(source.read_frame()));
             logger.log_frame(processed);
             live_frames.push_back(processed);
+            EXPECT_EQ(processed.voter_status, 0x0001) << "frame " << i;
             for (const FaultEvent& e : detector.take_events()) {
+                logger.log_event(e);
+                live_events.push_back(e);
+            }
+            for (const FaultEvent& e : processor.take_events()) {
                 logger.log_event(e);
                 live_events.push_back(e);
             }
@@ -476,12 +485,15 @@ TEST_F(ReplayTest, ReplayReproducesLiveSession) {
     {
         LogReplaySource source(files);
         FaultDetector detector;
-        TelemetryProcessor processor;
+        RedundantProcessor processor;
         // REQ-LOG-006 (TC-019 step 5): the loop asks the source, not a
         // count, and stops exactly at the log's end.
         while (source.has_next()) {
             replay_frames.push_back(processor.process(detector.check(source.read_frame())));
             for (const FaultEvent& e : detector.take_events()) {
+                replay_events.push_back(e);
+            }
+            for (const FaultEvent& e : processor.take_events()) {
                 replay_events.push_back(e);
             }
         }
@@ -562,4 +574,144 @@ TEST_F(ReplayTest, Version1LogReplaysJudged) {
         EXPECT_EQ(out.baro_status, ChannelStatus::NOMINAL) << "frame " << i;
     }
     EXPECT_EQ(source.frames_read(), 5u);
+}
+
+// TC-034 step 5, REQ-LOG-005 and REQ-RED-002: logs recorded before the
+// voter, at format version 3 (the single lane's frames, voter status 0)
+// and at versions 1 and 2, replay through the three lanes with the voter's
+// status recomputed: every byte of a version-3 frame equal but the status,
+// which is VOTED; the version-1 and version-2 frames judged and voted, their
+// raw fields the log's.
+TEST_F(ReplayTest, PreVoterLogsReplayVoted) {
+    std::vector<TelemetryFrame> recorded;
+    {
+        FaultInjectingSource source(std::make_unique<SimulatedSource>(20, 42));
+        FaultDetector detector;
+        TelemetryProcessor single;
+        BinaryLogger logger(dir_, "prevoter", 1 << 20);
+        for (int i = 0; i < 200; i++) {
+            source.fail_reads(Channel::BARO, i >= 50 && i < 90);
+            const TelemetryFrame processed = single.process(detector.check(source.read_frame()));
+            ASSERT_EQ(processed.voter_status, 0u);
+            logger.log_frame(processed);
+            recorded.push_back(processed);
+        }
+    }
+    {
+        LogReplaySource source(list_log_files(dir_, "prevoter"));
+        FaultDetector detector;
+        RedundantProcessor processor;
+        size_t i = 0;
+        while (source.has_next()) {
+            TelemetryFrame voted = processor.process(detector.check(source.read_frame()));
+            ASSERT_LT(i, recorded.size());
+            EXPECT_EQ(voted.voter_status, 0x0001) << "frame " << i;
+            voted.voter_status = 0;
+            EXPECT_EQ(std::memcmp(&voted, &recorded[i], sizeof voted), 0) << "frame " << i;
+            EXPECT_TRUE(processor.take_events().empty()) << "frame " << i;
+            i++;
+        }
+        EXPECT_EQ(i, recorded.size());
+    }
+
+    for (const uint8_t version : {uint8_t{1}, uint8_t{2}}) {
+        LogFileHeader h = make_log_header();               // both modes UNKNOWN, zero: what older headers held
+        h.version = version;
+        h.frame_size = kVersion2FrameBytes;                // both older frames are 104 bytes
+        const std::filesystem::path file = dir_ / ("older_v" + std::to_string(version) + "_000.bin");
+        std::vector<TelemetryFrame> written;
+        {
+            std::ofstream out(file, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+            SimulatedSource source(20, 42);
+            for (int i = 0; i < 5; i++) {
+                TelemetryFrame raw = source.read_frame();
+                raw.sequence = 0;                          // an older source's reserved bytes
+                raw.flags = 0;
+                const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
+                out.write(reinterpret_cast<const char*>(&tag), 1);
+                out.write(reinterpret_cast<const char*>(&raw), kVersion2FrameBytes);
+                written.push_back(raw);
+            }
+        }
+        LogReplaySource older({file});
+        FaultDetector detector;
+        RedundantProcessor processor;
+        for (size_t i = 0; i < written.size(); i++) {
+            const TelemetryFrame out = processor.process(detector.check(older.read_frame()));
+            const TelemetryFrame& in = written[i];
+            SCOPED_TRACE("version " + std::to_string(version) + ", frame " + std::to_string(i));
+            EXPECT_EQ(out.voter_status, 0x0001);
+            EXPECT_EQ(out.fused_altitude_validity, Validity::NORMAL);
+            EXPECT_EQ(out.timestamp_ms, in.timestamp_ms);
+            EXPECT_EQ(out.pressure_hpa, in.pressure_hpa);
+            EXPECT_EQ(out.temperature_c, in.temperature_c);
+            EXPECT_EQ(out.accel_x, in.accel_x);
+            EXPECT_EQ(out.accel_y, in.accel_y);
+            EXPECT_EQ(out.accel_z, in.accel_z);
+            EXPECT_EQ(out.gyro_x, in.gyro_x);
+            EXPECT_EQ(out.gyro_y, in.gyro_y);
+            EXPECT_EQ(out.gyro_z, in.gyro_z);
+            EXPECT_EQ(out.latitude, in.latitude);
+            EXPECT_EQ(out.longitude, in.longitude);
+            EXPECT_EQ(out.gps_altitude_m, in.gps_altitude_m);
+            EXPECT_EQ(out.ground_speed_mps, in.ground_speed_mps);
+            EXPECT_EQ(out.course_deg, in.course_deg);
+            EXPECT_EQ(out.baro_read_ok, in.baro_read_ok);
+            EXPECT_EQ(out.imu_read_ok, in.imu_read_ok);
+            EXPECT_EQ(out.gps_read_ok, in.gps_read_ok);
+        }
+    }
+}
+
+// TC-034 step 5, REQ-LOG-003 and REQ-RED-005: a verdict is recomputed, never
+// copied. A live session whose lane 2 a test altered once (its input, so
+// the lane diverges and is excluded) logs the exclusion's bits and events;
+// its replay, with no alteration, votes every frame with all three lanes
+// and logs no voter event, while every other byte of every frame is equal:
+// the output always came from the agreeing lanes. The difference is the
+// diagnosis, a lane fault the raw frames do not explain.
+TEST_F(ReplayTest, ReplayRecomputesTheVoterVerdict) {
+    std::vector<TelemetryFrame> live;
+    std::vector<FaultEvent> live_voter_events;
+    {
+        SimulatedSource source(20, 42);
+        FaultDetector detector;
+        ScriptedLaneFaults hook;
+        hook.on_input = [](int cycle, int lane, TelemetryFrame& in) {
+            if (cycle == 40 && lane == 2) {
+                in.pressure_hpa += 5.0f;
+            }
+        };
+        RedundantProcessor processor(ProcessorConfig{}, TelemetryProcessor::kDefaultImuTimeoutMs,
+                                     Voter::kLanePersistence, &hook);
+        BinaryLogger logger(dir_, "hooked", 1 << 20);
+        for (int i = 0; i < 100; i++) {
+            const TelemetryFrame processed = processor.process(detector.check(source.read_frame()));
+            logger.log_frame(processed);
+            live.push_back(processed);
+            for (const FaultEvent& e : processor.take_events()) {
+                logger.log_event(e);
+                live_voter_events.push_back(e);
+            }
+        }
+    }
+    ASSERT_EQ(live_voter_events.size(), 2u);
+    EXPECT_EQ(live.back().voter_status, 0x0005);
+
+    LogReplaySource source(list_log_files(dir_, "hooked"));
+    FaultDetector detector;
+    RedundantProcessor processor;
+    size_t i = 0;
+    while (source.has_next()) {
+        TelemetryFrame replayed = processor.process(detector.check(source.read_frame()));
+        EXPECT_EQ(replayed.voter_status, 0x0001) << "frame " << i;
+        EXPECT_TRUE(processor.take_events().empty()) << "frame " << i;
+        TelemetryFrame recorded = live[i];
+        replayed.voter_status = 0;
+        recorded.voter_status = 0;
+        EXPECT_EQ(std::memcmp(&replayed, &recorded, sizeof replayed), 0) << "frame " << i;
+        i++;
+    }
+    EXPECT_EQ(i, live.size());
 }
