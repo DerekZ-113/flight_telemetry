@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <sstream>
 
 namespace {
 
@@ -32,6 +33,14 @@ bool floats_agree(float a, float b) {
 // 0 to 2. Exact in a float, which is the event's value field.
 float lane_number(std::size_t index) {
     return static_cast<float>(index + 1);
+}
+
+// Whether a lane's output is for the frame it was given (REQ-RED-006): a
+// computer that overruns hands its voter the output it had, the previous
+// cycle's. The timestamp and the sequence together, because the frames of
+// a version-1 or version-2 log all carry sequence 0.
+bool for_this_frame(const TelemetryFrame& lane, const TelemetryFrame& checked) {
+    return lane.timestamp_ms == checked.timestamp_ms && lane.sequence == checked.sequence;
 }
 
 // LANE_1_FAULTED is 0x0002, and lanes 2 and 3 follow it bit by bit.
@@ -115,17 +124,27 @@ Voter::Voter(int persistence)
 }
 
 TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<TelemetryFrame, kLaneCount>& lanes) {
+    // A new vehicle (REQ-PROC-008): every lane is reborn on this frame, so
+    // the held vote is the previous vehicle's and goes; the exclusions
+    // stay, a lane's health being no more the vehicle's than a channel's.
+    if (has_flag(checked, FrameFlag::NEW_VEHICLE)) {
+        clear_held();
+    }
+
     // The bits name the lanes excluded before this cycle, so a lane
     // excluded on this cycle is named from the next one: the bit says the
     // lane "was excluded from the vote" (telemetry_frame.h), and on this
-    // cycle it was in the vote, outside the majority.
+    // cycle it was in the vote, outside the majority. A lane is eligible
+    // when it is in the vote and its output is for this frame.
     uint16_t status = static_cast<uint16_t>(VoterStatus::VOTED);
+    std::array<bool, kLaneCount> stale{};
     std::array<bool, kLaneCount> eligible{};
     for (std::size_t k = 0; k < kLaneCount; k++) {
         if (lanes_[k].faulted) {
             status = static_cast<uint16_t>(status | lane_bit(k));
         }
-        eligible[k] = !lanes_[k].faulted;
+        stale[k] = !lanes_[k].faulted && !for_this_frame(lanes[k], checked);
+        eligible[k] = !lanes_[k].faulted && !stale[k];
     }
 
     // The raw fields, the statuses, the flags and the tail are the checked
@@ -136,7 +155,7 @@ TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<Telem
         copy_computed(lanes[*representative], out);
         copy_computed(lanes[*representative], held_);
         in_no_majority_ = false;
-        count(lanes, eligible, *representative, checked.timestamp_ms);
+        count(lanes, stale, *representative, checked.timestamp_ms);
     } else {
         // No majority (REQ-RED-004): the last vote held and degraded, one
         // event when the condition begins, and no lane's count moves.
@@ -155,27 +174,29 @@ TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<Telem
 }
 
 void Voter::count(const std::array<TelemetryFrame, kLaneCount>& lanes,
-                  const std::array<bool, kLaneCount>& eligible,
+                  const std::array<bool, kLaneCount>& stale,
                   std::size_t representative, uint64_t now_ms) {
     // REQ-RED-003, on a cycle that has a majority: a lane in it starts its
-    // count again; a lane outside it adds one, its onset logged at the
-    // first and its exclusion at the persistence count. An excluded lane is
-    // out for good. (On a cycle with no majority this is not called:
-    // nothing says which lane is wrong, so no count moves, and a lane is
-    // excluded only beside a majority it is outside of, which keeps at
-    // least two lanes in the vote.)
+    // count again; a lane outside it, disagreeing or stale (REQ-RED-006),
+    // adds one, its onset logged at the first, as an overrun when staleness
+    // was the reason, and its exclusion at the persistence count. An
+    // excluded lane is out for good. (On a cycle with no majority this is
+    // not called: nothing says which lane is wrong, so no count moves, and a
+    // lane is excluded only beside a majority it is outside of, which keeps
+    // at least two lanes in the vote.)
     for (std::size_t k = 0; k < kLaneCount; k++) {
         LaneState& lane = lanes_[k];
         if (lane.faulted) {
             continue;
         }
-        if (eligible[k] && lanes_agree(lanes[k], lanes[representative])) {
+        if (!stale[k] && lanes_agree(lanes[k], lanes[representative])) {
             lane.misses = 0;
             continue;
         }
         lane.misses++;
         if (lane.misses == 1) {
-            record_event(now_ms, FaultType::LANE_DISAGREEMENT, lane_number(k));
+            const FaultType onset = stale[k] ? FaultType::LANE_OVERRUN : FaultType::LANE_DISAGREEMENT;
+            record_event(now_ms, onset, lane_number(k));
         }
         if (lane.misses >= persistence_) {
             lane.faulted = true;
@@ -206,4 +227,37 @@ void Voter::record_event(uint64_t now_ms, FaultType type, float value) {
     event.type = type;
     event.value = value;
     events_.push_back(event);
+}
+
+void VoterTally::account(const TelemetryFrame& frame) {
+    frames++;
+    const bool no_majority = (frame.voter_status & static_cast<uint16_t>(VoterStatus::NO_MAJORITY)) != 0;
+    if (no_majority) {
+        no_majority_frames++;
+    }
+    last_status = frame.voter_status;
+}
+
+void VoterTally::account_events(std::size_t count) {
+    events += count;
+}
+
+std::string VoterTally::summary() const {
+    std::ostringstream out;
+    out << "Voter:     " << frames << " frames";
+    if (frames == 0) {
+        return out.str();
+    }
+    out << ", lanes in the vote";
+    for (std::size_t k = 0; k < kLaneCount; k++) {
+        // The call on a line of its own: a comparison beside a call, in a
+        // function holding a stream, shows GCC's exception edges.
+        const uint16_t bit = lane_bit(k);
+        const bool excluded = (last_status & bit) != 0;
+        if (!excluded) {
+            out << ' ' << k + 1;
+        }
+    }
+    out << ", no majority on " << no_majority_frames << " frames, voter events " << events;
+    return out.str();
 }

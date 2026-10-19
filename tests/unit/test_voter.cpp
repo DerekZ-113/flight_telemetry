@@ -2,7 +2,8 @@
 // comparison between two lanes' outputs, bit for bit over the thirteen
 // fields a lane writes or carries from the detector (TC-032 steps 1 and
 // 2); the majority, the count and the exclusion (TC-032 steps 3 to 7);
-// no majority (TC-033 steps 1 to 7). Lane outputs are real processor
+// no majority (TC-033 steps 1 to 7); the overrun (TC-032 step 8); the
+// new vehicle; the exit line's tally. Lane outputs are real processor
 // outputs over the simulator, so every compared field holds a value a lane
 // can produce; a wrong lane is a healthy output with one field changed,
 // which is what the voter is built from directly, as the fault-injection
@@ -737,4 +738,150 @@ TEST(VoterTest, EventsAreValueInitialized) {
             EXPECT_EQ(bytes[i], 0) << "byte " << i;
         }
     }
+}
+
+// TC-032 step 8: a lane handing back the previous cycle's output has
+// overrun: it takes no part in the vote, so the output is the current
+// lanes', and its onset is LANE_OVERRUN. A stale timestamp alone and a
+// stale sequence alone are each enough; frames of a version-1 or version-2
+// log carry sequence 0 throughout, and the timestamp still tells them apart.
+TEST(VoterTest, StaleLaneIsAnOverrun) {
+    struct Case {
+        const char* name;
+        bool old_timestamp;
+        bool old_sequence;
+    };
+    const std::array<Case, 3> cases{{{"previous output", true, true}, {"timestamp only", true, false},
+                                     {"sequence only", false, true}}};
+    for (const Case& test : cases) {
+        Stream stream;
+        Voter voter;
+        const Cycle previous = stream.next();
+        voter.vote(previous.checked, three(previous.healthy));
+        const Cycle c = stream.next();
+        std::array<TelemetryFrame, kLaneCount> lanes = three(c.healthy);
+        if (test.old_timestamp) {
+            lanes[1].timestamp_ms = previous.healthy.timestamp_ms;
+        }
+        if (test.old_sequence) {
+            lanes[1].sequence = previous.healthy.sequence;
+        }
+        const TelemetryFrame out = voter.vote(c.checked, lanes);
+        expect_single_lane_output(out, c.healthy, test.name);
+        EXPECT_EQ(out.voter_status, kVoted) << test.name;
+        expect_events(voter, {{FaultType::LANE_OVERRUN, 2.0f}}, c.checked.timestamp_ms, test.name);
+    }
+}
+
+// TC-032 step 8: two lanes that both handed back the previous output agree
+// with each other, but neither is eligible, so they never outvote the one
+// current lane: no majority, and no onset, since no count moves without a
+// majority.
+TEST(VoterTest, TwoStaleLanesNeverOutvoteACurrentOne) {
+    Stream stream;
+    Voter voter;
+    const Cycle previous = stream.next();
+    voter.vote(previous.checked, three(previous.healthy));
+    const Cycle c = stream.next();
+    const std::array<TelemetryFrame, kLaneCount> lanes{previous.healthy, previous.healthy, c.healthy};
+    const TelemetryFrame out = voter.vote(c.checked, lanes);
+    EXPECT_EQ(out.voter_status, kVoted | kNoMajority);
+    expect_float_bits(out.fused_altitude_m, previous.healthy.fused_altitude_m, "the last vote held");
+    expect_events(voter, {{FaultType::NO_MAJORITY, 3.0f}}, c.checked.timestamp_ms, "two stale lanes");
+}
+
+// TC-032 step 8, the reviewer's case: stale on one cycle and disagreeing on
+// the next two is three consecutive misses, excluded on the third, with one
+// onset, the overrun's.
+TEST(VoterTest, StaleThenDisagreeingCountsOnce) {
+    Stream stream;
+    Voter voter;
+    const Cycle previous = stream.next();
+    voter.vote(previous.checked, three(previous.healthy));
+    const Cycle first = stream.next();
+    std::array<TelemetryFrame, kLaneCount> lanes = three(first.healthy);
+    lanes[2] = previous.healthy;
+    voter.vote(first.checked, lanes);
+    expect_events(voter, {{FaultType::LANE_OVERRUN, 3.0f}}, first.checked.timestamp_ms, "stale");
+    for (int i = 0; i < 2; i++) {
+        const Cycle c = stream.next();
+        lanes = three(c.healthy);
+        lanes[2] = corrupted(c.healthy, kPitch);
+        voter.vote(c.checked, lanes);
+        std::vector<EventSpec> expected;
+        if (i == 1) {
+            expected.emplace_back(FaultType::LANE_FAULTED, 3.0f);
+        }
+        expect_events(voter, expected, c.checked.timestamp_ms, "disagreeing");
+    }
+    const Cycle after = stream.next();
+    EXPECT_EQ(voter.vote(after.checked, three(after.healthy)).voter_status, kVoted | lane_faulted_bit(3));
+}
+
+// TC-033 step 6 (REQ-PROC-008): on a frame flagged NEW_VEHICLE the held
+// vote is the previous vehicle's and goes, so a no-majority frame then
+// reads 0 and NO_COMPUTED_DATA; the exclusion stays. A flagged frame with
+// a majority votes as any other.
+TEST(VoterTest, NewVehicleClearsHeldValuesNotLatches) {
+    Stream stream;
+    Voter voter;
+    exclude(voter, stream, 3);
+    for (int i = 0; i < 5; i++) {
+        const Cycle c = stream.next();
+        voter.vote(c.checked, three(c.healthy));
+    }
+    Cycle c = stream.next();
+    c.checked.flags = static_cast<uint8_t>(c.checked.flags | static_cast<uint8_t>(FrameFlag::NEW_VEHICLE));
+    std::array<TelemetryFrame, kLaneCount> lanes = three(c.healthy);
+    lanes[0] = corrupted(c.healthy, kFusedAltitude);
+    lanes[1] = corrupted(c.healthy, kPitch);
+    const TelemetryFrame out = voter.vote(c.checked, lanes);
+    EXPECT_EQ(out.voter_status, kVoted | kNoMajority | lane_faulted_bit(3));
+    EXPECT_EQ(out.baro_altitude_m, 0.0f);
+    EXPECT_EQ(out.pitch_deg, 0.0f);
+    EXPECT_EQ(out.roll_deg, 0.0f);
+    EXPECT_EQ(out.fused_altitude_m, 0.0f);
+    EXPECT_EQ(out.vertical_speed_mps, 0.0f);
+    EXPECT_EQ(out.baro_altitude_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.pitch_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.roll_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.fused_altitude_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_EQ(out.vertical_speed_validity, Validity::NO_COMPUTED_DATA);
+    EXPECT_TRUE(has_flag(out, FrameFlag::NEW_VEHICLE));
+
+    Cycle d = stream.next();
+    d.checked.flags = static_cast<uint8_t>(d.checked.flags | static_cast<uint8_t>(FrameFlag::NEW_VEHICLE));
+    const TelemetryFrame voted = voter.vote(d.checked, three(d.healthy));
+    EXPECT_EQ(voted.voter_status, kVoted | lane_faulted_bit(3));
+    EXPECT_EQ(voted.fused_altitude_m, d.healthy.fused_altitude_m);
+}
+
+// The exit line (REQ-RED-001): the frames counted, the lanes the last frame
+// left in the vote, the no-majority frames, the voter's events; a run of
+// no frames says so and no more.
+TEST(VoterTest, VoterTallyCounts) {
+    VoterTally empty;
+    EXPECT_EQ(empty.summary(), "Voter:     0 frames");
+
+    VoterTally healthy;
+    TelemetryFrame frame{};
+    frame.voter_status = 0x0001;
+    for (int i = 0; i < 500; i++) {
+        healthy.account(frame);
+    }
+    EXPECT_EQ(healthy.summary(), "Voter:     500 frames, lanes in the vote 1 2 3, no majority on 0 frames, voter events 0");
+
+    VoterTally faulted;
+    frame.voter_status = 0x0001;
+    faulted.account(frame);
+    frame.voter_status = 0x0015;
+    faulted.account(frame);
+    faulted.account(frame);
+    frame.voter_status = 0x0005;
+    faulted.account(frame);
+    faulted.account_events(2);
+    faulted.account_events(1);
+    EXPECT_EQ(faulted.frames, 4);
+    EXPECT_EQ(faulted.no_majority_frames, 2);
+    EXPECT_EQ(faulted.summary(), "Voter:     4 frames, lanes in the vote 1 3, no majority on 2 frames, voter events 3");
 }

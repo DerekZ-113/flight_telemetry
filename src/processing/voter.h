@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "telemetry_frame.h"
@@ -43,8 +44,9 @@ public:
     // detector judged and every lane was given. The result is `checked`
     // carrying the majority's computed fields and validities, or, with no
     // majority, the last voted ones degraded (REQ-RED-004), and the voter's
-    // decisions in `voter_status`. Lanes are numbered 1 to 3 in the events
-    // and the bits, 0 to 2 in the array.
+    // decisions in `voter_status`. A lane whose output is for another frame
+    // has overrun and takes no part (REQ-RED-006). Lanes are numbered 1 to 3
+    // in the events and the bits, 0 to 2 in the array.
     TelemetryFrame vote(const TelemetryFrame& checked, const std::array<TelemetryFrame, kLaneCount>& lanes);
 
     // Events recorded since the previous call (channel VOTER), handed out
@@ -58,9 +60,10 @@ private:
     };
 
     // The lanes' counts on a cycle that has a majority, whose representative
-    // is lane `representative`; events are stamped `now_ms`.
+    // is lane `representative`; `stale` marks the lanes that overran.
+    // Events are stamped `now_ms`.
     void count(const std::array<TelemetryFrame, kLaneCount>& lanes,
-               const std::array<bool, kLaneCount>& eligible,
+               const std::array<bool, kLaneCount>& stale,
                std::size_t representative, uint64_t now_ms);
 
     // The held frame before any vote: zeros, every validity
@@ -79,4 +82,21 @@ private:
     TelemetryFrame held_{};
     bool in_no_majority_ = false;
     std::vector<FaultEvent> events_;
+};
+
+// The voter's line at the end of a run, counted from the frames the loop
+// emitted, the bytes the log holds, and the voter's events, so that main
+// prints and decides nothing.
+struct VoterTally {
+    int frames = 0;
+    int no_majority_frames = 0;
+    uint16_t last_status = 0;   // the last frame's voter status: which lanes ended in the vote
+    std::size_t events = 0;
+
+    void account(const TelemetryFrame& frame);
+    void account_events(std::size_t count);
+
+    // "Voter:     500 frames, lanes in the vote 1 2 3, no majority on 0
+    // frames, voter events 0"; "Voter:     0 frames" for a run with none.
+    std::string summary() const;
 };
