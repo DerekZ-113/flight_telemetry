@@ -38,7 +38,8 @@ def make_header(**overrides) -> Header:
 def make_frame(index: int = 0, **overrides) -> Frame:
     """A frame on the 20 ms grid, numbered as its source numbers it (REQ-LOG-008): zeros, NOMINAL
     statuses, every channel fresh, every computed field NORMAL (a processed frame, as the binary
-    writes one), then overrides."""
+    writes one, but for the voter's status, left 0 as a log recorded before the voter has it; a
+    replay recomputes it either way), then overrides."""
     fields = dict(_ZERO_FRAME, timestamp_ms=index * PERIOD_MS, sequence=index)
     fields.update(overrides)
     return Frame(**fields)

@@ -21,6 +21,8 @@
 #include "processing/altitude.h"
 #include "processing/processor.h"
 #include "processing/fault_detector.h"
+#include "processing/redundant_processor.h"
+#include "processing/voter.h"
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
@@ -241,6 +243,13 @@ void print_validity_summary(const ValidityTally& tally) {
     std::cout << "); NO_COMPUTED_DATA on " << tally.any_no_computed_data
               << " frames, FAILURE_WARNING on " << tally.any_failure_warning << std::endl;
 }
+
+// What run() hands back for the exit lines: the validity bytes' tally and
+// the voter's (REQ-RED-001), the second counted in its own tested unit.
+struct RunTallies {
+    ValidityTally validity;
+    VoterTally voter;
+};
 
 void print_event(const FaultEvent& event) {
     std::cout << "[FAULT] t=" << event.timestamp_ms << " ms"
@@ -484,7 +493,8 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
                                              std::move(profile));
 }
 
-// The processing loop: source -> fault detector -> processor -> output.
+// The processing loop: source -> fault detector -> three processing lanes
+// and the voter -> output.
 //
 // Takes the source as the base class by reference and never learns the
 // concrete type. Swapping the simulator for real sensors or a log replay
@@ -497,7 +507,10 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 //
 // Detector and processor are passed by non-const reference because both
 // mutate per-frame state. The same instances must see every frame in
-// order, which is why they are created once outside the loop.
+// order, which is why they are created once outside the loop. The
+// processor is three identical lanes and a voter (REQ-RED-001), every
+// source through them alike: the loop hands it the checked frame and logs
+// what the voter chose.
 //
 // The scheduler, the pacer and the jitter log are pointers, not references,
 // because each may be absent: a reference cannot be null, a pointer can. A
@@ -525,12 +538,12 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // from the source main built, so the loop still never learns its type),
 // nothing in every other mode. It is called once per frame, after the
 // read, and the ADS-B composition reports the switches on the way.
-ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
+RunTallies run(DataSource& source, FaultDetector& detector, RedundantProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
                   FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
                   std::optional<int> frame_count, RunMode mode, RunMode source_mode, int status_every_cycles,
                   const std::function<SessionIdentity()>& identity) {
-    ValidityTally tally;
+    RunTallies tally;
     SessionIdentity published_identity;
     // The source is asked before every read (REQ-LOG-006): a replay stops
     // at its log's end, an endless source always answers yes, and
@@ -576,11 +589,12 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
             }
         }
 
-        // Non-virtual calls: one detector, one processor, behavior
-        // configured rather than substituted.
+        // Non-virtual calls: one detector, then three lanes and the voter
+        // (REQ-RED-001), behavior configured rather than substituted.
         TelemetryFrame checked = detector.check(raw);
         TelemetryFrame processed = processor.process(checked);
-        tally.account(processed);
+        tally.validity.account(processed);
+        tally.voter.account(processed);
 
         // Processed frames are what the log holds (REQ-LOG-001); replay
         // strips them back to raw before the pipeline sees them again.
@@ -594,7 +608,17 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
         }
 
         print_frame(processed);
+        // The detector's events, then the voter's (REQ-RED-003, REQ-RED-004,
+        // REQ-RED-006), both after the frame they occurred at; a healthy run
+        // raises no voter event, so its log holds the records it held before
+        // the voter.
         for (const FaultEvent& event : detector.take_events()) {
+            logger.log_event(event);
+            print_event(event);
+        }
+        const std::vector<FaultEvent> voter_events = processor.take_events();
+        tally.voter.account_events(voter_events.size());
+        for (const FaultEvent& event : voter_events) {
             logger.log_event(event);
             print_event(event);
         }
@@ -819,9 +843,11 @@ int main(int argc, char* argv[]) {
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
-    // One configured value feeds both: the IMU timeout is the detector's
-    // fault bound and the processor's re-seed bound (REQ-PROC-002), and
-    // they must be the same number.
+    // It is three lanes and a voter (REQ-RED-001), every lane built from
+    // the same tuning; no lane-fault hook, which only a test builds
+    // (REQ-RED-005). One configured value feeds both: the IMU timeout is
+    // the detector's fault bound and the lanes' re-seed bound
+    // (REQ-PROC-002), and they must be the same number.
     // The GPS channel's timeout (REQ-FAULT-001): the receiver's in a live
     // run, and for ADS-B frames the configured ADS-B timeout, because the
     // channel's delivery period is the poll interval there; a replay of an
@@ -839,7 +865,7 @@ int main(int argc, char* argv[]) {
         fault.uart_timeout_ms = cfg.adsb->timeout_ms;
     }
     FaultDetector detector(fault);
-    TelemetryProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
+    RedundantProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
 
     // The header every record and every frame message carries
     // (REQ-LOG-007): built once, from the run's mode and the source mode,
@@ -983,7 +1009,7 @@ int main(int argc, char* argv[]) {
         return selected.has_value() ? session_identity(selected->icao24, selected->callsign) : SessionIdentity{};
     };
 
-    const ValidityTally tally = run(*source, detector, processor, logger, publishers,
+    const RunTallies tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
                                     options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,
@@ -996,7 +1022,8 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
-    print_validity_summary(tally);
+    print_validity_summary(tally.validity);
+    std::cout << tally.voter.summary() << std::endl;
 
     // Which ended the run, the log or --cycles (REQ-LOG-006). Asking the
     // source here looks one frame ahead and processes nothing.

@@ -34,7 +34,7 @@ void LogReplaySource::strip_to_raw(TelemetryFrame& frame) {
     frame.gps_status = frame.gps_status == ChannelStatus::NOT_AVAILABLE ? ChannelStatus::NOT_AVAILABLE : ChannelStatus::NOMINAL;
     // The pipeline's judgments go too (REQ-PROC-007): a source hands out
     // NOT_JUDGED and the processor writes every validity, and the voter's
-    // status is a verdict the voter will recompute (telemetry_frame.h).
+    // status is a verdict the replay's voter recomputes (telemetry_frame.h).
     // The sequence, the flags and the tail's raw fields stay: a source
     // wrote them, and a replay reproduces what the source said
     // (REQ-LOG-008, REQ-PROC-008). The reserved field is zero by

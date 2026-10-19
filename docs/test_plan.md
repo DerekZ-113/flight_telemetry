@@ -916,7 +916,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 5 | pitch within 0.3° of 8, ground speed 30, every validity NORMAL on the last frame, the GPS more than 200 m east of the first fix by the test's own conversion; `Motion:    profile demo` in the summary |
   | 6 | every record byte-identical and the header equal but for its run mode, REPLAY in place of SIMULATED (since format version 3, REQ-LOG-007); `Replay:    1000 frames, end of log reached` |
   | 7 | exit 1 each, the first two naming the rule, the third naming `demo`; nothing built |
-  | 8 | `7720966c…` since format version 3 (FTS-VR-001 Entry 19 §19.4; `6d43f343…` at version 2, Entry 12 §12.4), unchanged |
+  | 8 | `f1dc959a…` since the voter (FTS-VR-001 Entry 20 §20.4: byte 114 of every frame, VOTED; `7720966c…` at format version 3 before it, Entry 19 §19.4; `6d43f343…` at version 2, Entry 12 §12.4), unchanged |
   | 9 | recorded in FTS-VR-001 Entry 17 §17.4: the hash, the paced replay byte-identical (since format version 3, record for record, its header naming REPLAY), its lateness, the page's phases as FTS-DS-001 §7 lists |
 
 - **Pass/fail:** Steps 1 through 8 exact as listed. Any change to the session fixture's bytes (beyond the one the voter made by design, byte 114 of every frame, FTS-VR-001 Entry 20 §20.4), a profile run whose replay differs, a refused flag that built anything, or a filter output more than 0.3° from the script fails.

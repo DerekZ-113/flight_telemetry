@@ -69,8 +69,10 @@ def test_session_is_version_3_and_normal_from_frame_0(sim_session):
         # The simulator's receiver states its fix: FIX_QUALITY alone, quality 1, eight satellites.
         assert (frames["flags"] == 0x08).all()
         assert (frames["gps_fix_quality"] == 1).all() and (frames["gps_satellites"] == 8).all()
-        for name in ("gps_vertical_rate_mps", "gps_pressure_altitude_m", "voter_status", "reserved_d"):
+        for name in ("gps_vertical_rate_mps", "gps_pressure_altitude_m", "reserved_d"):
             assert (frames[name] == 0).all(), name
+        # Three lanes voted every frame, none excluded, a majority on each (REQ-RED-002): VOTED.
+        assert (frames["voter_status"] == 0x0001).all()
     for stdout in (sim_session.stdout, sim_session.replay_stdout):
         match = VALIDITY_LINE.search(stdout)
         assert match is not None, stdout[-600:]
@@ -108,8 +110,11 @@ def test_older_log_replays_through_this_build(telemetry_bin, tmp_path, version):
     assert (judged["fused_altitude_validity"] == VALIDITY_NORMAL).all()
     assert (judged["sequence"] == 0).all() and (judged["flags"] == 0).all()
     for name in ("gps_vertical_rate_mps", "gps_pressure_altitude_m", "gps_fix_quality", "gps_satellites",
-                 "voter_status", "reserved_d"):
+                 "reserved_d"):
         assert (judged[name] == 0).all(), name
+    # The voter's status is a verdict, recomputed on replay like the validity (REQ-RED-002,
+    # REQ-LOG-003): an older log, which had none, replays voted (TC-034 step 8).
+    assert (judged["voter_status"] == 0x0001).all()
     assert "Replay:    50 frames, end of log reached" in completed.stdout
 
 

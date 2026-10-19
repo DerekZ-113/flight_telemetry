@@ -58,8 +58,10 @@ struct ProcessorConfig {
 // The processing pipeline. Sits between a DataSource (raw frames) and the
 // outputs (logger, transports, display). Fills every computed field of a
 // TelemetryFrame from the raw fields (REQ-PROC-005) and judges each one's
-// validity (REQ-PROC-007): it is the only writer of Validity, as the fault
-// detector is the only writer of ChannelStatus.
+// validity (REQ-PROC-007): it is the only judge of Validity, as the fault
+// detector is the only writer of ChannelStatus. The system runs three of
+// these as lanes (REQ-RED-001, redundant_processor.h), and the voter
+// passes a majority's verdicts through or degrades the held ones.
 //
 // Why a class and not a free function: the pipeline holds state that
 // persists across frames. The Kalman filter's estimate and covariance
