@@ -1271,7 +1271,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Nine requirements are Partial in FTS-TM-001, the four I2C sensor requirements and the GPS (REQ-SENS-005) among them (on-target evidence pending). The Notes column there states what each is missing.
+- Ten requirements are Partial in FTS-TM-001: the four I2C sensor requirements and the GPS (REQ-SENS-005), on-target evidence pending; the ADS-B source (REQ-SENS-008); REQ-PROC-004, REQ-FAULT-003, REQ-TIME-003 and REQ-TEST-004. The Notes column there states what each is missing.
 - TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (a capture with the receiver fixing, now that REQ-SENS-005 delivers one).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.

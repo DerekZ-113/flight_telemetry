@@ -19,6 +19,7 @@
 #include "processing/processor.h"
 #include "processing/redundant_processor.h"
 #include "replay/log_replay_source.h"
+#include "scratch_dir.h"
 #include "scripted_lane_faults.h"
 
 namespace fs = std::filesystem;
@@ -27,15 +28,9 @@ namespace {
 
 class ReplayTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        static int counter = 0;
-        dir_ = fs::temp_directory_path() / ("ftlg_replay_" + std::to_string(counter++));
-        fs::remove_all(dir_);
-        fs::create_directories(dir_);
-    }
-    void TearDown() override { fs::remove_all(dir_); }
-
-    fs::path dir_;
+    // A directory of this test's own, removed after it (scratch_dir.h).
+    ScratchDir scratch_{"replay"};
+    fs::path dir_ = scratch_.path();
 };
 
 }  // namespace

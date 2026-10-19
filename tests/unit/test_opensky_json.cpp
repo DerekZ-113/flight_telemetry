@@ -12,6 +12,7 @@
 
 #include "drivers/opensky_json.h"
 #include "opensky_examples.h"
+#include "scratch_dir.h"
 
 namespace fs = std::filesystem;
 namespace ex = opensky_examples;
@@ -23,13 +24,6 @@ namespace {
 // after it; the credentials files written here never leave it.
 class CredentialsDir {
 public:
-    CredentialsDir() {
-        static int counter = 0;
-        dir_ = fs::temp_directory_path() / ("ftlg_creds_" + std::to_string(counter++));
-        fs::remove_all(dir_);
-        fs::create_directories(dir_);
-    }
-    ~CredentialsDir() { fs::remove_all(dir_); }
     fs::path write(const std::string& name, const std::string& text, fs::perms mode) {
         const fs::path path = dir_ / name;
         std::ofstream(path, std::ios::binary) << text;
@@ -39,7 +33,8 @@ public:
     const fs::path& dir() const { return dir_; }
 
 private:
-    fs::path dir_;
+    ScratchDir scratch_{"creds"};   // scratch_dir.h: unique per object, removed with it
+    fs::path dir_ = scratch_.path();
 };
 
 constexpr fs::perms kOwnerOnly = fs::perms::owner_read | fs::perms::owner_write;
