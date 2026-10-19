@@ -30,6 +30,19 @@ export const COLORS = {
 
 export const ATTITUDE = { cx: 400, cy: 260, r: 160, pxPerDeg: 4 } as const;
 
+// The voter panel (FTS-DS-001 §4.7): the left column under the GS box
+// (x 40 to 150, y 236 to 284): the caption, three lane cells, the flag box
+// (Flag.tsx's 90 by 32) centred below them.
+export const VOTER = {
+  captionY: 312,
+  cellX: [40, 80, 120],
+  cellY: 320,
+  cellWidth: 30,
+  cellHeight: 28,
+  flagX: 95,
+  flagY: 380,
+} as const;
+
 // An SVG number: no trailing zeros, and never "-0".
 function num(value: number): string {
   return String(Number(value.toFixed(3)));

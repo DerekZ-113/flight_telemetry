@@ -108,7 +108,7 @@ export function frame(
       gps_pressure_altitude_m: 0,
       gps_fix_quality: 0,
       gps_satellites: 0,
-      voter_status: 0,
+      voter_status: 0x0001, // VOTED: three lanes, none excluded, a majority (REQ-RED-002)
       reserved_d: 0,
       ...values,
     },

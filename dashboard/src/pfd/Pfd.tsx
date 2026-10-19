@@ -1,5 +1,5 @@
 // The Primary Flight Display's panel (REQ-DISP-001, REQ-DISP-002,
-// REQ-DISP-004, REQ-DISP-006; FTS-DS-001 §3 and §5): one SVG with the strip
+// REQ-DISP-004, REQ-DISP-006, REQ-DISP-008; FTS-DS-001 §3 and §5): one SVG with the strip
 // at its top (the mode label inside the panel, so no crop can lose it; the
 // feed's state with its cause; PIPELINE when a field was never judged; the
 // rate and the lag) and the instruments below it, each deciding what it
@@ -13,10 +13,11 @@ import { AltitudeTape } from "./AltitudeTape";
 import { AttitudeIndicator } from "./AttitudeIndicator";
 import { COLORS, PANEL, STRIP } from "./geometry";
 import { GroundSpeed } from "./GroundSpeed";
-import { feedCause, feedStateText, instrumentState, lagLabel, trackShown } from "./instrumentState";
+import { feedCause, feedStateText, instrumentState, lagLabel, trackShown, voterState } from "./instrumentState";
 import type { FieldVerdict } from "./instrumentState";
 import { TrackIndicator } from "./TrackIndicator";
 import { VerticalSpeed } from "./VerticalSpeed";
+import { VoterPanel } from "./VoterPanel";
 
 function stateColor(cause: ReturnType<typeof feedCause>, feed: FeedState): string {
   switch (cause) {
@@ -66,6 +67,9 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   // track is withheld below the speed threshold besides.
   const gps = instrumentState(frame === null ? [] : [frame.status.gps], feed);
   const track = trackShown(feed);
+  // The voter's lanes and its no-majority flag, from the frame's voter
+  // status (REQ-DISP-008); its own rule, with the feed's causes first.
+  const voter = voterState(feed);
 
   return (
     <svg
@@ -118,6 +122,7 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
       <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
       <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={gps} />
       <TrackIndicator trackDeg={frame?.frame.course_deg ?? 0} shown={track} state={gps} />
+      <VoterPanel state={voter} />
     </svg>
   );
 }

@@ -10,6 +10,7 @@
 // through on an instrument: a struck-through altitude is still an altitude
 // a pilot can read, so the number goes and a flag takes its place.
 import { badgeFor } from "../badge";
+import { VOTER_BITS } from "../feed";
 import type { StatusName, ValidityName } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
 
@@ -96,6 +97,45 @@ export function instrumentState(verdicts: FieldVerdict[], feed: FeedState): Inst
 export function trackShown(feed: FeedState): boolean {
   const frame = feed.lastFrame;
   return frame !== null && frame.status.gps === "NOMINAL" && frame.frame.ground_speed_mps >= feed.trackMinSpeedMps;
+}
+
+// Which of the three lanes are in the vote, from the voter's status
+// (REQ-RED-003): a lane is out when its FAULTED bit is set.
+export function lanesIn(voterStatus: number): boolean[] {
+  return [VOTER_BITS.LANE_1_FAULTED, VOTER_BITS.LANE_2_FAULTED, VOTER_BITS.LANE_3_FAULTED].map(
+    (bit) => (voterStatus & bit) === 0,
+  );
+}
+
+// What the voter panel shows (REQ-DISP-008, FTS-DS-001 §4.7): the feed's
+// cause first, as for every instrument, the lanes removed under the VOTE
+// flag; then the voter's status. Zero means no voter ran (a frame from a
+// build before the voter): dashes, and no pipeline annunciator, since zero
+// is a defined state and not an unjudged one. Otherwise the three lanes, an
+// excluded one marked, and under NO_MAJORITY the red VOTE flag below them:
+// the lanes stay, because which lanes are in is the voter's latched state,
+// not a voted value.
+export interface VoterState {
+  lanes: boolean[] | null; // the cells, true for a lane in the vote; null when none are drawn
+  flag: FlagCause | null; // the VOTE flag's cause, or no flag
+  dashes: boolean; // nothing to show: no frame yet, or no voter ran
+}
+
+export function voterState(feed: FeedState): VoterState {
+  const frame = feed.lastFrame;
+  if (frame === null) {
+    return { lanes: null, flag: null, dashes: true };
+  }
+  const cause = feedCause(feed);
+  if (cause !== null) {
+    return { lanes: null, flag: cause, dashes: false };
+  }
+  const bits = frame.frame.voter_status;
+  if (bits === 0) {
+    return { lanes: null, flag: null, dashes: true };
+  }
+  const noMajority = (bits & VOTER_BITS.NO_MAJORITY) !== 0;
+  return { lanes: lanesIn(bits), flag: noMajority ? "fail" : null, dashes: false };
 }
 
 // The strip's word for the feed, with its cause's measure: the badge's

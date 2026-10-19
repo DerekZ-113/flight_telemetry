@@ -3,8 +3,8 @@
 // the feed's state, with the precedence FTS-DS-001 §2.1 and §5 state.
 import { describe, expect, it } from "vitest";
 
-import { feedCause, instrumentState } from "./instrumentState";
-import { runningFeed } from "../testMessages";
+import { feedCause, instrumentState, lanesIn, voterState } from "./instrumentState";
+import { frame, runningFeed } from "../testMessages";
 
 describe("instrumentState", () => {
   it("follows a computed field's validity (step 1)", () => {
@@ -72,5 +72,34 @@ describe("instrumentState", () => {
       expect(instrumentState(["NORMAL"], feed)).toEqual({ show: "dashes" });
     }
     expect(instrumentState([], runningFeed())).toEqual({ show: "dashes" });
+  });
+});
+
+// The voter panel's rule (REQ-DISP-008; TC-032 step 10, TC-033 step 8): the
+// feed's cause first, then the voter's status as format version 3 defines
+// its bits.
+describe("voterState", () => {
+  it("reads which lanes are in the vote from the FAULTED bits", () => {
+    expect(lanesIn(0x0001)).toEqual([true, true, true]);
+    expect(lanesIn(0x0003)).toEqual([false, true, true]);
+    expect(lanesIn(0x0005)).toEqual([true, false, true]);
+    expect(lanesIn(0x0009)).toEqual([true, true, false]);
+    expect(lanesIn(0x0015)).toEqual([true, false, true]);
+  });
+
+  it("shows the lanes while voting, the fail flag with the lanes under no majority, dashes for zero", () => {
+    const at = (bits: number) => voterState(runningFeed({ lastFrame: frame(0, {}, { voter_status: bits }) }));
+    expect(at(0x0001)).toEqual({ lanes: [true, true, true], flag: null, dashes: false });
+    expect(at(0x0009)).toEqual({ lanes: [true, true, false], flag: null, dashes: false });
+    expect(at(0x0011)).toEqual({ lanes: [true, true, true], flag: "fail", dashes: false });
+    expect(at(0x0015)).toEqual({ lanes: [true, false, true], flag: "fail", dashes: false });
+    expect(at(0)).toEqual({ lanes: null, flag: null, dashes: true });
+  });
+
+  it("puts the feed's cause before the voter's status, and dashes before any frame", () => {
+    const lastFrame = frame(0, {}, { voter_status: 0x0001 });
+    expect(voterState(runningFeed({ lastFrame, stale: true }))).toEqual({ lanes: null, flag: "stale", dashes: false });
+    expect(voterState(runningFeed({ lastFrame, ended: true }))).toEqual({ lanes: null, flag: "ended", dashes: false });
+    expect(voterState(runningFeed({ lastFrame: null }))).toEqual({ lanes: null, flag: null, dashes: true });
   });
 });

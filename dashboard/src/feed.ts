@@ -3,6 +3,7 @@
 //
 //   pipeline/frame_format.py  FRAME_FIELDS less latitude and longitude  ->  FrameFields
 //   pipeline/frame_format.py  VALIDITY_NAMES, STATUS_NAMES, MODE_NAMES, STATE_NAMES  ->  the name unions
+//   pipeline/frame_format.py  VOTER_STATUS_NAMES                         ->  VOTER_BITS
 //   pipeline/bridge.py        frame_message, session_message, hello     ->  the message types
 //
 // A typed record is the cheapest check that the page and the bridge agree
@@ -26,6 +27,17 @@ export const COMPUTED_FIELDS = [
   "vertical_speed_mps",
 ] as const;
 export type ComputedField = (typeof COMPUTED_FIELDS)[number];
+
+// The voter's status bits (REQ-RED-002 to REQ-RED-004; src/telemetry_frame.h,
+// VoterStatus), the twin of VOTER_STATUS_NAMES: the bridge forwards the
+// number by name in every frame, and the page decodes it here, once.
+export const VOTER_BITS = {
+  VOTED: 0x0001,
+  LANE_1_FAULTED: 0x0002,
+  LANE_2_FAULTED: 0x0004,
+  LANE_3_FAULTED: 0x0008,
+  NO_MAJORITY: 0x0010,
+} as const;
 
 export const CHANNELS = ["baro", "imu", "gps"] as const;
 export type Channel = (typeof CHANNELS)[number];
@@ -68,7 +80,7 @@ export interface FrameFields {
   gps_pressure_altitude_m: number; // present only under the PRESSURE_ALTITUDE bit (REQ-SENS-008)
   gps_fix_quality: number; // present only under the FIX_QUALITY bit (REQ-SENS-005)
   gps_satellites: number;
-  voter_status: number; // VoterStatus bits; zero: no voter ran
+  voter_status: number; // VoterStatus bits (VOTER_BITS); zero: no voter ran
   reserved_d: number;
 }
 

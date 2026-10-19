@@ -148,3 +148,34 @@ describe("the identity after the label", () => {
     expect(unit()).toBe("ALT ft");
   });
 });
+
+// The voter panel inside the whole panel (REQ-DISP-008; TC-033 step 8): no
+// majority is the vote's own flag beside the instruments' FAILURE_WARNING
+// flags, with the strip still RUNNING; zero is dashes, never PIPELINE.
+describe("the voter panel in the panel", () => {
+  it("flags no majority beside the instruments' own flags, the strip RUNNING, the excluded lane amber", () => {
+    const failing = frame(
+      0,
+      {
+        baro_altitude_m: "FAILURE_WARNING",
+        pitch_deg: "FAILURE_WARNING",
+        roll_deg: "FAILURE_WARNING",
+        fused_altitude_m: "FAILURE_WARNING",
+        vertical_speed_mps: "FAILURE_WARNING",
+      },
+      { voter_status: 0x0015 },
+    );
+    const { container } = render(<Pfd feed={runningFeed({ lastFrame: failing })} />);
+    expect(container.querySelector('[data-testid="vote-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(container.querySelector('[data-testid="voter-lane-2"]')?.getAttribute("data-in")).toBe("false");
+    expect(container.querySelector('[data-testid="att-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(screen.getByTestId("pfd-state").textContent).toBe("RUNNING");
+  });
+
+  it("shows dashes for a frame from a build without a voter, and no PIPELINE annunciator", () => {
+    const { container } = render(<Pfd feed={runningFeed({ lastFrame: frame(0, {}, { voter_status: 0 }) })} />);
+    expect(container.querySelector('[data-testid="voter-dashes"]')?.textContent).toBe("---");
+    expect(container.querySelector('[data-testid="pfd-pipeline"]')).toBeNull();
+    expect(container.querySelector('[data-testid="vote-flag"]')).toBeNull();
+  });
+});
