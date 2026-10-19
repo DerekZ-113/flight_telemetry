@@ -2307,14 +2307,61 @@ Review found it, not the campaign. The fault-injection campaign (FTS-FI-001) run
 
 ### 23.7 Measurement of record
 
-Owed after the push. The run should show:
-- **No unwind edge on a restructured line:** `aircraft_selector.cpp` 55 of 62, `http_client.cpp` 2 of 2, `opensky_client.cpp` 88 of 96;
-- **The two decisions the markers had hidden, measured and taken:** `log_replay_source.cpp` 23 of 24, `log_reader.cpp` 22 of 22;
-- **The new marker's line gone, the rest unchanged:** `opensky_json.cpp` 103 of 122; `fault_detector.cpp` 80 of 80, `voter.cpp` 84 of 84;
-- **The totals:** 1,512 of 1,602 (94.4%); drivers 90.3%, logging 100.0%, replay 97.8%; processing, config, timing and transport unchanged;
-- **The suites:** Google Test 575, pytest 179, the page 89.
+CI run 39319857862 on `279e8c6`, the branch's head, on draft pull request 4, 2026-10-19 20:30:22 to 20:34:51 UTC. It ran on the one push that carried commits 17 to 20 (`40cfd54..279e8c6`). Both jobs passed. The run on `40cfd54`, commit 16 alone (39303078311), passed too.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 575 of 575 in 22.6 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 179 of 179 in 138.5 s, the three new bridge tests among them |
+| lcov over `src/` | lines 98.4% (3,192 of 3,243), functions 97.2% (353 of 363), branches 94.4% (1,514 of 1,604) |
+| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| `page` job | 89 of 89 in 13 files, the TypeScript build clean |
+| Wall time | the C++ job 4 min 29 s; the page job 22 s |
+
+Per-scope branch coverage on GCC, beside Entry 22's record and this entry's preview:
+
+| Scope | Record (GCC) | Run 39298962945 on `aedd45b` (GCC) | §23.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 100.0% | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 92.2% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 97.8% | 97.6% | 100.0% | 80% |
+| drivers | 90.3% | 89.4% | 91.6% | 70% |
+| overall | 94.4% | 93.8% | 94.8% | 80% |
+
+The files commits 17 to 20 changed under lcov's scope, on GCC, read from the run's `coverage-html` artifact as from §23.4's:
+
+| File | Lines | Branches | Functions | At `aedd45b` |
+|---|---|---|---|---|
+| `drivers/aircraft_selector.cpp` | 79 of 79 | 55 of 62 | 14 of 14 | 79 of 79, 56 of 64, 14 of 14 |
+| `drivers/http_client.cpp` | 6 of 6 | 2 of 2 | 2 of 2 | 6 of 6, 3 of 4, 2 of 2 |
+| `drivers/opensky_client.cpp` | 152 of 165 | 88 of 96 | 14 of 14 | 151 of 164, 95 of 108, 14 of 14 |
+| `drivers/opensky_json.cpp` | 145 of 150 | 103 of 122 | 11 of 11 | 145 of 150, 108 of 130, 11 of 11 |
+| `logging/log_reader.cpp` | 78 of 78 | 24 of 24 | 5 of 5 | 74 of 75, 18 of 18, 5 of 5 |
+| `replay/log_replay_source.cpp` | 46 of 46 | 23 of 24 | 5 of 5 | 44 of 44, 19 of 20, 5 of 5 |
+
+`fault_detector.cpp` (80 of 80) and `voter.cpp` (84 of 84) are unchanged in every count, and the five marked lines carry no branch data.
+
+The record reconciles with Entry 22's exactly:
+- **Branches:** 1,618, less 2 and 2 (the two `find_if` calls' pairs), 12 (`failure()`'s fourteen become the `if`'s two) and 8 (the new marker's line), plus 4 (`has_next`'s two tests) and 6 (the filter's), make the 1,604.
+- **Taken:** 1,518, less 1, 1, 7 and 5, plus 4 and 6, make the 1,514.
+- **Lines:** 3,237 and the six new statement lines (one in `failure()`, three in `list_log_files`, two in `has_next`) make the 3,243. 3,185 and those six, all executed, make 3,191. The 3,192nd is `list_log_files`'s closing brace, which the earlier record held unexecuted: a brace that only an unwinding cleanup reached, the kind Entry 5 §5.4 names. Its hoisted locals now run their destructors there on every return.
+- **Functions:** 353 of 363, unchanged; a named lambda is the function an inline one was.
+
+The five expectations §23.4 set before the push:
+
+| Expectation | Measured |
+|---|---|
+| No unwind edge on a restructured line: `aircraft_selector.cpp` 55 of 62, `http_client.cpp` 2 of 2, `opensky_client.cpp` 88 of 96 | 55 of 62, 2 of 2 and 88 of 96. The named predicates' lines carry no branch, so §23.4's assumption about libstdc++'s `noexcept` held: met |
+| The two decisions the markers had hidden, measured and taken: `log_replay_source.cpp` 23 of 24, `log_reader.cpp` 22 of 22 | `log_replay_source.cpp` 23 of 24. `log_reader.cpp` 24 of 24, every branch taken, but the count is off by two: GCC counts six branches on the filter's two-term `&&` (two for each term and two for the test of their result), where §23.4 counted four, clang's number. The earlier record held the precedent, six on `has_next`'s two-term `while` at line 55, unread: the coverage met, the count missed |
+| The new marker's line gone, the rest unchanged: `opensky_json.cpp` 103 of 122; `fault_detector.cpp` 80 of 80, `voter.cpp` 84 of 84 | all three: met |
+| The totals: 1,512 of 1,602 (94.4%); drivers 90.3%, logging 100.0%, replay 97.8%; the other scopes unchanged | 1,514 of 1,604, 94.4%; every scope's percentage as predicted. The two extra branches are the filter's, so this is the same miss |
+| The suites: Google Test 575, pytest 179, the page 89 | 575, 179 and 89: met |
+
+One expectation was missed, in a count and not in coverage: the filter's decision is measured and fully taken, with six branches where four were predicted. Every restructured line keeps its decision fully covered, and no restructured line carries an unwind edge.
 
 ### 23.8 Open
 
-- §23.7.
 - Entry 22's open items stand (the campaign of record after the bench session; the ADS-B extras' finiteness, with Phase B), with Entry 21's TC-037 step 9 and Entry 20's TC-009 step 8. The README's count of exception markers (Entry 21 §21.8) is closed.
