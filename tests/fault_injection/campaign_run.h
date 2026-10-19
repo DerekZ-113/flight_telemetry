@@ -41,6 +41,7 @@ struct TimelineFrame {
     std::array<float, kComputedCount> reference{};     // the healthy lane's real values, or the twin's voted ones
     std::array<bool, kLaneCount> outside{};            // each lane outside the healthy majority: stale, or disagreeing
     std::array<bool, kLaneCount> stale{};              // each lane's handed output for another frame
+    std::array<bool, 3> pair_agree{};                  // lanes_agree over the handed outputs: pairs (1,2), (1,3), (2,3)
 };
 
 struct TimelineEvent {

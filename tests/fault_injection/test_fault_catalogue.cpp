@@ -3,34 +3,15 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <sstream>
 #include <string>
 
 #include "drivers/mpu6050.h"
 #include "fault_catalogue.h"
 
 namespace {
-
-// Every field of a schedule, in one line: two schedules are the same run
-// when their lines are equal.
-std::string describe(const RunSchedule& s) {
-    std::ostringstream out;
-    out << "cell " << s.cell << " rep " << s.replicate << " sim " << s.sim_seed << " P " << s.persistence << " end "
-        << s.end_ms << " | sensor " << static_cast<int>(s.sensor.mode) << " ch";
-    for (Channel c : s.sensor.channels) {
-        out << ' ' << static_cast<int>(c);
-    }
-    out << " field " << static_cast<int>(s.sensor.field) << " value " << s.sensor.value << " rate " << s.sensor.rate_per_s
-        << " on " << s.sensor.onset_ms << " off " << s.sensor.removal_ms << " | twin " << s.twin << " L "
-        << s.length_cycles << " g " << s.gap_cycles << " |";
-    for (const LaneFault& f : s.lane_faults) {
-        out << " lane " << f.lane << " kind " << static_cast<int>(f.kind) << " on " << f.onset_ms << " end " << f.end_ms
-            << " field " << static_cast<int>(f.field) << " bit " << static_cast<int>(f.bit);
-    }
-    return out.str();
-}
 
 std::size_t cell_named(const std::string& name) {
     for (std::size_t c = 0; c < cells().size(); c++) {
@@ -59,11 +40,7 @@ TEST(CatalogueTest, NinetyThreeCellsInTheirOrder) {
     EXPECT_EQ(cell_name(23), "V01/P3");
     EXPECT_EQ(cell_name(26), "V01/P8");
     EXPECT_EQ(cell_name(92), "V12/P8");
-    int subset = 0;
-    for (const Cell& c : cells()) {
-        subset += in_ci_subset(c) ? 1 : 0;
-    }
-    EXPECT_EQ(subset, 45);
+    EXPECT_EQ(std::count_if(cells().begin(), cells().end(), in_ci_subset), 45);
 }
 
 TEST(CatalogueTest, RunIdRoundTrips) {

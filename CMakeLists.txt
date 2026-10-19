@@ -226,9 +226,14 @@ add_library(fault_campaign_core STATIC
     tests/fault_injection/campaign_run.cpp
     tests/fault_injection/run_outcome.cpp
     tests/fault_injection/prediction.cpp
+    tests/fault_injection/campaign_record.cpp
 )
 target_include_directories(fault_campaign_core PUBLIC ${CMAKE_SOURCE_DIR}/tests/fault_injection)
-target_link_libraries(fault_campaign_core PUBLIC telemetry_core)
+target_link_libraries(fault_campaign_core PUBLIC telemetry_core PRIVATE nlohmann_json::nlohmann_json)
+
+# The full campaign on demand (TC-036): scripts/fault_campaign.sh runs it.
+add_executable(fault_campaign tests/fault_injection/campaign_main.cpp)
+target_link_libraries(fault_campaign PRIVATE fault_campaign_core)
 
 file(GLOB FAULT_INJECTION_TEST_SOURCES CONFIGURE_DEPENDS tests/fault_injection/test_*.cpp)
 add_executable(fault_injection_tests ${FAULT_INJECTION_TEST_SOURCES})

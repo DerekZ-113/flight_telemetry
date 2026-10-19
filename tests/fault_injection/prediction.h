@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "campaign_run.h"
 #include "run_outcome.h"
@@ -52,5 +53,27 @@ struct Verdict {
     std::string mismatch;   // the first departure, named
 };
 
+// The vote replayed over each frame's recorded facts (the lanes' staleness
+// and their pairwise agreement), written from REQ-RED-002 to REQ-RED-004 and
+// REQ-RED-006 independently of voter.cpp: the eligible lanes, the first
+// agreeing pair in the order (1,2), (1,3), (2,3), each lane's count, the
+// onset and exclusion events, one NO_MAJORITY event per episode, and the
+// frames whose representative was an altered lane, which vote a wrong
+// value. The gate's oracle for V09 and V12 since 2026-10-18: the CI subset
+// found that their written prediction missed an identical flip to NaN,
+// which agrees with nothing (FTS-FI-001 Section 7).
+struct ReplayedVote {
+    std::vector<TimelineEvent> events;
+    int altered_representative_frames = 0;
+};
+ReplayedVote replay_vote(const RunSchedule& schedule, const Timeline& timeline);
+
+// The CI gate's verdict (REQ-TEST-006): FTS-FI-001 Section 5 as written,
+// except V09 and V12, whose vote is replayed frame by frame.
 Verdict judge(const RunSchedule& schedule, const Timeline& timeline, const RunOutcome& outcome,
               const CampaignTiming& t);
+
+// FTS-FI-001 Section 5 exactly as written before the campaign ran, every
+// cell; the report counts the runs it missed (Section 7).
+Verdict judge_as_written(const RunSchedule& schedule, const Timeline& timeline, const RunOutcome& outcome,
+                         const CampaignTiming& t);

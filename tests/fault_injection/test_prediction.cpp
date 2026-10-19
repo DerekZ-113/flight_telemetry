@@ -122,3 +122,92 @@ TEST(PredictionTest, TheJudgePredictsTheCoincidencesItReads) {
     EXPECT_FALSE(late.as_predicted);
     EXPECT_NE(late.mismatch.find("latency: 160, predicted 140"), std::string::npos) << late.mismatch;
 }
+
+namespace {
+
+// Frames from 3,000 ms to 4,100 ms on which every pair agrees (healthy
+// lanes), for the replayed vote's tests to break.
+Timeline agreeing(uint64_t from, uint64_t to) {
+    Timeline tl;
+    for (uint64_t t = from; t < to; t += kTiming.period_ms) {
+        TimelineFrame f;
+        f.t_ms = t;
+        f.pair_agree = {true, true, true};
+        tl.frames.push_back(f);
+    }
+    return tl;
+}
+
+RunSchedule two_altered(int persistence) {
+    RunSchedule s;
+    s.persistence = persistence;
+    LaneFault a;
+    a.lane = 2;
+    a.onset_ms = 3100;
+    LaneFault b = a;
+    b.lane = 3;
+    s.lane_faults = {a, b};
+    return s;
+}
+
+}  // namespace
+
+// Seed 6900004's pattern, the finding of FTS-FI-001 Section 7: lanes 2 and 3
+// carry the identical flip, which is NaN while the value is below 2 m (no
+// pair agrees: no majority, one event, three lanes in the vote) and finite
+// once it crosses (lanes 2 and 3 agree: a majority without lane 1, which
+// counts its misses). At P = 1 lane 1 goes on that frame, at P = 3 two
+// frames later; every frame of that majority votes lane 2's wrong value.
+TEST(PredictionTest, ReplayedVoteFollowsAFlipThatIsNaNThenFinite) {
+    for (int p : {1, 3}) {
+        Timeline tl = agreeing(3000, 4100);
+        for (TimelineFrame& f : tl.frames) {
+            if (f.t_ms >= 3100 && f.t_ms < 3960) {
+                f.pair_agree = {false, false, false};
+            } else if (f.t_ms >= 3960) {
+                f.pair_agree = {false, false, true};
+            }
+        }
+        const ReplayedVote vote = replay_vote(two_altered(p), tl);
+        ASSERT_EQ(vote.events.size(), 3u) << p;
+        EXPECT_EQ(vote.events[0].type, FaultType::NO_MAJORITY);
+        EXPECT_EQ(vote.events[0].t_ms, 3100u);
+        EXPECT_EQ(vote.events[0].value, 3.0f);
+        EXPECT_EQ(vote.events[1].type, FaultType::LANE_DISAGREEMENT);
+        EXPECT_EQ(vote.events[1].t_ms, 3960u);
+        EXPECT_EQ(vote.events[1].value, 1.0f);
+        EXPECT_EQ(vote.events[2].type, FaultType::LANE_FAULTED);
+        EXPECT_EQ(vote.events[2].t_ms, p == 1 ? 3960u : 4000u);
+        EXPECT_EQ(vote.events[2].value, 1.0f);
+        EXPECT_EQ(vote.altered_representative_frames, (4100 - 3960) / 20) << p;
+    }
+}
+
+// A stale lane takes no part in the vote and counts a miss, its onset an
+// overrun; once it is out, the two left disagreeing is no majority with two
+// lanes in the vote.
+TEST(PredictionTest, ReplayedVoteCountsAnOverrunAndThenNoMajorityOnTwo) {
+    RunSchedule s;
+    s.persistence = 2;
+    LaneFault stale;
+    stale.lane = 1;
+    stale.kind = LaneFaultKind::OUTPUT_STALE;
+    stale.onset_ms = 3000;
+    s.lane_faults = {stale};
+    Timeline tl = agreeing(3000, 3200);
+    for (TimelineFrame& f : tl.frames) {
+        f.stale[0] = true;
+        if (f.t_ms >= 3100) {
+            f.pair_agree = {false, false, false};   // lanes 2 and 3 now disagree too
+        }
+    }
+    const ReplayedVote vote = replay_vote(s, tl);
+    ASSERT_EQ(vote.events.size(), 3u);
+    EXPECT_EQ(vote.events[0].type, FaultType::LANE_OVERRUN);
+    EXPECT_EQ(vote.events[0].t_ms, 3000u);
+    EXPECT_EQ(vote.events[1].type, FaultType::LANE_FAULTED);
+    EXPECT_EQ(vote.events[1].t_ms, 3020u);
+    EXPECT_EQ(vote.events[2].type, FaultType::NO_MAJORITY);
+    EXPECT_EQ(vote.events[2].t_ms, 3100u);
+    EXPECT_EQ(vote.events[2].value, 2.0f);
+}

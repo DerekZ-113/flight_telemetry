@@ -1,6 +1,7 @@
 #include "run_schedule.h"
 
 #include <algorithm>
+#include <sstream>
 
 Channel channel_of(RawField field) {
     switch (field) {
@@ -54,4 +55,21 @@ uint64_t lane_onset(const RunSchedule& schedule, int lane) {
         }
     }
     return onset;
+}
+
+std::string describe(const RunSchedule& s) {
+    std::ostringstream out;
+    out << "cell " << s.cell << " rep " << s.replicate << " sim " << s.sim_seed << " P " << s.persistence << " end "
+        << s.end_ms << " | sensor " << static_cast<int>(s.sensor.mode) << " ch";
+    for (Channel c : s.sensor.channels) {
+        out << ' ' << static_cast<int>(c);
+    }
+    out << " field " << static_cast<int>(s.sensor.field) << " value " << s.sensor.value << " rate " << s.sensor.rate_per_s
+        << " on " << s.sensor.onset_ms << " off " << s.sensor.removal_ms << " | twin " << s.twin << " L "
+        << s.length_cycles << " g " << s.gap_cycles << " |";
+    for (const LaneFault& f : s.lane_faults) {
+        out << " lane " << f.lane << " kind " << static_cast<int>(f.kind) << " on " << f.onset_ms << " end " << f.end_ms
+            << " field " << static_cast<int>(f.field) << " bit " << static_cast<int>(f.bit);
+    }
+    return out.str();
 }

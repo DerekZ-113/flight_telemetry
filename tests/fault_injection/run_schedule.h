@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "drivers/fault_injecting_source.h"
@@ -73,3 +74,8 @@ int reference_lane(const RunSchedule& schedule);
 
 // The earliest onset of a fault on `lane`, or kNever when none alters it.
 uint64_t lane_onset(const RunSchedule& schedule, int lane);
+
+// Every field of a schedule on one line: two schedules are the same run
+// when their lines are equal. `fault_campaign --seed` prints it, and the
+// fixed-seed test pins three of them.
+std::string describe(const RunSchedule& schedule);

@@ -120,6 +120,8 @@ Timeline run_once(const RunSchedule& s, const PipelineSettings& settings, bool i
             f.stale[k] = handed.timestamp_ms != checked.timestamp_ms || handed.sequence != checked.sequence;
             f.outside[k] = f.stale[k] || !lanes_agree(handed, healthy);
         }
+        const auto& h = observed.handed();
+        f.pair_agree = {lanes_agree(h[0], h[1]), lanes_agree(h[0], h[2]), lanes_agree(h[1], h[2])};
         timeline.frames.push_back(f);
 
         // As main logs them: the frame, the detector's events, the

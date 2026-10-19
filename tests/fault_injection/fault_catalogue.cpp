@@ -1,5 +1,7 @@
 #include "fault_catalogue.h"
 
+#include <algorithm>
+#include <iterator>
 #include <limits>
 
 #include "drivers/mpu6050.h"
@@ -393,9 +395,8 @@ const std::vector<Cell>& cells() {
         std::vector<Cell> out;
         for (std::size_t k = 0; k < kinds().size(); k++) {
             if (kinds()[k].cls == CellClass::LANE) {
-                for (int p : swept_persistence()) {
-                    out.push_back(Cell{k, p});
-                }
+                const std::vector<int>& counts = swept_persistence();
+                std::transform(counts.begin(), counts.end(), std::back_inserter(out), [k](int p) { return Cell{k, p}; });
             } else {
                 out.push_back(Cell{k, Voter::kLanePersistence});
             }

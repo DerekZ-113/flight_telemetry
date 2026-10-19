@@ -1,5 +1,7 @@
 #include "prediction.h"
 
+#include <algorithm>
+#include <array>
 #include <sstream>
 #include <string>
 
@@ -32,7 +34,7 @@ public:
     void equal(const A& got, const B& want, const std::string& what) {
         expect(got == want, what + ": " + text(got) + ", predicted " + text(want));
     }
-    Verdict verdict() const { return verdict_; }
+    const Verdict& verdict() const { return verdict_; }
 
 private:
     Verdict verdict_;
@@ -177,13 +179,9 @@ Oracle replay_count(const Timeline& tl, int lane, int persistence) {
 
 int outside_frames(const Timeline& tl, int lane, bool stale_only) {
     const auto k = static_cast<std::size_t>(lane - 1);
-    int n = 0;
-    for (const TimelineFrame& f : tl.frames) {
-        if (stale_only ? f.stale[k] : f.outside[k]) {
-            n++;
-        }
-    }
-    return n;
+    return static_cast<int>(std::count_if(tl.frames.begin(), tl.frames.end(), [&](const TimelineFrame& f) {
+        return stale_only ? f.stale[k] : f.outside[k];
+    }));
 }
 
 void judge_single_lane(Checker& c, const RunSchedule& s, const Timeline& tl, const RunOutcome& o,
@@ -278,7 +276,130 @@ void judge_two_lanes(Checker& c, const RunSchedule& s, const RunOutcome& o, cons
     }
 }
 
+bool fault_active(const RunSchedule& s, int lane, uint64_t t_ms) {
+    return std::any_of(s.lane_faults.begin(), s.lane_faults.end(), [lane, t_ms](const LaneFault& f) {
+        return f.lane == lane && f.onset_ms <= t_ms && t_ms < f.end_ms;
+    });
+}
+
+// The replayed vote against the voter's own events and wrong outputs.
+void judge_replayed(Checker& c, const RunSchedule& s, const Timeline& tl, const RunOutcome& o) {
+    const ReplayedVote vote = replay_vote(s, tl);
+    std::vector<TimelineEvent> measured;
+    for (const TimelineEvent& e : tl.events) {
+        const bool voters = e.channel == Channel::VOTER && e.type != FaultType::LANE_FAULT_INJECTED;
+        if (voters) {
+            measured.push_back(e);
+        }
+    }
+    c.equal(measured.size(), vote.events.size(), "voter events against the replayed vote");
+    for (std::size_t i = 0; i < std::min(measured.size(), vote.events.size()); i++) {
+        const std::string at = "replayed vote event " + std::to_string(i);
+        c.equal(measured[i].t_ms, vote.events[i].t_ms, at + " time");
+        c.equal(fault_type_name(measured[i].type), std::string(fault_type_name(vote.events[i].type)), at + " type");
+        c.equal(measured[i].value, vote.events[i].value, at + " value");
+    }
+    c.equal(o.wrong_output_frames, vote.altered_representative_frames, "wrong outputs against the replayed vote");
+}
+
+Verdict judge_cells(const RunSchedule& s, const Timeline& tl, const RunOutcome& o, const CampaignTiming& t,
+                    bool as_written) {
+    Checker c;
+    c.expect(o.valid, "the precondition at onset: every channel NOMINAL and every value NORMAL");
+    c.equal(o.invariant_violations, 0, "invariant violations");
+    const KindSpec& kind = kinds()[s.kind];
+    const std::string id = kind.id;
+    switch (kind.cls) {
+        case CellClass::DETECTED:
+            judge_detected(c, s, tl, o, t);
+            break;
+        case CellClass::SUB_THRESHOLD:
+            judge_sub_threshold(c, s, tl, o, t);
+            break;
+        case CellClass::UNCOVERED:
+            judge_uncovered(c, s, o, t);
+            break;
+        case CellClass::CLEAN:
+            c.equal(o.declarations, 0, "declarations");
+            c.equal(o.voter_events, 0, "voter events");
+            break;
+        case CellClass::LANE:
+            c.equal(o.declarations, 0, "declarations");
+            if (s.lane_faults.size() == 1) {
+                judge_single_lane(c, s, tl, o, t, id);
+            } else if (!as_written && (id == "V09" || id == "V12")) {
+                judge_replayed(c, s, tl, o);
+            } else {
+                judge_two_lanes(c, s, o, t, id);
+            }
+            break;
+    }
+    return c.verdict();
+}
+
 }  // namespace
+
+ReplayedVote replay_vote(const RunSchedule& s, const Timeline& tl) {
+    // The pairs in the voter's order; each frame's agreement of a pair is
+    // recorded once, and a lane trivially agrees with itself (a
+    // representative comes from an agreeing pair, so it holds no NaN).
+    constexpr std::array<std::array<std::size_t, 2>, 3> kPairs{{{0, 1}, {0, 2}, {1, 2}}};
+    const auto agree = [](const TimelineFrame& f, std::size_t i, std::size_t j) {
+        if (i == j) {
+            return true;
+        }
+        const std::size_t low = std::min(i, j);
+        const std::size_t high = std::max(i, j);
+        return f.pair_agree[low == 0 ? high - 1 : 2];
+    };
+    ReplayedVote out;
+    std::array<bool, kLaneCount> excluded{};
+    std::array<int, kLaneCount> misses{};
+    bool in_no_majority = false;
+    for (const TimelineFrame& f : tl.frames) {
+        std::array<bool, kLaneCount> eligible{};
+        for (std::size_t k = 0; k < kLaneCount; k++) {
+            eligible[k] = !excluded[k] && !f.stale[k];
+        }
+        const auto majority = std::find_if(kPairs.begin(), kPairs.end(), [&](const auto& pair) {
+            return eligible[pair[0]] && eligible[pair[1]] && agree(f, pair[0], pair[1]);
+        });
+        const int representative = majority == kPairs.end() ? -1 : static_cast<int>((*majority)[0]);
+        if (representative < 0) {
+            if (!in_no_majority) {
+                in_no_majority = true;
+                const auto in_vote = static_cast<float>(std::count(excluded.begin(), excluded.end(), false));
+                out.events.push_back(TimelineEvent{f.t_ms, Channel::VOTER, FaultType::NO_MAJORITY, in_vote});
+            }
+            continue;
+        }
+        in_no_majority = false;
+        if (fault_active(s, representative + 1, f.t_ms)) {
+            out.altered_representative_frames++;
+        }
+        const auto rep = static_cast<std::size_t>(representative);
+        for (std::size_t k = 0; k < kLaneCount; k++) {
+            if (excluded[k]) {
+                continue;
+            }
+            if (!f.stale[k] && agree(f, k, rep)) {
+                misses[k] = 0;
+                continue;
+            }
+            misses[k]++;
+            const float lane = static_cast<float>(k + 1);
+            if (misses[k] == 1) {
+                const FaultType onset = f.stale[k] ? FaultType::LANE_OVERRUN : FaultType::LANE_DISAGREEMENT;
+                out.events.push_back(TimelineEvent{f.t_ms, Channel::VOTER, onset, lane});
+            }
+            if (misses[k] >= s.persistence) {
+                excluded[k] = true;
+                out.events.push_back(TimelineEvent{f.t_ms, Channel::VOTER, FaultType::LANE_FAULTED, lane});
+            }
+        }
+    }
+    return out;
+}
 
 int64_t i2c_timeout_latency(const CampaignTiming& t) {
     return static_cast<int64_t>(t.i2c_timeout_ms / t.period_ms * t.period_ms);
@@ -347,33 +468,9 @@ int repeats_at_removal(const RunSchedule& s, const Timeline& tl, const CampaignT
 }
 
 Verdict judge(const RunSchedule& s, const Timeline& tl, const RunOutcome& o, const CampaignTiming& t) {
-    Checker c;
-    c.expect(o.valid, "the precondition at onset: every channel NOMINAL and every value NORMAL");
-    c.equal(o.invariant_violations, 0, "invariant violations");
-    const KindSpec& kind = kinds()[s.kind];
-    const std::string id = kind.id;
-    switch (kind.cls) {
-        case CellClass::DETECTED:
-            judge_detected(c, s, tl, o, t);
-            break;
-        case CellClass::SUB_THRESHOLD:
-            judge_sub_threshold(c, s, tl, o, t);
-            break;
-        case CellClass::UNCOVERED:
-            judge_uncovered(c, s, o, t);
-            break;
-        case CellClass::CLEAN:
-            c.equal(o.declarations, 0, "declarations");
-            c.equal(o.voter_events, 0, "voter events");
-            break;
-        case CellClass::LANE:
-            c.equal(o.declarations, 0, "declarations");
-            if (s.lane_faults.size() == 1) {
-                judge_single_lane(c, s, tl, o, t, id);
-            } else {
-                judge_two_lanes(c, s, o, t, id);
-            }
-            break;
-    }
-    return c.verdict();
+    return judge_cells(s, tl, o, t, false);
+}
+
+Verdict judge_as_written(const RunSchedule& s, const Timeline& tl, const RunOutcome& o, const CampaignTiming& t) {
+    return judge_cells(s, tl, o, t, true);
 }

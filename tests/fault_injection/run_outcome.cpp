@@ -53,12 +53,10 @@ uint64_t window_end(const RunSchedule& s, const Timeline& timeline, Channel chan
         return s.sensor.removal_ms;   // the reading stayed fresh: the window ends at the removal
     }
     const std::size_t c = index_of(channel);
-    for (const TimelineFrame& f : timeline.frames) {
-        if (f.t_ms >= s.sensor.removal_ms && f.read_ok[c]) {
-            return f.t_ms;
-        }
-    }
-    return s.end_ms;
+    const auto fresh = std::find_if(timeline.frames.begin(), timeline.frames.end(), [&](const TimelineFrame& f) {
+        return f.t_ms >= s.sensor.removal_ms && f.read_ok[c];
+    });
+    return fresh == timeline.frames.end() ? s.end_ms : fresh->t_ms;
 }
 
 RunOutcome classify(const RunSchedule& s, const Timeline& timeline, const CampaignTiming& timing) {
