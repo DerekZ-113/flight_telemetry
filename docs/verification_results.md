@@ -1932,7 +1932,51 @@ The two voter gaps are a property of IEEE-754 and the draw: V09 and V12 come fro
 
 The 84 branches are the 88 of §20.7 less the two unwind edges that moving `has_flag` to its own line removed, and less line 167's two, which the marker removed. The NEW_VEHICLE decision's two legs therefore still count, on their new line: §20.7's two remedies did what §20.7 said they would.
 
-**This branch's run** is owed after the push.
+**This branch's run.** It is CI run 39292191411 on `307a69c`, the branch's head, on draft pull request 4 (to `main`, stacked on the voter's pull request 3), 2026-10-19 17:12:56 to 17:17:52 UTC. The run comes from the one push that carried the ten commits (`e745213..307a69c`); the first attempt at that push met an Internal Server Error from GitHub on the branch's creation and created nothing, and the retry created it. Both jobs passed.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 569 of 569, the 45 cells of the CI subset among them (`Subset/CellTest.AsPredicted/*`); no warning in the build |
+| The CI subset on libstdc++ | every cell's ten seeds as predicted. The schedules are identical to the Mac's by construction (Section 14's draws), the noise is not, and no assertion depends on it, so the gate holds on both standard libraries, as REQ-TEST-006's rationale says |
+| pytest (Python 3.13.16, against the instrumented binaries) | 176 of 176 in 140.6 s, `test_lane_fault.py` and `test_fault_campaign.py` among them |
+| lcov over `src/` | lines 98.4% (3,159 of 3,211), functions 97.2% (351 of 361), branches 93.7% (1,507 of 1,608) |
+| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| `page` job | 84 of 84 in 13 files; no file under `dashboard/` changed |
+| Wall time | the C++ job 4 min 52 s; the page job 16 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh`, beside the base's record and this entry's Mac preview:
+
+| Scope | Record (GCC) | Run 39200167816 on `e23fc87` (GCC) | §21.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 99.7% | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 86.8% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 97.6% | 95.0% | 100.0% | 80% |
+| drivers | 89.4% | 89.2% | 91.2% | 70% |
+| overall | 93.7% | 93.4% | 94.3% | 80% |
+
+The files the topic added or changed under lcov's scope, on GCC:
+
+| File | Lines | Branches | Functions | At `e23fc87` |
+|---|---|---|---|---|
+| `processing/lane_fault_injector.cpp` (new) | 109 of 109 | 59 of 60 | 11 of 11 | — |
+| `replay/recorded_injections.cpp` (new) | 24 of 24 | 22 of 22 | 1 of 1 | — |
+| `drivers/fault_injecting_source.cpp` | 118 of 118 | 32 of 32 | 15 of 15 | 74 of 74, 16 of 16, 8 of 8 |
+| `processing/fault_detector.cpp` | 155 of 155 | 70 of 70 | 13 of 13 | 154 of 154, 70 of 70, 13 of 13 |
+
+The branch totals reconcile with the base's record exactly:
+- The topic added 98 branches: 60 in the injector, 22 in `recorded_injections.cpp` and 16 in the field modes. 1,510 and 98 make the 1,608.
+- 97 of them are taken, and 1,410 and 97 make the 1,507.
+- The replay scope rose with `recorded_injections.cpp`'s 22 of 22; `log_replay_source.cpp`'s untaken branch is Entry 19's, on a line the topic left alone.
+
+The one untaken branch is a decision, not an exception edge, on `lane_fault_injector.cpp:155`:
+- **The line:** `const bool number_starts = (first >= '0' && first <= '9') || first == '.';`, the leg on which `first == '.'` is true, an onset written with its decimal point first (`1@.5`).
+- **No exception edge:** GCC's 60 branches are exactly the two legs of every condition on the file's eighteen conditional lines, counted by hand, so no unwind edge is among them.
+- **Why clang showed it taken:** clang counts four branches on that line where GCC counts six, and all four were taken, so the preview could not show the leg (§21.3).
+- **Why no test took it:** none of the tested inputs begins its number with a point; `2@ 1` and `2@-1` fail before the test, and `1@0.5` passes as a digit.
+- **The fix:** the commit that records this run adds `1@.5`, read as 500 ms, to `LaneFaultInjectorTest.ParsesLaneAtSecondsAndRefusesEverythingElse` and to TC-037 step 1, so the next run should show 60 of 60 and processing at 100.0%.
 
 ### 21.8 Open
 

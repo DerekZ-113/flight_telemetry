@@ -1277,7 +1277,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Objective:** Verify that `--lane-fault <lane>@<seconds>` alters only the named lane, from the first frame at or after the time, on every cycle; that the voter outvotes it at once and excludes it at the persistence count; that the log records the injection; that a replay re-applies it, so the replay reproduces the run record for record; and that without the option nothing changes.
 - **Preconditions:** The simulator with the shipped configuration, seed 42; the session fixture's log (TC-034 step 6) as the unaltered reference.
 - **Steps:**
-  1. Parse valid and invalid values: `2@60`, `1@0.5`, `3@0`; a lane of 0 or 4, a missing, negative or non-finite time, text where a number belongs.
+  1. Parse valid and invalid values: `2@60`, `1@0.5`, `1@.5`, `3@0`; a lane of 0 or 4, a missing, negative or non-finite time, text where a number belongs.
   2. The demonstration fault through `RedundantProcessor`, lane 2 from 1,000 ms, against an unaltered processor over the same frames.
   3. The injector's event for a recorded fault and for one that is not.
   4. `recorded_lane_faults` on a log holding the event, on one holding none, and on an unreadable file.
@@ -1290,7 +1290,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
   | Step | Expected |
   |---|---|
-  | 1 | lane 2 from 60,000 ms; lane 1 from 500 ms; lane 3 from 0 ms; each invalid value refused with a message naming the option and its form |
+  | 1 | lane 2 from 60,000 ms; lane 1 from 500 ms, by either spelling; lane 3 from 0 ms; each invalid value refused with a message naming the option and its form |
   | 2 | LANE_FAULT_INJECTED and LANE_DISAGREEMENT (lane 2) at 1,000 ms and LANE_FAULTED (lane 2) at 1,040 ms; `voter_status` 0x0005 from 1,060 ms; every computed field equal to the unaltered processor's on every frame |
   | 3 | one event at the onset frame, channel VOTER, value the lane; none for the unrecorded fault |
   | 4 | the demonstration fault with the event's lane and timestamp; none; the reader's error |

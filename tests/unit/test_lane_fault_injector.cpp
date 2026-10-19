@@ -213,6 +213,9 @@ TEST(LaneFaultInjectorTest, ParsesLaneAtSecondsAndRefusesEverythingElse) {
     const auto half = parse_lane_fault("1@0.5", error);
     ASSERT_TRUE(half.has_value());
     EXPECT_EQ(half->onset_ms, 500u);
+    const auto point_first = parse_lane_fault("1@.5", error);   // the number may begin with its point
+    ASSERT_TRUE(point_first.has_value()) << error;
+    EXPECT_EQ(point_first->onset_ms, 500u);
     const auto zero = parse_lane_fault("3@0", error);
     ASSERT_TRUE(zero.has_value());
     EXPECT_EQ(zero->onset_ms, 0u);
