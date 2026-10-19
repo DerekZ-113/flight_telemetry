@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-16
+> **Last Updated:** 2026-10-18
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1459,7 +1459,7 @@ CI run 38852667084 on `4dabebd`, the branch's head, on the draft pull request (n
 | Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 395 of 395 in 11.4 s |
 | pytest (Python 3.13, against the instrumented binary) | 131 of 131 in 127.8 s, the ADS-B run over the local stand-in among them |
 | lcov over `src/` | lines 98.1% (2,747 of 2,799), functions 97.1% (301 of 310), branches 92.7% (1,286 of 1,387) |
-| cppcheck (the runner's package), 40 files | 0 findings |
+| cppcheck (the runner's package), 38 files | 0 findings |
 | `page` job (Node 22, Vitest with coverage, `npm run build`) | 73 of 73 in 12 files; statements 99.09%, branches 98.91%, functions 97.67%, lines 99.68%; the build clean in 93 ms; 18 s for the job |
 | Wall time | the C++ job 4 min 2 s; the page job 18 s |
 
@@ -1568,11 +1568,56 @@ Not run on the Mac; §19.7 takes the CI figures on GCC. No new conditional line 
 
 ### 19.7 Measurement of record
 
-Reserved for the CI run on the branch's head after the push.
+CI run 39175951717 on `5bbb79e`, the branch's head, on the draft pull request (number 2, to `main`, stacked on the PFD branch), 2026-10-18 23:18 to 23:22 UTC, the one push that carried the topic's eight commits (`fe62737..5bbb79e`); both jobs green.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 412 of 412 in 13.9 s; no warning in the build |
+| pytest (Python 3.13, against the instrumented binary) | 142 of 142 in 131.2 s, the ADS-B run over the local stand-in among them |
+| lcov over `src/` | lines 98.2% (2,809 of 2,861), functions 97.2% (307 of 316), branches 93.0% (1,320 of 1,420) |
+| cppcheck (the runner's package, 2.13.0), 39 files | 0 findings |
+| `page` job (Node 22, Vitest with coverage, `npm run build`) | 73 of 73 in 12 files; statements 99.09%, branches 98.93%, functions 97.7%, lines 99.68%; the build clean in 134 ms; 21 s for the job |
+| Wall time | the C++ job 3 min 56 s; the page job 21 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside Entry 18's record, the last measurement taken, since §19.3 took no Mac preview:
+
+| Scope | Record (GCC) | Entry 18 record (GCC) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 100.0% | 80% |
+| transport | 88.8% | 88.8% | 80% |
+| replay | 95.0% | 95.0% | 80% |
+| drivers | 89.2% | 89.0% | 70% |
+| overall | 93.0% | 92.7% | 80% |
+
+The files the eight commits added or changed, on GCC (`main.cpp` outside lcov's scope, as since Entry 5; the other changed headers in the report carry no branch, and every line of theirs ran):
+
+| File | Lines | Branches | Branches at Entry 18 |
+|---|---|---|---|
+| `run_mode.cpp` (new) | 8 of 8 | 6 of 6 | — |
+| `telemetry_frame.cpp` | 34 of 34 | 21 of 21 | 10 of 10 |
+| `logging/log_format.h` (`frame_size_for`, new in the report) | 3 of 3 | 6 of 6 | — |
+| `logging/log_format.cpp`, `logging/binary_logger.cpp` | 34 of 34, 51 of 51 | 12 of 12, 12 of 12 | the same |
+| `logging/log_reader.cpp` | 74 of 75 | 18 of 18 | 18 of 18 |
+| `replay/log_replay_source.cpp` | 44 of 44 | 19 of 20 | 19 of 20 |
+| `processing/processor.cpp` | 85 of 85 | 62 of 62 | 60 of 60 |
+| `drivers/adsb_source.cpp` | 157 of 158 | 54 of 58 | 48 of 52 |
+| `drivers/live_sensor_source.cpp` | 79 of 79 | 32 of 32 | 30 of 30 |
+| `drivers/fault_injecting_source.cpp` | 72 of 72 | 16 of 16 | 16 of 16 |
+| `drivers/simulated_data.cpp`, `drivers/simulated_source.cpp`, `drivers/motion_profile.cpp` | 82 of 82, 12 of 12, 37 of 37 | 14 of 16, 3 of 4, 7 of 8 | the same |
+| `transport/session_message.cpp` | 42 of 42 | 32 of 36 | 32 of 36 |
+| `transport/udp_publisher.cpp`, `transport/zmq_publisher.cpp` | 53 of 54, 40 of 40 | 29 of 32, 10 of 12 | the same |
+
+The record reconciles with Entry 18's branch by branch. The eight commits added 33 branches and every one is taken: the switches of the name functions in `telemetry_frame.cpp` (11) and `run_mode.cpp` (6), `frame_size_for`'s two conditionals (6), the processor's NEW_VEHICLE test (2), the live source's fix-quality hold (2), and the ADS-B source's new-vehicle flag and two presence bits (6); 1,387 and 33 make the 1,420. The one taken branch beyond them is a leg §18.7 listed as untaken, `AircraftSelector::candidate`'s absent vertical rate (`aircraft_selector.cpp:46`, taken twice), which commit 7's `AdsbSourceTest.VerticalRateAndPressureAltitudeAreRawFieldsWithPresenceBits` reaches by scripting the kept aircraft's vector without one; the selector's file is unchanged. The drivers scope rises from 89.0% to 89.2% on these: the two sources' eight new branches and the selector's leg. The commits' 62 new lines and 6 new functions all ran, so the 52 unrun lines and 9 unhit functions are Entry 18's, the same counts file by file.
+
+No untaken branch and no unrun line sits on a line the commits changed: a script read the report's source pages for the sixteen source files they touched under lcov's scope and the eight changed headers the report covers, and set every untaken branch and unrun line against the lines `git diff fe62737 5bbb79e` changed in them. So §19.3's statement holds on GCC: the topic added no exception edge, and no line of it takes the marker. In the files it touched, the untaken branches are Entry 18's counts file by file, every one on a line the topic left alone. The four exception-edge lines §18.7 named (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) still carry no marker, since no commit of this topic touched their files; they stay open (§19.8).
+
+One correction to Entry 18, made with this record: §18.7's cppcheck row read 40 files, where its run's log reads `38/38 files checked`, the 38 `.cpp` files of that tree; it reads 38 now. This run's 39 are those and `run_mode.cpp`.
 
 ### 19.8 Open
 
-- §19.7 from the CI run.
 - Phase B (design §12): the vertical rate, recorded since commit 7, as the filter's third measurement; the pressure altitude; the selection's altitude term.
 - FAULT-003b: the detector's judgment of the fix quality and the satellite count the frame now carries.
 - The voter (design §11.1), whose status field waits for it.
