@@ -1,7 +1,7 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.9.0
+> **Version:** 0.10.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-19
 
@@ -196,11 +196,11 @@ The ADS-B source (REQ-SENS-008) reads one aircraft from the OpenSky Network's RE
 
 ### FAULT-015: The selected aircraft is gone
 
-- **What:** The aircraft the source presents landed, left the box, stopped being reported, or reports an incomplete state.
-- **Cause:** The approach ended; the aircraft flew out of the box; a coverage gap at the receivers; a transponder that stops sending its GNSS height or velocity.
+- **What:** The aircraft the source presents landed, left the box, stopped being reported, reports an incomplete state, or climbed above the ceiling.
+- **Cause:** The approach ended; the aircraft flew out of the box; a coverage gap at the receivers; a transponder that stops sending its GNSS height or velocity; a go-around or a departure's climb-out through `adsb.ceiling_m`.
 - **Likelihood:** Certain, every few minutes on an approach.
-- **Detection:** In a response: `on_ground` true (`landed`); a required field null (`incomplete`, FAULT-016); the aircraft absent from `adsb.gone_after_polls` (2) consecutive responses (`left`). A failed poll is not a response and counts nothing, so a service outage never counts an aircraft gone.
-- **Response:** Reselection by REQ-SENS-009's rule: the nearest descending candidate (`nearer` when a candidate beat a kept aircraft by more than `adsb.switch_margin_m`, 2,000 m; `initial` from none) or none. Every change is one console line and one row of `<prefix>_adsb.csv` beside the log, with both identities, the reason, the distance and the timestamp of the first frame carrying the new aircraft, and a session status goes out at once so the display re-takes the plot's origin before that frame (REQ-TRANS-004, REQ-DISP-007). The first frame carrying the new aircraft is marked with the frame's new-vehicle flag and the processor restarts every filter on it (REQ-PROC-008), so the fused altitude and vertical speed are the new aircraft's from that frame rather than a climb of ±150 m/s nobody flew (FTS-VR-001 Entry 18 §18.5); the detector is not told, a new aircraft's first reading being a reading. With no candidate the fields hold with `gps_read_ok` false and the channel times out by FAULT-003's rule.
+- **Detection:** In a response: `on_ground` true (`landed`); a required field null (`incomplete`, FAULT-016); the aircraft absent from `adsb.gone_after_polls` (2) consecutive responses (`left`); since 0.10.0, its geometric altitude above `adsb.ceiling_m` (1,650 m, the 3° glide path's height at the box's far corner; `above`). A failed poll is not a response and counts nothing, so a service outage never counts an aircraft gone.
+- **Response:** Reselection by REQ-SENS-009's rule: the nearest descending candidate at or below the ceiling (`nearer` when a candidate beat a kept aircraft by more than `adsb.switch_margin_m`, 2,000 m; `initial` from none) or none. Every change is one console line and one row of `<prefix>_adsb.csv` beside the log, with both identities, the reason, the distance and the timestamp of the first frame carrying the new aircraft, and a session status goes out at once so the display re-takes the plot's origin before that frame (REQ-TRANS-004, REQ-DISP-007). The first frame carrying the new aircraft is marked with the frame's new-vehicle flag and the processor restarts every filter on it (REQ-PROC-008), so the fused altitude and vertical speed are the new aircraft's from that frame rather than a climb of ±150 m/s nobody flew (FTS-VR-001 Entry 18 §18.5); the detector is not told, a new aircraft's first reading being a reading. With no candidate the fields hold with `gps_read_ok` false and the channel times out by FAULT-003's rule.
 - **Requirement:** REQ-SENS-009, REQ-PROC-008, REQ-TRANS-004, REQ-DISP-007
 - **Test:** `tests/unit/test_aircraft_selector.cpp` → `AircraftSelectorTest.*` (one test per reason); `AdsbSourceTest.SwitchIsRecordedWithTheFrameTimestamp`; `tests/integration/test_adsb.py` (the scripted landing and its status); the flag and the re-birth, TC-031 steps 8, 9 and 14
 

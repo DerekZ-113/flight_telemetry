@@ -510,7 +510,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   1. Load the shipped file: no problems; every field equals a default-constructed `TelemetryConfig` (the drift test).
   2. A nonexistent path and a directory path: one problem each, naming the path.
   3. A syntax error (an unterminated flow sequence on line 3): one problem naming line and column; an empty document and a sequence document: "must be a mapping".
-  4. A missing section, a section of the wrong type, a missing key, an unknown key at the top level and nested, a duplicate key: each named once with its dotted path. Then each of the 48 keys (the optional `adsb` block present) removed in turn: `<path>: missing`, except the two whose removal empties their section (`timing.period_ms`, `sensors.barometer.address`), reported as the section "must be a mapping (got nothing)".
+  4. A missing section, a section of the wrong type, a missing key, an unknown key at the top level and nested, a duplicate key: each named once with its dotted path. Then each of the 49 keys (the optional `adsb` block present) removed in turn: `<path>: missing`, except the two whose removal empties their section (`timing.period_ms`, `sensors.barometer.address`), reported as the section "must be a mapping (got nothing)".
   5. The scalar rules: `0x76` reads 118; `010`, `1.5`, `abc`, an empty scalar and `0x` are refused as integers; `.inf`, `.nan` and `abc` are refused as numbers; `yes`, `on` and `1` are refused as booleans; an empty string is refused where a string is required. Then each of the 48 keys given a sequence, and the text its rule refuses (`abc` for a whole number, `.nan` for a number, `yes` for a switch, an empty string for text): each named under its path by its own rule.
   6. Every range at both edges: period 20 to 1000; addresses 0x08 to 0x77; IMU rate 4 to 100 and an exact divisor of 1000; timeouts at least 1; stuck count at least 2; recovery count at least 1; pressure and temperature minimum below maximum; the four variances and the sea-level pressure positive; alpha 0 to 1 inclusive; maximum file bytes at least 121; UDP host a dotted quad, port 1 to 65535, ZeroMQ endpoint non-empty; seed within 32 bits; GPS interval at least 1; the receiver's baud rate 4800 to 115200 and one of the six termios rates (TC-018 step 19); sigmas positive (`std::normal_distribution` requires it); the ADS-B box's latitudes −90 to 90 and longitudes −180 to 180 with each maximum above its minimum, the reference point in the same ranges, the poll interval 1,000 to 3,600,000 ms, the switch margin at least 0, the miss tolerance at least 1, the ADS-B timeout at least 1. Then every whole-number key one past each of its edges, every positive number at 0, alpha at -0.1 and 1.1: one table over every key, because gcov counts a template's branches per instantiation and one key per rule leaves the other field types' decisions untaken.
   7. The cross-field rules: the UART timeout must exceed the GPS interval; the IMU rate must be at least the processing rate; the ADS-B timeout must exceed the poll interval.
@@ -967,8 +967,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-SENS-009 (also exercises FTS-FM-001 FAULT-015)
 - **Level:** Unit (`tests/unit/test_aircraft_selector.cpp`)
-- **Objective:** Verify that the selector chooses the nearest descending airborne aircraft with a complete state, keeps it while it is airborne and complete and through the tolerated misses, switches only to a candidate nearer by more than the margin or when the kept aircraft is gone, records every change with its reason and both identities, and measures distance by the project's spherical approximation.
-- **Preconditions:** `AircraftSelector` with the reference point at KSFO (37.6213, −122.3790), a 2,000 m margin and a miss tolerance of 2; state documents built by hand from `opensky_examples.h`'s six aircraft.
+- **Objective:** Verify that the selector chooses the nearest descending airborne aircraft with a complete state at or below the ceiling, keeps it while it is airborne, complete and under the ceiling and through the tolerated misses, switches only to a candidate nearer by more than the margin or when the kept aircraft is gone, never selects or keeps an aircraft above the ceiling, records every change with its reason and both identities, and measures distance by the project's spherical approximation.
+- **Preconditions:** `AircraftSelector` with the reference point at KSFO (37.6213, −122.3790), a 2,000 m margin, a miss tolerance of 2 and the shipped ceiling of 1,650 m (steps 11 to 15 place aircraft by distance and bearing from the reference point, so no coordinate is written); state documents built by hand from `opensky_examples.h`'s six aircraft.
 - **Steps:**
   1. A document with no candidate: grounded, climbing and incomplete aircraft only.
   2. The six aircraft, with a climbing one nearer than the nearest descending one and a grounded one nearer still.
@@ -980,6 +980,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
   8. The kept aircraft levelling off (vertical rate zero) with a descending challenger inside the margin.
   9. Two candidates at equal distance.
   10. `distance_m` from the reference to each corner of the shipped box, against the haversine.
+  11. FTS-VR-001 Entry 18 §18.5's geometry: the nearest descending aircraft placed 4,500 m out at 152 m; then an aircraft placed 2,400 m out at 3,498 m, descending, joins the document; the same with a ceiling of 4,000 m.
+  12. One aircraft alone with its geometric altitude exactly the ceiling; then one metre above; selected at the ceiling, then one metre above.
+  13. The kept aircraft against an aircraft above the ceiling 100 m from the reference point; the kept aircraft climbing under the ceiling; a candidate under the ceiling 2,500 m nearer.
+  14. The kept aircraft one metre above the ceiling, climbing; then back under it, descending, 4,500 m nearer than its replacement; the same with no other candidate.
+  15. `distance_m` to each corner of the shipped box, the farthest times tan 3°, against the shipped ceiling.
 - **Expected result:**
 
   | Step | Expected |
@@ -994,13 +999,18 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 8 | kept: candidacy requires descent, keeping does not |
   | 9 | the smaller ICAO address |
   | 10 | within 1% of the haversine at every corner |
+  | 11 | kept: the overflight is usable but not a candidate, no change; with the 4,000 m ceiling it is `nearer` at 2,400 m, the live run's switch |
+  | 12 | a candidate, `initial`; not a candidate, nothing selected; dropped, reason `above`, no new identity, distance 0 |
+  | 13 | no change for the aircraft above the ceiling, whatever its distance; kept while climbing under it; then `nearer` |
+  | 14 | `above` to the nearest candidate; `nearer` back; `above` to none, then `initial` |
+  | 15 | the far corner between 31,000 and 31,200 m; the ceiling at or above the path's height there and below 3,498 m |
 
-- **Pass/fail:** Exact as listed. A grounded, climbing or incomplete aircraft selected, a switch inside the margin, a kept aircraft dropped on a single absence or a failed poll, or a change without its reason and identities fails.
+- **Pass/fail:** Exact as listed. A grounded, climbing or incomplete aircraft selected, an aircraft above the ceiling selected or kept, a switch inside the margin, a kept aircraft dropped on a single absence or a failed poll, or a change without its reason and identities fails.
 
 ### TC-029: The ADS-B Source: Sample-and-Hold, the Absent Channels, the Run
 
 - **Requirement:** REQ-SENS-010, REQ-SENS-011, REQ-SENS-008 (also exercises REQ-TRANS-004, REQ-FAULT-001, REQ-FAULT-007, REQ-CFG-004, REQ-LOG-003 and REQ-LOG-004)
-- **Level:** Unit (steps 1 through 11: `tests/unit/test_periodic_worker.cpp`, `test_adsb_source.cpp`, `test_selection_log.cpp`), Integration (steps 12 through 18: `tests/integration/test_adsb.py`, over a local HTTP server), Manual (step 19, the live run against the service)
+- **Level:** Unit (steps 1 through 11: `tests/unit/test_periodic_worker.cpp`, `test_adsb_source.cpp`, `test_selection_log.cpp`), Integration (steps 12 through 18 and 20: `tests/integration/test_adsb.py`, over a local HTTP server), Manual (step 19, the live run against the service)
 - **Objective:** Verify that the source presents an aircraft's state as raw GPS fields fresh on exactly the cycle a new vector is first handed over and held with `gps_read_ok` false on every other, stamps the local clock, reports the barometer and IMU not available on every frame, never blocks the loop on the network, records every switch at its frame time, refuses a refused token at startup by name, and prints its counters at exit; that the run over a local server logs, publishes and replays as the pipeline's rules say; and that no file the run writes carries the secret or the token.
 - **Preconditions:** `FakeHttpClient`, `FakeClock` and `opensky_examples.h` as in TC-027; the source built unstarted so that `poll_once()` is driven by the test, except the two thread steps. The integration steps run a `http.server` on the loopback at the service's two paths, scripted in order: a token; states responses whose position times advance, with one aircraft landing after the third; one 401 followed by a token; one 429 with `Retry-After: 1`; the binary runs with `--adsb --adsb-credentials <a credentials file the test wrote> --adsb-origin http://127.0.0.1:<port> --config <a copy with the interval at 1,000 ms and the ADS-B timeout at 4,000 ms> --udp <port> --cycles 600`. Every test that runs the binary with `--adsb` passes `--adsb-credentials` with a path of its own, so no test can read the real file at the default location. The live run needs your credentials file, a registered account, daytime traffic, the bridge and the page.
 - **Steps:**
@@ -1023,6 +1033,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   17. *(pytest)* `--replay` the log unpaced with the UDP receiver.
   18. *(pytest)* `--adsb` with `--live`, with `--replay`, with `--motion demo`; `--adsb-credentials` and `--adsb-origin` without `--adsb`; `--adsb` with a missing credentials file; `--adsb` with a configuration lacking the `adsb` block.
   19. *(Manual)* `./build/telemetry --adsb --cycles 15000 --zmq tcp://127.0.0.1:5555` with the bridge and the page, five minutes in daytime; a public flight tracker beside it.
+  20. *(pytest)* The run of step 12 with a third aircraft in every response, 2,400 m from the reference point at 3,498 m, descending; read the exit line, the frames, the selection record and the statuses.
 - **Expected result:**
 
   | Step | Expected |
@@ -1045,9 +1056,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 16 | nothing found |
   | 17 | every record byte-identical and the header equal but for its run mode, REPLAY over the recording's ADSB (since format version 3); mode REPLAY on every status with no identity, and since format version 3 the source mode ADSB from the log's header (REQ-LOG-007) in place of the first-frame rule; the barometer and IMU still NOT_AVAILABLE |
   | 18 | exit 1 each, the rule named, nothing built; the credentials path named without its contents; `adsb` named |
-  | 19 | recorded in FTS-VR-001 Entry 18: the aircraft the strip names against the tracker, the switch when it lands, the tape's `ft HAE` label against the GPS altitude in the diagnostic view and the reading at touchdown, the vertical speed between polls, the attitude indicator's no-source flag, no fault event at 500 ms, the exit line's polls, ages and changes, the jitter line with the thread running; the log's replay byte-identical and labelled `REPLAY · ID UNAVAILABLE` |
+  | 19 | recorded in FTS-VR-001 Entry 18: the aircraft the strip names against the tracker, the switch when it lands, the tape's `ft HAE` label against the GPS altitude in the diagnostic view and the reading at touchdown, the vertical speed between polls, the attitude indicator's no-source flag, no fault event at 500 ms, the exit line's polls, ages and changes, the jitter line with the thread running; the log's replay byte-identical and labelled `REPLAY · ID UNAVAILABLE`; since SRD 0.18.0, every `NEW_VEHICLE` frame's `gps_altitude_m` at or below `adsb.ceiling_m`, and an `above` row only for a climb-out through it |
+  | 20 | `aircraft` 2 and `candidates` 1 on the exit line; no frame carries the third aircraft's position or an altitude at or above its height; the record's three lines unchanged and no status with its identity |
 
-- **Pass/fail:** Steps 1 through 18 exact as listed. A reading applied on more than one cycle, a frame whose timestamp does not advance, a barometer or IMU read flag ever true, a fault event for an absent channel, a secret or token in any file, a status missing on a switch, or a replay that differs by a byte fails. Step 19 is recorded, not gated.
+- **Pass/fail:** Steps 1 through 18 and 20 exact as listed. A reading applied on more than one cycle, a frame whose timestamp does not advance, a barometer or IMU read flag ever true, a fault event for an absent channel, a secret or token in any file, a status missing on a switch, an aircraft above the ceiling presented, or a replay that differs by a byte fails. Step 19 is recorded, not gated.
 
 ### TC-030: The Display in ADS-B Mode
 
