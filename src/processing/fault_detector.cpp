@@ -281,6 +281,7 @@ const char* fault_type_name(FaultType type) {
         case FaultType::LANE_FAULTED:      return "LANE_FAULTED";
         case FaultType::NO_MAJORITY:       return "NO_MAJORITY";
         case FaultType::LANE_OVERRUN:      return "LANE_OVERRUN";
+        case FaultType::LANE_FAULT_INJECTED: return "LANE_FAULT_INJECTED";
     }
     return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see channel_name)
 }

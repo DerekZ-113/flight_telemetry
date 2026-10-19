@@ -40,6 +40,7 @@ add_library(telemetry_core STATIC
     src/processing/fault_detector.cpp
     src/processing/voter.cpp
     src/processing/redundant_processor.cpp
+    src/processing/lane_fault_injector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
     src/drivers/motion_profile.cpp

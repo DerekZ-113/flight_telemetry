@@ -106,9 +106,11 @@ NO_IDENTITY = bytes(11)                                         # the eleven ide
 MODE_NAMES = {1: "LIVE", 2: "SIMULATED", 3: "REPLAY", 4: "ADSB"}   # RunMode as the status names the run
 STATE_NAMES = {1: "RUNNING", 2: "ENDED"}                        # StreamState
 # FaultType: the detector's four, then the voter's four (FTS-FM-001 FAULT-019 to FAULT-022), whose
-# event value is the lane (1 to 3), or for NO_MAJORITY the lanes still in the vote.
+# event value is the lane (1 to 3), or for NO_MAJORITY the lanes still in the vote; then the lane fault
+# REQ-RED-007's option injects (8), its value the lane.
 FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY",
-                    4: "LANE_DISAGREEMENT", 5: "LANE_FAULTED", 6: "NO_MAJORITY", 7: "LANE_OVERRUN"}   # FaultType
+                    4: "LANE_DISAGREEMENT", 5: "LANE_FAULTED", 6: "NO_MAJORITY", 7: "LANE_OVERRUN",
+                    8: "LANE_FAULT_INJECTED"}   # FaultType
 
 assert len(FRAME_FIELDS) == len(FRAME.unpack(bytes(FRAME.size)))
 # The prefix rule (REQ-LOG-005): a frame of versions 1 and 2 is the first 104 bytes of a version-3

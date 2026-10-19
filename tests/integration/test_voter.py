@@ -26,7 +26,7 @@ def test_voter_event_names():
     assert frame_format.CHANNEL_NAMES == {0: "BARO", 1: "IMU", 2: "GPS", 3: "VOTER"}
     assert frame_format.FAULT_TYPE_NAMES == {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY",
                                              4: "LANE_DISAGREEMENT", 5: "LANE_FAULTED", 6: "NO_MAJORITY",
-                                             7: "LANE_OVERRUN"}
+                                             7: "LANE_OVERRUN", 8: "LANE_FAULT_INJECTED"}
     event = FaultEvent(timestamp_ms=60, channel=3, type=5, reserved=0, value=3.0)
     assert format_event(event) == "[FAULT] t=60 ms channel=VOTER type=LANE_FAULTED value=3.0"
 

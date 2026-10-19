@@ -804,11 +804,14 @@ TEST(FaultDetectionTest, EventNamesAreReadable) {
     EXPECT_STREQ(fault_type_name(FaultType::LANE_FAULTED), "LANE_FAULTED");
     EXPECT_STREQ(fault_type_name(FaultType::NO_MAJORITY), "NO_MAJORITY");
     EXPECT_STREQ(fault_type_name(FaultType::LANE_OVERRUN), "LANE_OVERRUN");
+    // The lane fault the demonstration option injects (REQ-RED-007).
+    EXPECT_STREQ(fault_type_name(FaultType::LANE_FAULT_INJECTED), "LANE_FAULT_INJECTED");
     EXPECT_EQ(static_cast<int>(Channel::VOTER), 3);
     EXPECT_EQ(static_cast<int>(FaultType::LANE_DISAGREEMENT), 4);
     EXPECT_EQ(static_cast<int>(FaultType::LANE_FAULTED), 5);
     EXPECT_EQ(static_cast<int>(FaultType::NO_MAJORITY), 6);
     EXPECT_EQ(static_cast<int>(FaultType::LANE_OVERRUN), 7);
+    EXPECT_EQ(static_cast<int>(FaultType::LANE_FAULT_INJECTED), 8);
 }
 
 // Events are written to the binary log as raw bytes. The two bytes between
