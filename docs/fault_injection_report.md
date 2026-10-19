@@ -1,8 +1,8 @@
 # Flight Telemetry System — Fault-Injection Campaign Report
 
 > **Document ID:** FTS-FI-001
-> **Version:** 0.2.0
-> **Status:** Preview of 2026-10-19 (Section 2). Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed, and no prediction has been edited since. Sections 3 and 6 and the table closing Section 7 are generated from the preview's record; the findings of Section 7 and the measured consequences in Section 8 were written after it.
+> **Version:** 0.3.0
+> **Status:** Preview of 2026-10-19 (Section 2). Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed, and no prediction has been edited since; Section 5.6, the non-finite check's, was added and committed on 2026-10-19 before that check's code. Sections 3 and 6 and the table closing Section 7 are generated from the preview's record; the findings of Section 7 and the measured consequences in Section 8 were written after it.
 > **Last Updated:** 2026-10-19
 > **Related:** FTS-SRD-001 (REQ-TEST-005, REQ-TEST-006, REQ-RED-007), FTS-FM-001 (the failure modes injected), FTS-DD-001 (Section 14, the campaign's design; Section 13, the voter), FTS-TP-001 (TC-035 to TC-037), FTS-VR-001 (the summary of each campaign of record)
 
@@ -264,6 +264,17 @@ C00 and the untouched channels of every injected run: **zero declarations.** Thi
 | V12 | if g ≥ P, lane a excluded first and then no majority, value 2: safe. If g < P, **a wrong majority**: the healthy lane excluded 20 × (g + P − 1) ms after the first fault, the wrong value voted. That happens in P out of 11 runs, **more often as P grows**. |
 
 On every frame, at least two lanes stay in the vote, at most one lane bit is set, and no voted value is NaN.
+
+### 5.6 The non-finite check (FAULT-024)
+
+Written and committed on 2026-10-19, before the check's code. REQ-FAULT-003, amended that day, declares a reading of the barometer or the IMU, or a GPS fix's position, altitude, ground speed or course, that is not a finite number OUT_OF_RANGE on its channel, ahead of the range and stuck tests. Section 5.3's rows for U06 and U07 stand as written: they predicted the system before the check. From the check on, every U06 and U07 run departs from them by design (`as_written`), and the gate holds those runs to the following.
+
+| Cell | Predicted since the check |
+|---|---|
+| U06 | OUT_OF_RANGE on the barometer on the onset frame (**0 ms**), the event's value NaN; recovered **80 ms** after removal, on the fifth valid frame; no voter event and no frame without a majority. The barometric altitude is FAILURE_WARNING for the five frames the barometer is DEGRADED, then NORMAL. The fused altitude and vertical speed stay NORMAL throughout, the GPS still contributing (REQ-PROC-007), and so do pitch and roll, so **no frame holds every field under FAILURE_WARNING**. Every field is NORMAL at the end of the run, and no value voted is not finite. |
+| U07 | OUT_OF_RANGE on the IMU on the onset frame (**0 ms**), the event's value +∞; recovered **80 ms** after removal; no voter event. Pitch and roll are FAILURE_WARNING for the five frames the IMU is DEGRADED, held finite, then NORMAL; **the roll is never infinite**, so never voted NORMAL as one. Every field is NORMAL at the end, and no value voted is not finite. |
+
+Five frames without a barometric (U06) or IMU (U07) measurement leave the fused altitude or the attitude a little off the twin's after recovery; how far is measured, not predicted.
 
 ---
 

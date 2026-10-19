@@ -1235,7 +1235,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   1. Evaluate every cell's prediction formulas on the shipped configuration.
   2. Encode and decode run ids; draw one seed's schedule twice and two other seeds' once each; draw 1,000 schedules per cell and check every value against its stated range; check the draw arithmetic against `std::mt19937`'s output, which the standard fixes.
   3. Classify hand-built timelines: a detection inside the window and its latency; a repeat; a miss; a declaration before onset; one on another channel during the fault; a recovery and its absence; a declaration on a clean run; a lane excluded; a healthy lane excluded; a no-majority episode against the rising edges of its bit; each invariant broken once.
-  4. Run the fixed-seed known answers: D01; D03 with its onset on a fix frame and one frame after one; D05, and a hold whose reading before onset repeated its predecessor; D08; the recoveries; a clean run; V01 at persistence 3; V06 at persistence 1 and 2; V11 and V12 with the gap on each side of the persistence count; U06; U07.
+  4. Run the fixed-seed known answers: D01; D03 with its onset on a fix frame and one frame after one; D05, and a hold whose reading before onset repeated its predecessor; D08; the recoveries; a clean run; V01 at persistence 3; V06 at persistence 1 and 2; V11 and V12 with the gap on each side of the persistence count; U06; U07 (since the non-finite check, under FTS-FI-001 Section 5.6's predictions).
   5. *(The CI subset)* Every cell, ten seeds each, the voter's cells at persistence 1 and 3: each run against its per-run prediction and the invariants.
   6. The twin of an uncovered run against the injected run on every frame before onset.
   7. *(pytest)* The statistics on hand-computed cases.
@@ -1247,7 +1247,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 1 | every number equal to FTS-FI-001 Section 5's |
   | 2 | the id round-trips; one seed gives the same schedule field for field, different seeds different ones; every draw inside its range; the arithmetic's values as hand-computed |
   | 3 | each timeline in its one bucket, with the latency, the recovery time and the counts as built |
-  | 4 | D01 500 ms; D03 1,020 and 2,000 ms on the operator's clock and 1,020 ms on the fix clock; D05 160 ms, and 140 ms for the repeated reading; D08 0 ms; recoveries of 80 ms and of 4,000 to 4,980 ms; no declaration on the clean run; V01 excluded 40 ms after onset; V06 excluded at onset at persistence 1, never at 2; V11 no majority from the second fault at either gap; V12 safe at g ≥ P and a wrong majority at g < P; U06 one episode to the end; U07 roll infinite, VOTED and NORMAL |
+  | 4 | D01 500 ms; D03 1,020 and 2,000 ms on the operator's clock and 1,020 ms on the fix clock; D05 160 ms, and 140 ms for the repeated reading; D08 0 ms; recoveries of 80 ms and of 4,000 to 4,980 ms; no declaration on the clean run; V01 excluded 40 ms after onset; V06 excluded at onset at persistence 1, never at 2; V11 no majority from the second fault at either gap; V12 safe at g ≥ P and a wrong majority at g < P; U06 OUT_OF_RANGE on the barometer at onset and recovered 80 ms after removal, no voter event; U07 the same on the IMU, the roll never infinite (before the check: U06 one episode to the end; U07 roll infinite, VOTED and NORMAL) |
   | 5 | every run as predicted; no invariant broken |
   | 6 | bit-identical |
   | 7 | Wilson (0, 10) = [0, 0.2775]; (5, 10) = [0.2366, 0.7634]; (0, 1000) = [0, 0.0038]; (1, 100) = [0.0018, 0.0545]; the rule of three 3/n beside the exact 1 − 0.05^(1/n); nearest rank over 1,020, 1,040, …, 2,000: median 1,500, 95th percentile 1,960, maximum 2,000 |
@@ -1301,6 +1301,39 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 9 | lane 2's cell amber from 60.06 s, in the recording and in the paced replay alike |
 
 - **Pass/fail:** Steps 1 through 8 exact as listed. Any byte of a run without the option that changes, any record of the replay that differs from the recording's, or an injection the log does not record, fails. Step 9 is recorded in FTS-VR-001 Entry 21.
+
+### TC-038: Non-Finite Readings at the Detector
+
+- **Requirement:** REQ-FAULT-003 (the non-finite clause, SRD 0.16.0); also exercises REQ-FAULT-004, REQ-FAULT-005, REQ-PROC-006, REQ-PROC-007, REQ-RED-002, REQ-TEST-005
+- **Level:** Unit (steps 1 through 5: `tests/unit/test_fault_detection.cpp`), the campaign's CI subset (step 6: `tests/fault_injection/`), recorded (step 7: FTS-VR-001 Entry 22, FTS-FI-001 Section 7)
+- **Objective:** Verify three things:
+  - a reading that is not a finite number is declared OUT_OF_RANGE on its channel's frame, before any range or stuck test sees it;
+  - it never reaches a filter or a computed field, so the three lanes still agree;
+  - the channel recovers by the usual rule.
+
+  Then record, with the campaign's cells U06 and U07 run before and after the check, what that changes downstream.
+- **Preconditions:** `FaultDetector` with the struct defaults, equal to `config/telemetry_config.yaml`; for step 5, the detector ahead of a `RedundantProcessor` over the simulator's frames.
+- **Steps:**
+  1. A NaN pressure, a NaN temperature, and a pressure of +∞ and of −∞, each on a frame whose other values are valid.
+  2. A NaN in each acceleration axis; +∞, −∞ and NaN in each rotation rate.
+  3. A NaN, then an infinity, in each of a GPS fix's five fields (latitude, longitude, altitude, ground speed, course); a NaN altitude on a frame that is not a fix.
+  4. After a non-finite pressure, five valid frames.
+  5. Through the detector and the three lanes: one frame with a NaN pressure, then, later, one with an infinite x rotation rate.
+  6. The CI subset's cells U06 and U07, ten seeds each.
+  7. *(Recorded)* Cells U06 and U07, 300 runs each, at the commit before the check and at the check's commit.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | OUT_OF_RANGE on BARO on that frame, the event's value the non-finite one; the channel DEGRADED |
+  | 2 | OUT_OF_RANGE on IMU each time, a NaN acceleration included though no rail comparison is true for it |
+  | 3 | OUT_OF_RANGE on GPS for each field of a fix; nothing on the frame that is not a fix |
+  | 4 | NOMINAL again on the fifth valid frame, with one RECOVERY event |
+  | 5 | every computed field finite and VOTED on every frame, no NO_MAJORITY; the barometric altitude, then pitch and roll, FAILURE_WARNING while their channel is DEGRADED and NORMAL after recovery; the fused altitude NORMAL throughout |
+  | 6 | every run as predicted by FTS-FI-001 Section 5.6 |
+  | 7 | Before: no declaration; U06 without a majority from the NaN to the end, every field FAILURE_WARNING; U07 roll +∞, VOTED and NORMAL from onset. After: OUT_OF_RANGE at 0 ms and recovery 80 ms after removal in every run; no voter event; no frame holding every field under FAILURE_WARNING; every field NORMAL at the end; no value voted that is not finite |
+
+- **Pass/fail:** Steps 1 through 6 exact as listed; step 7 recorded, its departures from FTS-FI-001 Section 5.3 being the check's purpose.
 
 ## 6. Coverage Strategy
 
