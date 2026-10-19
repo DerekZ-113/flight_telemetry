@@ -11,10 +11,14 @@
 // FTS-FM-001 FAULT-015). The system tracks one vehicle; a response holds
 // dozens. A *candidate* is airborne, complete (a position, a geometric
 // altitude, a ground speed, a track and the time of the position, so one
-// reading fills every GPS field) and descending: nearest-and-descending to
-// the airport's reference point is the aircraft on final, departures
-// climb and the ground excludes the taxiing. The kept aircraft stays while
-// it is airborne and complete, descending or not, and through fewer than
+// reading fills every GPS field), at or below the ceiling on its geometric
+// altitude, and descending: nearest-and-descending to the airport's
+// reference point is the aircraft on final, departures climb and the
+// ground excludes the taxiing, and the ceiling excludes an arrival
+// overflying the field, which ground distance cannot tell from an
+// approach (FTS-VR-001 Entry 18 §18.5; adsb_config.h for its value). The
+// kept aircraft stays while it is airborne, complete and under the
+// ceiling, descending or not, and through fewer than
 // `gone_after_polls` consecutive responses without it (a receiver's
 // coverage flickers); a candidate replaces it only when nearer the
 // reference point by more than the margin, so two parallel arrivals do not
@@ -29,6 +33,7 @@ enum class SwitchReason : uint8_t {
     LANDED,      // the kept aircraft reported on the ground
     LEFT,        // the kept aircraft absent from `gone_after_polls` consecutive responses
     INCOMPLETE,  // the kept aircraft's state lost a field a reading needs
+    ABOVE,       // the kept aircraft climbed above the ceiling
 };
 
 const char* switch_reason_name(SwitchReason reason);
@@ -50,7 +55,8 @@ struct SelectionChange {
 
 class AircraftSelector {
 public:
-    AircraftSelector(const AdsbReference& reference, double switch_margin_m, int gone_after_polls);
+    AircraftSelector(const AdsbReference& reference, double switch_margin_m, int gone_after_polls,
+                     double ceiling_m);
 
     // One response. The change it caused, if any; afterwards selected()
     // names the kept aircraft and selected_state() its vector in this
@@ -63,8 +69,9 @@ public:
 
     // Airborne with every field a reading needs.
     static bool usable(const opensky_json::AircraftState& state);
-    // Usable and descending: eligible to be selected.
-    static bool candidate(const opensky_json::AircraftState& state);
+    // Usable, at or below the ceiling and descending: eligible to be
+    // selected. A member, since the ceiling is the selector's.
+    bool candidate(const opensky_json::AircraftState& state) const;
     // The equirectangular approximation the bridge and the profile use
     // (6,371,000 m × π / 180 per degree, east scaled by the reference
     // latitude's cosine): under half a percent across the box.
@@ -72,10 +79,14 @@ public:
 
 private:
     std::optional<SelectionChange> take(const opensky_json::AircraftState* state, SwitchReason reason);
+    // At or below the ceiling. Only for a usable state: its geometric
+    // altitude is present, so no branch is spent re-testing the optional.
+    bool under_ceiling(const opensky_json::AircraftState& state) const;
 
     AdsbReference reference_;
     double switch_margin_m_;
     int gone_after_polls_;
+    double ceiling_m_;
     std::optional<AircraftIdentity> selected_;
     std::optional<opensky_json::AircraftState> selected_state_;
     double selected_distance_m_ = 0.0;
