@@ -115,6 +115,17 @@ TEST(LaneFaultInjectorTest, OutputStaleHandsTheVoterThePreviousRealOutput) {
     EXPECT_EQ(cycle(injector, 60)[0].timestamp_ms, 40u);
 }
 
+// A stale output from the very first cycle has no previous output to hand
+// over, so that cycle passes the lane's own; from the next it is a cycle
+// late. Found missing by FTS-VR-001 Entry 21's coverage preview.
+TEST(LaneFaultInjectorTest, OutputStaleOnTheFirstCyclePassesTheLanesOwn) {
+    LaneFaultInjector injector({fault(3, LaneFaultKind::OUTPUT_STALE, 0, LaneFault::kPersistent, LaneField::PITCH)});
+    const auto first = cycle(injector, 0);
+    EXPECT_EQ(first[2].timestamp_ms, 0u);
+    EXPECT_EQ(std::memcmp(&first[2], &injector.real_outputs()[2], sizeof first[2]), 0);
+    EXPECT_EQ(cycle(injector, 20)[2].timestamp_ms, 0u);
+}
+
 // An input flip alters only that lane's input, before the lane runs; its
 // output hook leaves the output as the lane made it.
 TEST(LaneFaultInjectorTest, InputBitFlipAltersOnlyThatLanesInput) {
@@ -190,6 +201,8 @@ TEST(LaneFaultInjectorTest, DemoFaultIsBit22OfTheFusedAltitudeOnEveryCycle) {
 // TC-037 step 1: the option's value is <lane>@<seconds>, the lane 1 to 3
 // and the seconds a finite, non-negative time from the first frame; every
 // other text is refused with one message naming the option and its form.
+// "inf" and "nan" fail the shape check before the number is read; 1e999
+// overflows to infinity and is refused by the finiteness check.
 TEST(LaneFaultInjectorTest, ParsesLaneAtSecondsAndRefusesEverythingElse) {
     std::string error;
     const auto two = parse_lane_fault("2@60", error);
@@ -204,7 +217,7 @@ TEST(LaneFaultInjectorTest, ParsesLaneAtSecondsAndRefusesEverythingElse) {
     ASSERT_TRUE(zero.has_value());
     EXPECT_EQ(zero->onset_ms, 0u);
     for (const std::string bad : {"", "2", "2@", "@1", "0@1", "4@1", "22@1", "x@1", "2@-1", "2@x", "2@1x",
-                                  "2@inf", "2@nan", "2@ 1", "2@1e99"}) {
+                                  "2@inf", "2@nan", "2@ 1", "2@1e99", "2@1e999"}) {
         error.clear();
         EXPECT_FALSE(parse_lane_fault(bad, error).has_value()) << bad;
         EXPECT_NE(error.find("--lane-fault"), std::string::npos) << bad;

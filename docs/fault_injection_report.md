@@ -1,9 +1,9 @@
 # Flight Telemetry System — Fault-Injection Campaign Report
 
 > **Document ID:** FTS-FI-001
-> **Version:** 0.1.0
-> **Status:** Draft. Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed; Sections 3 and 6 to 8 are filled by the first run.
-> **Last Updated:** 2026-10-18
+> **Version:** 0.2.0
+> **Status:** Preview of 2026-10-19 (Section 2). Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed, and no prediction has been edited since. Sections 3 and 6 and the table closing Section 7 are generated from the preview's record; the findings of Section 7 and the measured consequences in Section 8 were written after it.
+> **Last Updated:** 2026-10-19
 > **Related:** FTS-SRD-001 (REQ-TEST-005, REQ-TEST-006, REQ-RED-007), FTS-FM-001 (the failure modes injected), FTS-DD-001 (Section 14, the campaign's design; Section 13, the voter), FTS-TP-001 (TC-035 to TC-037), FTS-VR-001 (the summary of each campaign of record)
 
 This report measures how the flight telemetry system's fault detector and its three-lane voter behave under tens of thousands of randomized, seeded faults: how fast each check declares the fault it is built for, how often anything is declared on a channel with nothing wrong, how a channel recovers, where no check looks, and what the voter's persistence count buys and costs. Every number in it is measured against a prediction written down before the campaign ran. It is meant to be read on its own: Section 1 defines every term it uses, and nothing else in the repository is needed to follow it.
@@ -56,7 +56,52 @@ This is a **preview**, run against the simulator's noise model: Gaussian noise o
 ## 3. What was run
 
 <!-- generated:run -->
-*Not yet run.*
+- **Commit:** `e23fc87 + changes (tree 140644b3af539bf5de72ac417f8fe0b2764ea486)`
+- **Platform:** macOS 27.2 (Darwin 27.2.0, arm64), Apple M1 Max
+- **Toolchain:** compiler Apple LLVM 21.0.0 (clang-2100.3.34.2); libc++ 220106; not optimized
+- **Configuration:** `config/telemetry_config.yaml`, SHA-256 `54a18559c460c536c7efdba96ae6be59128f88832fc3c25eaa643b074fd701a8`
+- **Timing:** 20 ms frames; timeouts of 500 ms (barometer and IMU) and 2,000 ms (GPS); a GPS fix every 1,000 ms; a stuck count of 10 and a recovery count of 5
+- **Runs:** 97,100 in 93 cells, 143 s on one core; 0 invalid
+- **As predicted, run by run (the gate):** 97,100 of 97,100
+- **As Section 5 was written:** 97,006 of 97,100 (Section 7)
+
+A run's id is its seed, `cell × 100,000 + replicate` (Section 4.3); `build/fault_campaign --seed <id>` rebuilds any run.
+
+| Kind | Cells | Runs per cell | Run ids |
+|---|---|---|---|
+| D01 barometer dropout | 0 | 1,000 | 0–999 |
+| D02 IMU dropout | 1 | 1,000 | 100,000–100,999 |
+| D03 GPS dropout | 2 | 1,000 | 200,000–200,999 |
+| D04 I2C bus failure | 3 | 1,000 | 300,000–300,999 |
+| D05 barometer stuck | 4 | 1,000 | 400,000–400,999 |
+| D06 accelerometer axis stuck | 5 | 1,000 | 500,000–500,999 |
+| D07 gyroscope axis stuck | 6 | 1,000 | 600,000–600,999 |
+| D08 pressure out of range | 7 | 1,000 | 700,000–700,999 |
+| D09 temperature out of range | 8 | 1,000 | 800,000–800,999 |
+| D10 accelerometer at a rail | 9 | 1,000 | 900,000–900,999 |
+| T01 I2C dropout below the timeout | 10 | 1,000 | 1,000,000–1,000,999 |
+| T02 GPS dropout of at most one fix | 11 | 1,000 | 1,100,000–1,100,999 |
+| T03 hold below the stuck count | 12 | 1,000 | 1,200,000–1,200,999 |
+| U01 pressure bias step | 13 | 300 | 1,300,000–1,300,299 |
+| U02 pressure drift | 14 | 300 | 1,400,000–1,400,299 |
+| U03 accelerometer bias | 15 | 300 | 1,500,000–1,500,299 |
+| U04 GPS altitude bias | 16 | 300 | 1,600,000–1,600,299 |
+| U05 GPS fix frozen | 17 | 300 | 1,700,000–1,700,299 |
+| U06 NaN pressure | 18 | 300 | 1,800,000–1,800,299 |
+| U07 infinite x rotation rate | 19 | 300 | 1,900,000–1,900,299 |
+| C00 clean | 20 | 10,000 | 2,000,000–2,009,999 |
+| V01 lane value, persistent | 21–26 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 2,100,000–2,100,999 to 2,600,000–2,600,999 |
+| V02 lane NaN, persistent | 27–32 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 2,700,000–2,700,999 to 3,200,000–3,200,999 |
+| V03 lane overrun, persistent | 33–38 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 3,300,000–3,300,999 to 3,800,000–3,800,999 |
+| V04 lane value, one cycle | 39–44 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 3,900,000–3,900,999 to 4,400,000–4,400,999 |
+| V05 lane NaN, one cycle | 45–50 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 4,500,000–4,500,999 to 5,000,000–5,000,999 |
+| V06 lane overrun, one cycle | 51–56 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 5,100,000–5,100,999 to 5,600,000–5,600,999 |
+| V07 lane value, L cycles | 57–62 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 5,700,000–5,700,999 to 6,200,000–6,200,999 |
+| V08 lane input upset | 63–68 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 6,300,000–6,300,999 to 6,800,000–6,800,999 |
+| V09 two lanes, identical flip | 69–74 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 6,900,000–6,900,999 to 7,400,000–7,400,999 |
+| V10 two lanes, identical NaN | 75–80 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 7,500,000–7,500,999 to 8,000,000–8,000,999 |
+| V11 two lanes, different flips | 81–86 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 8,100,000–8,100,999 to 8,600,000–8,600,999 |
+| V12 two lanes, identical flip, delayed | 87–92 (P = 1, 2, 3, 4, 5, 8) | 1,000 | 8,700,000–8,700,999 to 9,200,000–9,200,999 |
 <!-- end generated -->
 
 ---
@@ -227,41 +272,198 @@ On every frame, at least two lanes stay in the vote, at most one lane bit is set
 ### 6.1 Faults the detector is built for
 
 <!-- generated:detector -->
-*Not yet run.*
+| Cell | Runs | Missed | Latency, ms | Predicted | Latencies seen (runs) | Recovery, ms | Predicted | As predicted |
+|---|---|---|---|---|---|---|---|---|
+| D01 barometer dropout | 1,000 | 0 (< 0.3%) | 500 / 500 / 500 | 500 | 500 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D02 IMU dropout | 1,000 | 0 (< 0.3%) | 500 / 500 / 500 | 500 | 500 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D03 GPS dropout | 1,000 | 0 (< 0.3%) | 1,520 / 1,960 / 2,000 | 1,500 / 1,960 / 2,000, uniform | 50 values, 1,020 to 2,000 | 4,480 / 4,940 / 4,980 | 4,000 to 4,980 | 1,000 |
+| D03 on the fix clock |  |  | 1,020 / 1,020 / 1,020 | 1,020 | 1,020 (1,000) | 4,000 / 4,000 / 4,000 | 4,000 |  |
+| D04 I2C bus failure, barometer | 1,000 | 0 (< 0.3%) | 500 / 500 / 500 | 500 | 500 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D04 I2C bus failure, IMU | 1,000 | 0 (< 0.3%) | 500 / 500 / 500 | 500 | 500 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D05 barometer stuck | 1,000 | 0 (< 0.3%) | 160 / 160 / 160 | 160; 140 after a repeat | 160 (1,000) | 80 / 80 / 80 | 80; 100 after a repeat | 1,000 |
+| D06 accelerometer axis stuck | 1,000 | 0 (< 0.3%) | 160 / 160 / 160 | 160; 140 after a repeat | 160 (1,000) | 80 / 80 / 80 | 80; 100 after a repeat | 1,000 |
+| D07 gyroscope axis stuck | 1,000 | 0 (< 0.3%) | 160 / 160 / 160 | 160; 140 after a repeat | 160 (1,000) | 80 / 80 / 80 | 80; 100 after a repeat | 1,000 |
+| D08 pressure out of range | 1,000 | 0 (< 0.3%) | 0 / 0 / 0 | 0 | 0 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D09 temperature out of range | 1,000 | 0 (< 0.3%) | 0 / 0 / 0 | 0 | 0 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+| D10 accelerometer at a rail | 1,000 | 0 (< 0.3%) | 0 / 0 / 0 | 0 | 0 (1,000) | 80 / 80 / 80 | 80 | 1,000 |
+
+Latencies run from onset and recoveries from removal, each as median / 95th percentile / maximum by the nearest rank. On the fix clock, D03's latency runs from the first fix the dropout suppressed and its recovery from the first fix after removal. *Missed* is no declaration while the fault was on; a zero carries its rule-of-three bound. A run is *as predicted* when every per-run prediction held: the declaration's type, latency and value, the recovery, no repeat, no false alarm, no declaration on another channel and no voter event. A count of zero in n runs bounds the rate below 3/n, the rule of three (0.3% against 0.299% exactly at 1,000 runs).
+
+Over these 10,000 runs: 0 declarations on another channel, 0 repeats, 0 false alarms and 0 voter events.
+
+![D03: the GPS dropout's detection latency against the uniform prediction](img/fi_d03_latency.png)
 <!-- end generated -->
 
 ### 6.2 Faults below the thresholds
 
 <!-- generated:transients -->
-*Not yet run.*
+| Cell | Runs | Runs with a declaration | Predicted | As predicted |
+|---|---|---|---|---|
+| T01 I2C dropout below the timeout | 1,000 | 0 (< 0.3%) | none | 1,000 |
+| T02 GPS dropout of at most one fix | 1,000 | 0 (< 0.3%) | none | 1,000 |
+| T03 hold below the stuck count | 1,000 | 0 (< 0.3%) | none, but a hold whose run with the readings around it reaches the stuck count, predicted run by run from its frames | 1,000 |
+
+A count of zero in n runs bounds the rate below 3/n, the rule of three (0.3% against 0.299% exactly at 1,000 runs).
 <!-- end generated -->
 
 ### 6.3 Faults no check covers
 
 <!-- generated:uncovered -->
-*Not yet run.*
+| Cell | Runs | Runs with a declaration | Consequence | Median / 95th percentile / maximum, or runs | Predicted | As predicted |
+|---|---|---|---|---|---|---|
+| U01 pressure bias step | 300 | 0 (< 1%) | barometric altitude error per hPa of bias, m | 8.33 / 8.35 / 8.35 | about 8.3 (8.33 at 1,013.25 hPa) | 300 |
+|  |  |  | fused altitude error, share of the barometric | 120% / 123% / 125% | nearly all; the GPS carries about 0.2% of the weight |  |
+|  |  |  | vertical speed error, m/s | 8.57 / 14.1 / 17.5 | not predicted |  |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 100% / 100% / 100% | — |  |
+| U02 pressure drift | 300 | 0 (< 1%) | barometric altitude error at the end of the minute, m | 14.1 / 24.1 / 24.9 | 2.5 to 25 | 300 |
+|  |  |  | that error against 8.33 m/hPa × the drift × the time since onset | 1.000 / 1.001 / 1.002 | 1 |  |
+|  |  |  | vertical speed error per hPa/s of drift, m/s | 8.68 / 8.69 / 8.71 | about 8.3 |  |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 99.97% / 99.97% / 99.97% | — |  |
+| U03 accelerometer bias | 300 | 0 (< 1%) | pitch or roll error, degrees | 1.6 / 2.83 / 2.91 | 0.3 to 2.9 | 300 |
+|  |  |  | that error against atan(offset / g) | 1.001 / 1.002 / 1.002 | 1 |  |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 100% / 100% / 100% | — |  |
+| U04 GPS altitude bias | 300 | 0 (< 1%) | fused altitude error, share of the bias | 0.423% / 0.434% / 0.475% | under 1%, about 0.24% | 300 |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 98.4% / 99.9% / 100% | — |  |
+| U05 GPS fix frozen | 300 | 0 (< 1%) | fused altitude error, m | 0.0171 / 0.0282 / 0.037 | negligible | 300 |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 98.7% / 99.9% / 100% | — |  |
+| U06 NaN pressure | 300 | 0 (< 1%) | no majority from the NaN to the end: one event, three lanes in the vote | 300 of 300 runs | every run | 300 |
+|  |  |  | runs breaking an invariant (a NaN voted among them) | 0 of 300 | none |  |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 0% / 0% / 0% | — |  |
+| U07 infinite x rotation rate | 300 | 0 (< 1%) | roll +∞, NORMAL and VOTED on every frame from onset | 300 of 300 runs | every run | 300 |
+|  |  |  | frames after onset with a NORMAL value off the twin's, share | 100% / 100% / 100% | — |  |
+
+Each error is the largest difference, over the frames after onset whose value is NORMAL, between the run's voted output and its twin's: the same seed with nothing injected. A share of frames off the twin is the fraction of the frames after onset on which a value the frame calls NORMAL differs from the twin's.
+
+![U01 and U02: the barometric altitude error against the injected bias and drift](img/fi_uncovered_error.png)
 <!-- end generated -->
 
 ### 6.4 False alarms: clean runs and untouched channels
 
 <!-- generated:false-alarms -->
-*Not yet run.*
+| Channel | Exposure, channel-hours | False alarms | Per channel-hour |
+|---|---|---|---|
+| barometer | 232.5 | 0 | < 0.013 (rule of three) |
+| IMU | 238.1 | 0 | < 0.013 (rule of three) |
+| GPS | 237.0 | 0 | < 0.013 (rule of three) |
+| all three | 707.5 | 0 | < 0.0042 (rule of three) |
+
+Exposure counts each kind and replicate once (37,100 of the 97,100 runs), because the six persistence counts of a lane kind show the detector the same frames. A channel is exposed for the whole of a run that injects nothing into it and up to the onset of a run that does.
+
+The clean runs (C00), 10,000 of 60 s: runs with a declaration 0 (< 0.03%); runs with a voter event 0 (< 0.03%); runs breaking an invariant, a frame without VOTED among them, 0.
+
+Declarations on another channel than the injected one, over the 15,100 runs that inject a sensor fault: 0.
 <!-- end generated -->
 
 ### 6.5 Lane faults, at persistence count P
 
 <!-- generated:voter -->
-*Not yet run.*
+**The altered lane excluded**, % of runs (95% Wilson interval where the share is neither 0 nor 100; a 0 or a 100 bounds the other outcome by the rule of three):
+
+| Kind | P = 1 | P = 2 | P = 3 | P = 4 | P = 5 | P = 8 | Predicted |
+|---|---|---|---|---|---|---|---|
+| V01 | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V02 | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V03 | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V04 | 100 | 0 | 0 | 0 | 0 | 0 | 100 at P = 1, else 0 |
+| V05 | 100 | 0 | 0 | 0 | 0 | 0 | 100 at P = 1, else 0 |
+| V06 | 100 | 0 | 0 | 0 | 0 | 0 | 100 at P = 1, else 0 |
+| V07 | 100 | 100 | 80.1 (77.5–82.5) | 60.2 (57.1–63.2) | 40.3 (37.3–43.4) | 0 | 100, 100, 80, 60, 40, 0 |
+| V08 | 92.4 (90.6–93.9) | 92.0 (90.2–93.5) | 91.8 (89.9–93.3) | 91.5 (89.6–93.1) | 91.3 (89.4–92.9) | 90.5 (88.5–92.2) | 100 but where the arithmetic absorbs the flip: measured, not predicted |
+
+**Isolation latency**, ms from the lane fault's onset to its exclusion, median / 95th percentile / maximum over the runs that excluded the lane:
+
+| Kind | P = 1 | P = 2 | P = 3 | P = 4 | P = 5 | P = 8 |
+|---|---|---|---|---|---|---|
+| predicted, (P − 1) × 20 | 0 | 20 | 40 | 60 | 80 | 140 |
+| V01 | 0 / 0 / 0 | 20 / 20 / 20 | 40 / 40 / 40 | 60 / 60 / 60 | 80 / 80 / 80 | 140 / 140 / 140 |
+| V02 | 0 / 0 / 0 | 20 / 20 / 20 | 40 / 40 / 40 | 60 / 60 / 60 | 80 / 80 / 80 | 140 / 140 / 140 |
+| V03 | 0 / 0 / 0 | 20 / 20 / 20 | 40 / 40 / 40 | 60 / 60 / 60 | 80 / 80 / 80 | 140 / 140 / 140 |
+| V04 | 0 / 0 / 0 | — | — | — | — | — |
+| V05 | 0 / 0 / 0 | — | — | — | — | — |
+| V06 | 0 / 0 / 0 | — | — | — | — | — |
+| V07 | 0 / 0 / 0 | 20 / 20 / 20 | 40 / 40 / 40 | 60 / 60 / 60 | 80 / 80 / 80 | — |
+| V08 | 0 / 0 / 60 | 20 / 20 / 120 | 40 / 40 / 200 | 60 / 60 / 240 | 80 / 80 / 260 | 140 / 140 / 480 |
+
+One altered lane: 0 of 48,000 runs voted a value other than a healthy lane's.
+
+**Two lanes altered**, % of runs:
+
+| Kind and outcome | P = 1 | P = 2 | P = 3 | P = 4 | P = 5 | P = 8 | Predicted |
+|---|---|---|---|---|---|---|---|
+| V09: healthy lane thrown out | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V09: a wrong output voted | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V09: no majority | 1.0 (0.5–1.8) | 1.0 (0.5–1.8) | 1.0 (0.5–1.8) | 1.0 (0.5–1.8) | 1.0 (0.5–1.8) | 1.0 (0.5–1.8) | 0 |
+| V10: no majority | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V10: healthy lane thrown out | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| V11: no majority | 100 | 100 | 100 | 100 | 100 | 100 | 100 at every P |
+| V11: lane a excluded first | 92.2 (90.4–93.7) | 84.7 (82.3–86.8) | 73.6 (70.8–76.2) | 64.1 (61.1–67.0) | 55.7 (52.6–58.8) | 28.8 (26.1–31.7) | g ≥ P: 90.9, 81.8, 72.7, 63.6, 54.5, 27.3 |
+| V11: healthy lane thrown out | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| V12: a wrong majority: healthy lane thrown out | 8.1 (6.6–10.0) | 20.0 (17.6–22.6) | 28.5 (25.8–31.4) | 38.2 (35.2–41.3) | 47.6 (44.5–50.7) | 73.3 (70.5–75.9) | g < P: 9.1, 18.2, 27.3, 36.4, 45.5, 72.7 |
+| V12: no majority, lane a out first | 92.0 (90.2–93.5) | 80.3 (77.7–82.6) | 71.9 (69.0–74.6) | 62.4 (59.4–65.3) | 53.3 (50.2–56.4) | 27.8 (25.1–30.7) | g ≥ P: 90.9, 81.8, 72.7, 63.6, 54.5, 27.3 |
+
+Invariants over all 72,000 lane-fault runs (two lanes in the vote, one lane bit at most, VOTED on every frame, no NaN voted, an event per no-majority episode): 0 runs broke one.
+
+![V07 and V12: what the persistence count buys and costs](img/fi_persistence_sweep.png)
 <!-- end generated -->
 
 ---
 
 ## 7. Measured against predicted
 
-*Written after the first run: every gap between Section 5 and Section 6, with its explanation.*
+The gate held on every run: all 97,100 match their per-run predictions, with the refinement for V09 and V12 that finding 1 describes. Against Section 5 exactly as written, 94 runs depart, all of them in V09 and V12; the table that closes this section lists them by cell, with their seeds. Every other per-run prediction held as written. Where a distribution or a rate in Section 6 differs from a number Section 5 gave, the difference is a finding, listed here with its explanation. The numbers quoted are this preview's.
+
+**1. V09 and V12: an identical flip that is NaN for part of its range.** Section 5.5 predicted that two lanes carrying the same flip agree with each other, outvote the healthy lane from onset and exclude it (P − 1) × 20 ms later. Every one of the 94 departing runs flips bit 30, the exponent's highest bit, of the barometric altitude (37 runs) or of the fused altitude (57 runs):
+- **Below 2 m, a NaN.** For a value whose magnitude lies in [1, 2) the exponent field is 127, and setting bit 30 makes it 255.
+- **Above 2 m, a tiny finite number.** There the bit is already set, and the flip clears it.
+
+The simulated vehicle sits about 2 m up, and the noise carries both altitudes across 2 m, so the flipped value alternates between NaN and a finite number:
+- **On the NaN frames:** a NaN agrees with nothing (REQ-RED-002), so no pair agrees, no majority exists and no count moves (REQ-RED-003).
+- **On the finite frames:** the two altered lanes agree, and the healthy lane counts a miss.
+
+The healthy lane is therefore excluded only after P consecutive majority cycles on which the flipped value is finite. That comes later than (P − 1) × 20 ms, and the run shows no-majority episodes where Section 5 predicted none. 10 of V09's 1,000 replicates depart this way at every count; 11 replicates drew bit 30 of an altitude. 34 of V12's runs depart, from 11 replicates. The voter did what its rules say:
+- a NaN is never voted;
+- the frames without a majority hold the last vote under FAILURE_WARNING;
+- once the healthy lane is out, the finite frames vote the flipped value as NORMAL. That is Section 8's third blind spot, delayed, not prevented.
+
+*The refinement.* The CI subset found this on 2026-10-18, in V09's replicate 4 (seed 6900004) at both of the subset's counts. Section 5 stays as written. Since that day the gate's oracle for V09 and V12 replays the vote frame by frame from the lanes' recorded agreement, a NaN agreeing with nothing, and checks the voter's events and wrong outputs against it. The record keeps both verdicts for every run: `as_predicted` is the gate's and `as_written` is Section 5's.
+
+**2. U01: the fused altitude overshoots a barometric step by a fifth.** Section 5.3 said the fused altitude "follows nearly all" of the barometric shift. Its largest error measured 120% of the barometric error (median; 125% at most). The altitude filter is linear and its gains do not depend on the measurements, so a run minus its twin is the filter's response to the offset alone. Its equations, iterated with the step as the only measurement, give the same:
+- the velocity state integrates the innovation;
+- the altitude overshoots by 20% about 2.9 s after onset;
+- it then settles at 99.9% of the step, the value Section 5 predicted.
+
+The prediction was of the settled value; the campaign measures the largest. Nothing in Section 5 predicted the false vertical speed that comes with it under NORMAL: up to 17.5 m/s, median 8.57 m/s, the same response's velocity, about 0.35 m/s per metre of step (2.9 m/s per hPa).
+
+**3. U02: the false vertical speed runs 4% above the drift's rate.** It measured 8.68 m/s per hPa/s, against Section 5.3's "about 8.3". The filter's velocity overshoots a ramp's slope by 4% about 6 s after onset and is still 3% above it at the end of the minute: the same second-order response as finding 2.
+
+**4. U04: 0.42% of a GPS bias reaches the fused altitude, not about 0.24%.** It stays under Section 5.3's bound of 1%. The 0.24% is the GPS's share of the information, 1/25 per second against the barometer's 50/3, and the filter's equations give it as the fused error's average over the last 15 s. The campaign measures the largest error, which comes just after each fix: the GPS update pulls the estimate up, and the barometer's 49 updates before the next fix pull it back. The equations give 0.42% for that peak.
+
+**5. V11 at P = 2: an interval that misses its prediction.** "Lane a excluded first" measured 84.7% (82.3–86.8%) against 81.8%. Every V11 run matched its per-run prediction given its gap g, so the share is the draw's: g ≥ 2 came up in 847 of the 1,000 replicates against 818 expected (g = 0 and g = 1 came up 78 and 75 times against 91 each). Section 6.5 compares 21 measured shares with fractional predictions, so about one outside its 95% interval is expected. V12's gaps, drawn independently, show no such excess: 800 replicates with g ≥ 2.
+
+**6. V08: later exclusions, and the absorbed share.** Section 5.5's rule held in every run: excluded exactly when the lane disagreed on P consecutive majority cycles. Its typical latency, (P − 1) × 20 ms, is the median at every count, but some runs are later: 5 at P = 1, 17 at P = 3 and 23 at P = 8, the latest 480 ms. In those runs the upset reaches the compared outputs intermittently, and a difference the arithmetic rounds away on one cycle restarts the count. The absorbed share, measured rather than predicted, grows with the count: 7.6% of the runs were never excluded at P = 1, 8.2% at P = 3 and 9.5% at P = 8. A longer count gives an upset that decays the time to leave the outputs before the count is reached.
+
+**Not gaps:**
+- D03's median latency is 1,520 ms against the predicted distribution's 1,500. The latency follows the onset's place in the fix second; every run's latency equals its own prediction, and 1,520 is this sample's median, one frame from the population's.
+- The coincidences Sections 5.1 and 5.2 predicted run by run did not occur: D05 to D07's 140 ms after a repeat, their 100 ms recovery, and T03's eighth-frame hold. That matches their rarity: about 0.25, 0.25 and 0.01 runs expected.
+- The false-alarm count is zero in 707.5 channel-hours, as Section 5.4 said. Section 9 says why that bounds the logic and not the sensors.
 
 <!-- generated:departures -->
-*Not yet run.*
+| Cell | Runs | Departing from Section 5 as written | Departing from the gate | Seeds | The first departure |
+|---|---|---|---|---|---|
+| V09/P1 | 1,000 | 10 | 0 | 6900004, 6900277, 6900336, 6900539, 6900680, … | excluded at: 3960, predicted 3100 |
+| V09/P2 | 1,000 | 10 | 0 | 7000004, 7000277, 7000336, 7000539, 7000680, … | excluded at: 3980, predicted 3120 |
+| V09/P3 | 1,000 | 10 | 0 | 7100004, 7100277, 7100336, 7100539, 7100680, … | excluded at: 4000, predicted 3140 |
+| V09/P4 | 1,000 | 10 | 0 | 7200004, 7200277, 7200336, 7200539, 7200680, … | excluded at: 4020, predicted 3160 |
+| V09/P5 | 1,000 | 10 | 0 | 7300004, 7300277, 7300336, 7300539, 7300680, … | excluded at: 4040, predicted 3180 |
+| V09/P8 | 1,000 | 10 | 0 | 7400004, 7400277, 7400336, 7400539, 7400680, … | excluded at: 4100, predicted 3240 |
+| V12/P1 | 1,000 | 1 | 0 | 8700739 | no-majority episodes: 10, predicted 0 |
+| V12/P2 | 1,000 | 3 | 0 | 8800440, 8800549, 8800739 | excluded at: 5500, predicted 3840 |
+| V12/P3 | 1,000 | 4 | 0 | 8900440, 8900549, 8900739, 8900748 | excluded at: 5520, predicted 3860 |
+| V12/P4 | 1,000 | 6 | 0 | 9000194, 9000440, 9000549, 9000739, 9000748, … | excluded at: 3720, predicted 3680 |
+| V12/P5 | 1,000 | 9 | 0 | 9100194, 9100440, 9100549, 9100598, 9100653, … | excluded at: 3740, predicted 3700 |
+| V12/P8 | 1,000 | 11 | 0 | 9200194, 9200440, 9200549, 9200598, 9200653, … | excluded at: 3800, predicted 3760 |
+
+Over the campaign: 94 of 97,100 runs depart from Section 5 as written, 0 from the gate's per-run predictions. The seeds rebuild each run.
 <!-- end generated -->
 
 ---
@@ -270,9 +472,17 @@ On every frame, at least two lanes stay in the vote, at most one lane bit is set
 
 What this campaign shows no check catches, and why:
 
-1. **An error inside the limits** (FAULT-023: U01 to U05). Each check compares a channel with fixed limits, with its own previous value, or with the clock; a bias, a drift or a frozen GPS fix that keeps every reading inside its limits passes all three, and its error leaves the system marked NORMAL. Catching it needs a reference, such as the barometric altitude against the GPS altitude.
-2. **A non-finite reading** (FAULT-024: U06, U07). The detector's comparisons are all false for NaN, and it has no rotation-rate limit. The drivers keep such values out today. If one got through, a NaN would take the voted output down for the rest of the run, on the voter's channel rather than the sensor's, and an infinity would be voted through as valid.
-3. **A fault common to two lanes** (V09, V12). The voter trusts a majority. Two lanes wrong in the same way outvote the healthy one and exclude it, and the wrong value leaves marked VOTED.
+1. **An error inside the limits** (FAULT-023: U01 to U05). Each check compares a channel with fixed limits, with its own previous value, or with the clock; a bias, a drift or a frozen GPS fix that keeps every reading inside its limits passes all three, and its error leaves the system marked NORMAL. Catching it needs a reference, such as the barometric altitude against the GPS altitude. Measured (Section 6.3):
+   - every hPa of pressure bias puts 8.33 m on the barometric altitude;
+   - the fused altitude overshoots that by a fifth, with a false vertical speed of up to 17.5 m/s;
+   - a drift of 0.05 hPa/s puts 25 m on the altitude in a minute;
+   - an accelerometer bias tilts the attitude by atan(offset / g), up to 2.9°;
+   - all of it under NORMAL.
+2. **A non-finite reading** (FAULT-024: U06, U07). The detector's comparisons are all false for NaN, and it has no rotation-rate limit. The drivers keep such values out today. If one got through, a NaN would take the voted output down for the rest of the run, on the voter's channel rather than the sensor's, and an infinity would be voted through as valid. Measured: every NaN run lost the majority to the end of the run, and every infinite rate was voted with the roll NORMAL (Section 6.3).
+3. **A fault common to two lanes** (V09, V12). The voter trusts a majority. Two lanes wrong in the same way outvote the healthy one and exclude it, and the wrong value leaves marked VOTED. Measured (Section 6.5):
+   - V09 threw out the healthy lane in every run;
+   - V12 did so in 8.1% of runs at P = 1, rising to 73.3% at P = 8;
+   - a common flip that makes the value NaN for part of its range only delays it (Section 7, finding 1).
 4. **Any sensor fault, as far as the voter is concerned.** Every lane is given the same checked frame, so a bad reading goes in and three agreeing lanes come out. The voter sees only faults inside a lane.
 5. **Faults shorter than a threshold** (T01 to T03), by design: a dropout of up to 500 ms on the barometer or IMU, the loss of one GPS fix, a reading repeated fewer than ten times.
 

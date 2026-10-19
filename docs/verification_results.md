@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-18
+> **Last Updated:** 2026-10-19
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1751,3 +1751,194 @@ The page: branches 98.99% against Entry 19's 98.93%. Every branch the topic adde
 - TC-009 step 8 on the Pi: the three lanes' cost, paired against a build of `a7461a3` (missed cycles 0, jitter within the run-to-run spread, the cost per replayed frame under 2 ms).
 - The fault-injection harness, the next topic: it drives `LaneFaultHook`, builds `Voter(persistence)` directly to sweep the count, and counts isolation latency, healthy lanes thrown out and no-majority events from the public output; its scenarios go under `tests/fault_injection/`, which FTS-TP-001 §2.3 names.
 - Entry 19's open items stand: Phase B, FAULT-003b; and Entry 18's: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines without a marker.
+
+## Entry 21 — 2026-10-18 and 19, The fault-injection campaign: a seeded Monte Carlo harness over the detector and the voter, the demonstration lane fault and its replay, the statistics and the report (macOS preview)
+
+Three requirements (REQ-TEST-005, REQ-TEST-006, REQ-RED-007; SRD 0.14.0 → 0.15.0, 64 → 67 statements), one statement amended (REQ-RED-005's, for the option of REQ-RED-007) and two rationales (REQ-LOG-003's and REQ-RED-003's), two fault entries in a new section, *Uncovered Failures* (FAULT-023 and FAULT-024; FTS-FM-001 0.7.0 → 0.8.0), three test cards (TC-035 to TC-037) and FTS-TP-001 §2.3 rewritten, design Section 14 with §12 and §13 amended, a new controlled document (FTS-FI-001, the campaign's report), two new C++ pairs under `src/` and the campaign's engine under `tests/fault_injection/`, two Python modules and a script. The format is unchanged: one new value of the fault event's type byte. No key, no thread. The commits sit on `claude/fault-injection-monte-carlo-694c09`, stacked on the voter's branch at `e23fc87` (Entry 20 §20.7) and kept off `main` until after the v0.1.0 tag:
+- the first makes `ctest -j` run clean;
+- the second commits the campaign's predictions before any of its code;
+- the ninth records the preview;
+- the tenth restates the persistence count's reason with the campaign's evidence (§21.6);
+- §21.7 records the CI run.
+
+### 21.1 What was built
+
+- The parallel-test fix (commit 1): `tests/unit/scratch_dir.h`, a temporary directory per fixture made by `mkdtemp` and removed by its destructor, in place of the directory names that came from a static counter starting at 0 in every test process (Entry 20 §20.5's flag): `test_logging.cpp`, `test_replay.cpp`, `test_opensky_json.cpp`, `test_selection_log.cpp`, `test_timing.cpp`, `test_config.cpp`. FTS-TP-001 §7's Partial count corrected to ten (Entry 20 §20.5's second flag).
+- Documents (commit 2), every prediction committed before a line of campaign code:
+  - the SRD statements above, and the convention sentence on an event's channel;
+  - FTS-FM-001's *Uncovered Failures*: FAULT-023, a reading in error inside its limits, and FAULT-024, a non-finite reading;
+  - TC-035, the harness's known answers and the CI subset; TC-036, the campaign of record; TC-037, the demonstration lane fault;
+  - FTS-TP-001 §2.3 rewritten: the campaign runs on demand, there is no nightly job;
+  - FTS-DD-001 §14, with §13's hook and replay paragraphs amended and four bullets parked in §12;
+  - FTS-FI-001's method and predictions (Sections 1, 2, 4 and 5).
+- `src/drivers/fault_injecting_source.h` / `.cpp` (commit 3): `RawField`; `hold_field` (one axis stuck), `override_field` (NaN allowed) and `bias_field` (a step or a drift); `override_pressure` became the field override. The injector still draws no random number, so an uncovered run's clean twin is its exact counterfactual (REQ-TEST-005).
+- `src/processing/lane_fault_injector.h` / `.cpp`, `fault_detector`, `pipeline/frame_format.py` (commit 4), for REQ-RED-005, REQ-RED-007 and REQ-TEST-005:
+  - `LaneFaultInjector`, the lane-fault interface's one implementation, with four kinds: an output bit flip; an output NaN; a stale output (the lane's previous real output, kept by the injector, so the lane's state stays intact); an input bit flip;
+  - `FaultType::LANE_FAULT_INJECTED` (8) and its name on both sides;
+  - `demo_lane_fault`, `parse_lane_fault` and `describe_lane_fault`.
+- `src/replay/recorded_injections.h` / `.cpp` and `src/main.cpp` (commit 5), for REQ-RED-007 and REQ-LOG-003:
+  - `--lane-fault <lane>@<seconds>`, refused with `--replay`;
+  - the injector built from the option, or from the injection a replayed log records;
+  - its events logged after the detector's and before the voter's;
+  - the `Lane fault:` line.
+- The engine, under `tests/fault_injection/` (commit 6):
+  - `schedule_rng`: the draws over `std::mt19937` and `std::seed_seq`;
+  - `run_schedule`;
+  - `fault_catalogue`: 33 kinds and 93 cells with their ranges and draws;
+  - `campaign_run`: the real pipeline stepped unpaced, the timeline and the twin;
+  - `run_outcome`: the classifier;
+  - `prediction`: FTS-FI-001 Section 5's formulas and the judge;
+  - their known answers.
+- `fault_campaign` and the CI subset (commit 7), for REQ-TEST-005 and REQ-TEST-006:
+  - `campaign_record`: the CSV row and the manifest;
+  - `campaign_main`: the command, which writes the record and copies the configuration beside it;
+  - `test_subset.cpp`: 45 cells, ten seeds each, on every build;
+  - `replay_vote` and `judge_as_written`, for the finding of §21.6.
+- The statistics and the report generator (commit 8), for REQ-TEST-006: `analysis/campaign_stats.py`, `analysis/fault_campaign.py`, `scripts/fault_campaign.sh`, and FTS-FI-001's §6 subsections and §7 table.
+- The preview (commit 9):
+  - `scripts/fault_campaign.sh --preview` on the tree of commit 8;
+  - FTS-FI-001's generated blocks and three figures (`docs/img/`), its findings (Section 7) and blind spots (Section 8);
+  - two unit tests the coverage preview showed missing (§21.3);
+  - this entry; design §14's record paragraph and refinement sentence; the matrix, the README and CLAUDE.md.
+- Tests:
+  - unit +24, 456 → 480: `test_fault_detection.cpp` +7; `test_lane_fault_injector.cpp` 12; `test_recorded_injections.cpp` 5;
+  - a new binary, `fault_injection_tests`, 89: the 45 subset cells, 14 known answers, 11 classifier tests, 6 catalogue, 6 prediction, 5 draw and 2 record tests;
+  - pytest +31, 145 → 176: `test_lane_fault.py` 12, `test_fault_campaign.py` 19; `test_voter.py`'s name table gained type 8.
+
+### 21.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 569 of 569: 480 unit and 89 fault-injection (456 unit before); `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings; `ctest -j 10` clean in about 3 s, five runs in a row at commit 1 |
+| pytest | 176 of 176 in 132.1 s (145 before); the same against the instrumented binaries in 133.2 s |
+| Page | no file under `dashboard/` changed |
+| cppcheck 2.21.0 | 0 findings with CI's flags on `src/`, 45 files. A hand preview on `tests/fault_injection/`, outside CI's scan, found six style findings, fixed rather than suppressed: a local shadowing a function, a copy returned where a reference serves, four loops written as `std::count_if`, `std::find_if`, `std::transform` and `std::replace`. Now 0 |
+| The CI subset | 450 runs: 450 as predicted, 448 as Section 5 was written (V09's replicate 4 at both counts, §21.6) |
+| The campaign | §21.5 |
+| The byte checks | §21.4 |
+
+Red first where the plan said so:
+- `ctest -j 10` failed before commit 1 (8, 5 and 4 failures of the 47 logging, replay and timing tests in three runs);
+- commit 5's pytest file failed against the voter's build before `--lane-fault` existed;
+- each C++ test file failed to compile before the header it tests.
+
+### 21.3 Coverage preview
+
+The preview ran on the Mac, with clang, in `build-cov`, configured offline from the build's already-fetched sources. It covers every C++ test and the pytest suite run against the instrumented binaries, as CI runs them, where Entry 20's preview covered the unit tests alone; the record is §21.7's on GCC. Every scope is above its threshold:
+- processing 100.0%
+- config 98.2%
+- timing 96.9%
+- logging 86.8%
+- transport 91.4%
+- replay 100.0%
+- drivers 91.2%
+- overall 94.3%: 1,382 of 1,466 branches; lines 99.1%, functions 100.0%
+
+The topic's files:
+- `processing/lane_fault_injector.cpp`: 113 of 113 lines, 46 of 46 branches, 11 of 11 functions;
+- `replay/recorded_injections.cpp`: 25 of 25 lines, 18 of 18 branches;
+- `drivers/fault_injecting_source.cpp`: 127 of 127 lines, 32 of 32 branches;
+- `processing/fault_detector.cpp`: 66 of 66 branches.
+
+The first capture left two branches of `lane_fault_injector.cpp` untaken (44 of 46, processing at 99.2%):
+- line 107: a stale output from the first cycle, which has no previous output to hand over;
+- line 165: the finiteness check of `parse_lane_fault`, which no tested input reached, because `inf` and `nan` fail the shape check before the number is read.
+
+`LaneFaultInjectorTest.OutputStaleOnTheFirstCyclePassesTheLanesOwn` and a refused `2@1e999`, which `strtod` reads as infinity, take both; they are in commit 9. The topic's new conditional lines in `src/` keep their calls on lines of their own (`const bool in_time = active(...)`, the loader's style rule), so GCC's record should show no exception edge on them; any it does show goes into §21.7. The engine under `tests/fault_injection/` is outside the measurement (lcov removes `*/tests/*`), as FTS-TP-001 §2.3 says; its evidence is its own known-answer tests.
+
+### 21.4 The byte checks
+
+The default run's bytes must not move, and the demonstration fault must change only what it claims. The seed-42 session, its replay and the demo were recorded by this build at commit 8's tree, with the configuration of record, and each was compared with Entry 20 §20.4's hash. The demo was then recorded again with `--lane-fault 2@60`, compared field by field with the unaltered demo, and replayed.
+
+| Item | Observed |
+|---|---|
+| The seed-42 session, `--cycles 500` | `f1dc959aa7583c90b65293470056ce79561b71caac1ef0c7dfed8ba3e0e20ec5`, equal to Entry 20's |
+| Its replay | `189eb162b045fe2b3abe5f9b133c170f909d0d14dcce01c50418bcfc7172b9e3`, equal to Entry 20's |
+| The demo, `--motion demo --cycles 7500` | `6f877d1de11e83a7f3c37e91325e06070276b880ec5d7fff9c88c3d73d5bfd1c`, equal to Entry 20's |
+| The demo with `--lane-fault 2@60` | `a2d1d891b85efbaad0440035eacfc66a1177c5ed1a8534454742bb08331bf4cc`. Against the unaltered demo, no frame differs in any field but `voter_status`, which reads 0x0001 up to 60,040 ms and 0x0005 from 60,060 ms. Three events: LANE_FAULT_INJECTED and LANE_DISAGREEMENT, both naming lane 2, at 60,000 ms; LANE_FAULTED (lane 2) at 60,040 ms. The unaltered demo has none. `Lane fault:    lane 2 from 60000 ms, bit 22 of its fused altitude flipped on every cycle (--lane-fault, REQ-RED-007)`; `Voter:     7500 frames, lanes in the vote 1 3, no majority on 0 frames, voter events 2`; missed cycles 0 |
+| Its replay | `33b34f6034cfe202460f1c531d74814dece33d9b468ba0c340d886227f02a5e8`: the same length, every record identical, the header differing in byte 11 alone, the run mode; `Lane fault:` says `re-applied: the replay's input records it` |
+
+### 21.5 The campaign (preview)
+
+The provenance (FTS-FI-001 §3 holds the seed ranges):
+- 97,100 runs in 93 cells, in 142.6 s on one core of an Apple M1 Max (macOS 27.2, Apple clang 21, libc++, the default unoptimized build);
+- the tree of commit 8, `140644b3af539bf5de72ac417f8fe0b2764ea486`, run by `scripts/fault_campaign.sh --preview` before the commits existed (§21.6);
+- the configuration of record, SHA-256 `54a18559…`.
+
+The results:
+- Every run matches its per-run prediction (the gate).
+- 97,006 match Section 5 exactly as written.
+- 0 runs are invalid, and 0 break an invariant.
+- The record is identical, byte for byte, to a development run of the same code an hour earlier.
+
+The headline numbers against the predictions:
+
+| Prediction (FTS-FI-001 §5) | Measured (§6) |
+|---|---|
+| D01, D02, D04: declared at exactly 500 ms; recovered 80 ms after removal | 500 ms in all 4,000 injected channels; recovery 80 ms in all |
+| D03: 1,020 to 2,000 ms on the operator's clock, uniform (median 1,500, p95 1,960, maximum 2,000); 1,020 ms from the first suppressed fix; recovery 4,000 to 4,980 ms | 1,520 / 1,960 / 2,000 over 50 values; 1,020 in every run; recovery 4,480 / 4,940 / 4,980, and 4,000 in every run from the first fix after removal |
+| D05 to D07: 160 ms (140 after a repeat); D08 to D10: 0 ms | 160 in all 3,000; 0 in all 3,000 |
+| Missed detections | 0 in 11,000 injected channels, below 0.3% in every cell |
+| T01 to T03: never declared | 0 of 3,000 |
+| No false alarm anywhere (zero by construction) | 0 in 707.5 channel-hours (below 0.0042 per channel-hour by the rule of three); 0 declarations and 0 voter events in 10,000 clean runs (below 0.03%) |
+| U01: about 8.3 m per hPa; the fused altitude "nearly all" | 8.33 / 8.35 / 8.35 m per hPa; the fused altitude's largest error 120% / 123% / 125% of the barometric (a finding) |
+| U02: 2.5 to 25 m; a false vertical speed of about 8.3 m/s per hPa/s | 14.1 / 24.1 / 24.9 m; 8.68 m/s per hPa/s (a finding) |
+| U03: 0.3° to 2.9°, atan(offset / g) | 1.6 / 2.83 / 2.91°, 1.001 of atan(offset / g) |
+| U04: under 1%, about 0.24% | 0.423% / 0.434% / 0.475% (a finding) |
+| U06: no majority from the NaN to the end; U07: roll +∞, NORMAL and VOTED | every run, both |
+| V01 to V03: excluded (P − 1) × 20 ms after onset; V04 to V06: only at P = 1 | every run, every count |
+| V07: 100, 100, 80, 60, 40, 0% | 100, 100, 80.1, 60.2, 40.3, 0% |
+| V09: the healthy lane thrown out (P − 1) × 20 ms after onset, the wrong value voted | thrown out in every run, the wrong value voted in every run; in 10 replicates later than predicted, after no-majority episodes (a finding) |
+| V11: lane a excluded first when g ≥ P | 92.2, 84.7, 73.6, 64.1, 55.7, 28.8% against 90.9, 81.8, 72.7, 63.6, 54.5, 27.3% (the interval at P = 2 misses: a finding) |
+| V12: a wrong majority when g < P, in P of 11 runs | 8.1, 20.0, 28.5, 38.2, 47.6, 73.3% |
+
+FTS-FI-001 Section 7 explains every gap. The filter's own equations reproduce the three uncovered-cell gaps to three digits:
+- U01: an overshoot of 20% at 2.9 s;
+- U02: the velocity 4% above the ramp's slope;
+- U04: 0.42% at the peak after each fix, against 0.24% on average.
+
+The two voter gaps are a property of IEEE-754 and the draw: V09 and V12 come from a flip of bit 30 that is NaN below 2 m, and V11's interval at P = 2 from 847 gaps of two or more where 818 were expected. Section 8 names the blind spots with these numbers.
+
+### 21.6 Decisions taken, and deviations from the plan
+
+- **Answered before the plan was written (2026-10-18):** the trust test, whose predictions became FTS-FI-001 Section 5 and whose flags became the plan's §11. The plan was approved as written, with the parallel-test fix and §7's count first.
+- **The V09 finding (the CI subset, 2026-10-18).** V09's replicate 4 (seed 6900004) departed from Section 5 at both of the subset's counts: an identical flip of bit 30 of the fused altitude is NaN while the value is below 2 m, so the run shows no majority before the wrong majority forms. Derek chose to record it and refine the gate:
+  - Section 5 stands unchanged.
+  - Section 7 records the full campaign's count: 60 V09 runs and 34 V12 runs.
+  - The per-run oracle for V09 and V12 replays the vote frame by frame from the lanes' recorded pairwise agreement, labelled in the code and the report as a refinement the subset found on 2026-10-18, not a prediction.
+  - `judge_as_written` keeps the closed forms, and the record carries both verdicts.
+- **Deviation: `--preview`.** The plan's script refuses a tree with changes. The preview ran before the commits existed, because Derek makes the commits from the topic's patches after the session. `--preview` therefore records HEAD and the tree's hash instead of a commit. That hash, `140644b3…`, equals commit 8's tree: the patch chain, applied to `e23fc87`, rebuilds it exactly, and `git rev-parse <commit 8>^{tree}` will print it. A campaign of record never uses the flag.
+- **Deviation: the configuration in the record.** The plan had the script hash the configuration into the manifest. Instead `fault_campaign` copies the file beside the record, as a session keeps its configuration beside its log (REQ-CFG-003), and the generator names the copy's SHA-256.
+- **Deviation: the report's shape.** Section 6 gained subsections mirroring Section 5's, with the blocks in Section 5's order, and Section 7 a generated table of the departures; the plan listed six blocks, and there are seven.
+- **Deviation: an extra commit.** The plan's flag 5 proposed restating REQ-RED-003's rationale and design §12's reason with the campaign's evidence, and left the choice to Derek. On the overnight instruction to take the recommended option, the restatement was made, as its own commit (commit 10) so that it can be dropped. The CI record becomes commit 11.
+- **Two tests the coverage preview found missing**, added in commit 9 rather than in commit 4, so that the preview's recorded tree stays commit 8's (§21.3).
+- **Trailing whitespace** on three lines of commit 6's `test_fault_catalogue.cpp` was removed from the patch before any commit was made.
+- **The figures** follow a data-visualization method: the two series colours checked by its palette validator, the chrome recessive, every figure looked at before it was kept. Each figure is a light PNG on its own surface, legible on a dark page.
+- **Library and toolchain facts:**
+  - `std::mt19937`'s 10,000th output from the default seed is 4123659995, by the standard, and `std::seed_seq::generate`'s algorithm is specified, while the distributions' algorithms are not.
+  - numpy's `percentile(method="inverted_cdf")` is the nearest-rank rule.
+  - Bit 30 is the highest bit of a single's exponent field: a value in [1, 2) has the field 127, and setting the bit gives 255, a NaN whenever the mantissa is non-zero.
+  - `strtod` reads `1e999` as `HUGE_VAL`, an infinity, while `inf` never reaches it past the parser's shape check.
+  - matplotlib's bundled DejaVu Sans has no semibold weight (bold is used).
+  - `FETCHCONTENT_SOURCE_DIR_<NAME>` builds a second tree from the first one's fetched sources without the network.
+
+### 21.7 Measurement of record
+
+**Entry 20 §20.8's open item, from CI run 39200167816 on `e23fc87`** (2026-10-19 04:34 to 04:38 UTC; both jobs green):
+- `voter.cpp`: 144 of 144 lines, 20 of 20 functions, 84 of 84 branches.
+- The processing scope: 100.0%.
+- Overall: branches 93.4% (1,410 of 1,510), lines 98.3% (2,980 of 3,032), functions 97.1% (331 of 341).
+- Google Test 456 of 456; pytest 145 passed in 126.3 s; the page 84 of 84; cppcheck 0 findings.
+
+The 84 branches are the 88 of §20.7 less the two unwind edges that moving `has_flag` to its own line removed, and less line 167's two, which the marker removed. The NEW_VEHICLE decision's two legs therefore still count, on their new line: §20.7's two remedies did what §20.7 said they would.
+
+**This branch's run** is owed after the push.
+
+### 21.8 Open
+
+- §21.7's run of this branch, after the push: the subset's 45 cells on GCC and libstdc++; the coverage of `lane_fault_injector.cpp` and `recorded_injections.cpp` on the record; cppcheck on the 45 files.
+- The campaign of record, after the bench session, at the commit that holds the measured constants (TC-036). It changes the uncovered cells' consequences and nothing the thresholds fix.
+- TC-037 step 9: the demo recorded with `--lane-fault 2@60` and replayed paced to the page, lane 2's cell amber from 60.06 s (a hand record).
+- FAULT-024 at the detector, a non-finite raw value declared OUT_OF_RANGE: the follow-up the plan recommended (FTS-DD-001 §12).
+- The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author.
+- Entry 20's TC-009 step 8 stands, as do Entry 19's (Phase B, FAULT-003b) and Entry 18's open items.
