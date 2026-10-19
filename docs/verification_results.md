@@ -813,7 +813,7 @@ The thirty-six branches between the two counts were read line by line, the run's
 - Deliberately not built: a flag that disables a file-enabled transport, name resolution for `transport.udp.host`, a barometer read schedule below the processing rate, keys for the ZeroMQ tuning.
 - Unverifiable here (no GCC, no Docker): the config scope's GCC branch count and yaml-cpp under GCC 13's `-Werror`; §11.7 settles both. (Settled: 196 of 196, zero warnings.)
 - TC-016 step 6 and the comment above `ConfigTest.EveryKeyReportsEachKindOfFault` give gcov's per-instantiation branch counting as the sweep's reason; §11.7 shows that counting belongs to the Mac preview, and that the record folds a template's instantiations into one decision per line. The sweep's ground is REQ-CFG-002's "each" (every key's rule against every fault); the two sentences await rewording.
-- The seven `LCOV_EXCL_EXCEPTION_BR_LINE` lines carry no branch data on the record (§11.7): their decisions are tested, not measured. For the author: apply the loader's style rule to the seven lines and drop the markers (the health topic rewrites `log_reader.cpp` 17 and 64 in any case); or pin lcov 2.5 in the workflow with `--filter branch,exception`, the systemic alternative §5.6 named; or keep the markers with this note. The seven source comments, §5.6 and the CLAUDE.md rule say the decision is still counted, and await that decision.
+- The seven `LCOV_EXCL_EXCEPTION_BR_LINE` lines carry no branch data on the record (§11.7): their decisions are tested, not measured. For the author: apply the loader's style rule to the seven lines and drop the markers (the health topic rewrites `log_reader.cpp` 17 and 64 in any case); or pin lcov 2.5 in the workflow with `--filter branch,exception`, the systemic alternative §5.6 named; or keep the markers with this note. The seven source comments, §5.6 and the CLAUDE.md rule say the decision is still counted, and await that decision. (Closed by Entry 23 §23.4: CLAUDE.md's refined rule restructures where the call can leave the condition and marks only a loop's; seven lines restructured, five marked, §1.3 the standing list.)
 - The runner image: `ubuntu-latest` becomes Ubuntu 26 from 2026-10-19, and with it the toolchain of record (§11.7); pinning `ubuntu-24.04` in the workflow, or recording the new versions in the next entry, is a decision for the next push.
 
 ## Entry 12 — 2026-10-13, validity of computed fields, NO_DATA, format version 2, the byte checks (macOS preview)
@@ -1506,7 +1506,7 @@ The drivers scope's fall from Entry 17's 95.8% to 89.0% is the ADS-B source's pa
 
 - Yours: the link to the published work for the OpenSky Network (its terms ask for it); the demo video's ADS-B segment with the bridge's `--hide-identity`.
 - TC-009 step 7 with `--adsb` on the Pi: whether the worker thread moves `clock_nanosleep`'s jitter as it moves the Mac's `nanosleep` slack (§18.5).
-- The four exception-edge lines of §18.7 without a marker (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) take it in the next commit that touches their files.
+- The four exception-edge lines of §18.7 without a marker (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) take it in the next commit that touches their files. (Closed by Entry 23 §23.4: three restructured, `opensky_json.cpp:121` marked.)
 - Phase B (design §12): the vertical rate as the filter's third measurement and the pressure altitude, the mode in the log, the selection's altitude term, the re-birth on a switch, all with format version 3.
 - Entry 17's open items stand: §17.7 from the CI run, TC-025 step 8, the Pi.
 
@@ -1988,7 +1988,7 @@ The one untaken branch is a decision, not an exception edge, on `lane_fault_inje
 - The campaign of record, after the bench session, at the commit that holds the measured constants (TC-036). It changes the uncovered cells' consequences and nothing the thresholds fix.
 - TC-037 step 9: the demo recorded with `--lane-fault 2@60` and replayed paced to the page, lane 2's cell amber from 60.06 s (a hand record).
 - FAULT-024 at the detector, a non-finite raw value declared OUT_OF_RANGE: the follow-up the plan recommended (FTS-DD-001 §12).
-- The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author.
+- The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author. (Closed by Entry 23: the README points to §1.3, the standing list.)
 - Entry 20's TC-009 step 8 stands, as do Entry 19's (Phase B, FAULT-003b) and Entry 18's open items.
 
 ## Entry 22 — 2026-10-19, The detector's non-finite check (FAULT-024): the campaign's cells U06 and U07 measured before and after (macOS preview)
@@ -2168,4 +2168,153 @@ None was missed. Entry 21 §21.7's one open measurement, the leading point's leg
 
 - The campaign of record after the bench session, whose generated tables will show U06 and U07 as detected.
 - The ADS-B extras' finiteness, with Phase B.
-- Entry 21's open items stand (TC-037 step 9; the README's count of exception markers), and Entry 20's (TC-009 step 8).
+- Entry 21's open items stand (TC-037 step 9; the README's count of exception markers), and Entry 20's (TC-009 step 8). (The README's count closed by Entry 23.)
+
+## Entry 23 — 2026-10-19, The cleanup pass before the stack merges: a value that is not a finite number on the bridge, the twelve exception-edge lines, Entry 18's aircraft (macOS preview)
+
+Review of the stack before it merges found three things wrong, none of which a test had caught:
+- **The bridge could not send a value that is not a finite number.** The frame carrying the detector's verdict on such a reading never reached the page (§23.5).
+- **The exception-edge markers.** Four lines carried unmarked unwind edges (Entry 18 §18.8), the README counted six markers where the source had eight, and seven marker comments, §1.3 and CLAUDE.md's rule said that a marked decision stays counted, which Entry 11 §11.7 had shown false on the runner's lcov 2.0 (§23.4).
+- **Entry 18 named six real aircraft** by callsign and ICAO address in a public repository, against the data license (§23.6).
+
+What changed:
+- **Requirements:** one sentence in REQ-DISP-005; SRD 0.16.0 → 0.17.0, still 67 statements.
+- **Display specification:** §2.1's row for a value that arrived as null, and §6's trail; FTS-DS-001 0.4.0 → 0.5.0.
+- **Test plan:** TC-022 steps 17 and 18; TC-023 step 8.
+- **Design:** §9's bridge and instruments paragraphs.
+- **Code:** the bridge's one encoder; the page's types, rule, plot and trail; seven C++ lines restructured, one marked, five marker comments corrected.
+- **Records:** §1.3, the standing exclusions table; CLAUDE.md's rule refined; the README's count replaced by a pointer; Entry 18 de-identified; four test fixtures moved into the synthetic set.
+- **Unchanged:** no format, no key, no thread; the default run's bytes (§23.2).
+
+The commits are 17 to 20 on `claude/fault-injection-monte-carlo-694c09`, after commit 16 (`40cfd54`, Entry 22 §22.7): 17 the bridge and the page, 18 the exception-edge lines, 19 Entry 18 and the fixtures, 20 the records. §23.7 records the CI run.
+
+### 23.1 What was built
+
+- **The bridge and the page (commit 17; REQ-DISP-005, REQ-DISP-001):**
+  - `pipeline/bridge.py`: `wire_text`, the one encoder for every message, turns each float that is not a finite number into null through `finite_or_null` and calls `json.dumps` with `allow_nan=False`, so that a bare token can never be written. `finite_number`, the type of `--track-min-speed`, refuses NaN and both infinities.
+  - `dashboard/src/feed.ts`: `WireNumber`, `number | null`, for the frame's 18 floats; `WirePosition`; `finitePosition`.
+  - `pfd/instrumentState.ts`: `instrumentState` takes each instrument's values, and a null is the failure flag after the feed's own cause, whatever its verdict; `trackShown` shows no track for a speed that arrived as null.
+  - `pfd/Pfd.tsx` hands each instrument its values, GS and TRK on states of their own; `App.tsx` gives the plot its coordinates and a marker only at a finite position; `useTelemetryFeed.ts` adds no trail point for a position that arrived as null.
+  - REQ-DISP-005's sentence, FTS-DS-001 0.5.0, design §9, TC-022 steps 17 and 18, TC-023 step 8, the matrix.
+- **The twelve lines (commit 18; REQ-TEST-003):** seven restructured and five marked (§23.4); one assertion in `test_opensky_client.cpp`, that an HTTP error's detail is empty, which no test had checked; CLAUDE.md's rule; §1.3; the README's pointer; the workflow's comment; `opensky_json.h`'s comment.
+- **Entry 18 and the fixtures (commit 19; REQ-DISP-007):** §23.6.
+- **The records (commit 20):** this entry; the closing notes on Entry 11 §11.8, Entry 18 §18.8, Entry 21 §21.8 and Entry 22 §22.8; the README, CLAUDE.md.
+- **Tests:**
+  - pytest 176 → 179, the three new in `test_bridge.py`, whose thirteen others now parse every message as `JSON.parse` does;
+  - page 84 → 89, five new in four files;
+  - Google Test 575 (485 unit, 90 fault-injection) unchanged, one assertion added.
+
+### 23.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 575 of 575 (485 unit, 90 fault-injection), serially and with `-j 10`, `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 179 of 179: in 132.9 s against the plain binaries on commit 17's tree, and in 133.3 s against the instrumented ones on commit 18's |
+| Page | 89 of 89 in 13 files; `npm run build` (`tsc --noEmit`, then Vite) clean |
+| cppcheck 2.21.0 | 0 findings on `src/`, 45 files |
+| Red first | Against `40cfd54`, the two bridge tests failed with `ValueError: NaN is not JSON` at the first frame that carried one, and the flag's test timed out at 10 s, a bridge serving with a NaN threshold; four page tests failed (§23.5). The fifth page test, a frame whose value arrived as null kept, passed before and after: JSON's null always parsed |
+| The byte checks | The five hashes of Entry 22 §22.4, each equal on commit 18's build: the seed-42 session `f1dc959a…`, its replay `189eb162…`, the demo `6f877d1d…`, the demo with `--lane-fault 2@60` `a2d1d891…`, its replay `33b34f60…` |
+
+### 23.3 Coverage preview
+
+Mac, clang, `build-cov`, every C++ test and the pytest suite against the instrumented binaries, on commit 18's tree; the record is §23.7's on GCC. Every scope is above its threshold:
+
+| Scope | Branches | Entry 22 §22.3 |
+|---|---|---|
+| processing | 100.0% | 100.0% |
+| config | 98.2% | 98.2% |
+| timing | 96.9% | 96.9% |
+| logging | 92.2% | 86.8% |
+| transport | 91.4% | 91.4% |
+| replay | 100.0% | 100.0% |
+| drivers | 91.6% | 91.2% |
+| overall | 94.8% (1,380 of 1,456); lines 99.1% (3,719 of 3,752), functions 419 of 419 | 94.3% (1,392 of 1,476) |
+
+On the new lines, every restructured decision is taken both ways and no moved call keeps a branch:
+- **The decisions:** `log_replay_source.cpp:56` (the reader test) and `:60` (`!opened`), two of two each; `log_reader.cpp:124`, the filter, four of four; `opensky_client.cpp:29`, two of two.
+- **The calls, with no branch after the filter:** `fault_detector.cpp:163`, `voter.cpp:172`, `log_replay_source.cpp:59`, `log_reader.cpp:119`, `:120` and `:123`, `aircraft_selector.cpp:104`, `http_client.cpp:7` and `opensky_client.cpp:32`. The named predicates carry none either, but for `fault_detector.cpp`'s `||`, two of two as before.
+- **The marked lines** keep clang's edges in this preview (`log_reader.cpp:121` and `opensky_json.cpp:121`, five of eight each). clang's data flags no edge as an exception edge, so lcov 2.5 ignores the marker here (Entry 11 §11.3); the runner's lcov 2.0 removes the lines whole.
+- **Logging rose from 86.8%** because the old filter line carried sixteen of clang's edges, five of them unwind edges never taken; its condition now holds the decision's four, all taken.
+
+### 23.4 The twelve lines
+
+The question Entry 11 §11.8 left open (restructure the marked lines, pin lcov 2.5, or keep the markers with a note) is closed by CLAUDE.md's refined rule: where a decision line can be restructured so that the call sits on a line of its own, it is; the marker stays only where the call cannot leave the condition, as in a loop condition or a range-for.
+
+"Its own line" has to mean a complete line. lcov's branch filter (`containsConditional`, read in lcov 2.5's `lcovutil.pm`) drops a line's branches only when the line holds none of `? ! < > == != && ||` and no `if`, `for`, `while`, `switch` or `case`, and its parentheses balance; a line that opens a call it does not close is judged together with its continuation. Two of Entry 18 §18.8's four lines already gave the call a statement of its own, split across two lines with the predicate's `==` on the second, which is why they kept an edge.
+
+The record before is run 39298962945's, read from its `coverage-html` artifact (downloaded with Derek's permission) before any edit; the record after is what §23.7 checks.
+
+| # | The line at `40cfd54` | What it is | Decision | Record before (GCC) | Expected after (GCC) |
+|---|---|---|---|---|---|
+| 1 | `config/telemetry_config.cpp:159`, `Section::Section` | a range-for over a YAML node | marked, kept: yaml-cpp's iterator calls belong to the loop | none, the marker removing the line | none |
+| 2 | `processing/fault_detector.cpp:157`, `observe_imu` | `std::find_if` over the three axes, across five lines | restructured: the predicate named `at_a_rail`, the call on line 163 | none on the call (the marker); the predicate's `\|\|`, 4 of 4 on line 159 | none on the call; the `\|\|` 4 of 4; the file 80 of 80 |
+| 3 | `processing/voter.cpp:171`, `Voter::vote` | `std::count_if` over the lanes, across two lines | restructured: `in_vote` named | none (the marker) | none; the file 84 of 84 |
+| 4 | `timing/periodic_worker.cpp:54`, `PeriodicWorker::run` | `wait_for` as the loop's condition | marked, kept | none | none; the file 4 of 4 |
+| 5 | `replay/log_replay_source.cpp:56`, `LogReplaySource::has_next` | `!reader_.has_value() && !open_next_file()` | restructured: the reader test, the call into a local on a line of its own, then the test of the local | none: the decision went with the edges | lines 56 and 60, two of two each; the file 23 of 24, from 19 of 20 |
+| 6 | `logging/log_reader.cpp:104`, `LogReader::next_frame` | `next()` as the loop's condition | marked, kept | none | none |
+| 7 | `logging/log_reader.cpp:116`, `list_log_files` | a range-for over `directory_iterator`, whose increment can throw | marked, kept; now line 121 | none | none |
+| 8 | `logging/log_reader.cpp:118`, `list_log_files` | a string and a path temporary in the filter | restructured: the prefix and the `.bin` path built before the loop, the extension into a local; the condition calls only `rfind` and path `==`, both `noexcept` | none: the decision went with the edges | line 124, four of four; the file 22 of 22, from 18 of 18 |
+| 9 | `drivers/aircraft_selector.cpp:103`, `AircraftSelector::update` | `std::find_if` across two lines | restructured: `is_selected` named | 2, 1 taken: the call returning 41 times, unwinding never | none; the file 55 of 62, from 56 of 64 |
+| 10 | `drivers/http_client.cpp:6`, `HttpResponse::header` | as 9 | restructured: `has_name` named | 2, 1 taken | none; 2 of 2, from 3 of 4 |
+| 11 | `drivers/opensky_client.cpp:27`, `failure` | a `std::string` built in each arm of a ternary | restructured, with line 26's ternary on the same flag, into one `if`/`else`, the copy on a line of its own; the defaults, 0 and empty, make the two the same | lines 26 and 27: 14, 9 taken; line 27 alone 12, five of them never taken | the `if`'s two, both taken; the file 88 of 96, from 95 of 108 |
+| 12 | `drivers/opensky_json.cpp:121`, `parse_states` | a range-for over the states array | marked, new: nlohmann's iterator calls belong to the loop | 8, 5 taken: the loop's two legs and three calls returning, three unwinding never | none; the file 103 of 122, from 108 of 130 |
+
+Seven lines restructured and five marked: `src/` goes from eight markers to five, and §1.3 lists the five with the tests that take each loop's decision both ways. In total the record should move from 1,518 of 1,618 (93.8%) to 1,512 of 1,602 (94.4%):
+- **Branches, −16:** −2 and −2 (lines 9 and 10), −12 (line 11's fourteen become two), −8 (line 12), +4 and +4 (lines 5 and 8).
+- **Taken, −6:** −1, −1, −7, −5, +4, +4.
+- **By scope:** drivers 749 of 829 (90.3%, from 89.4%), logging 52 of 52 (100.0%), replay 45 of 46 (97.8%, from 97.6%); processing, config, timing and transport unchanged.
+
+One expectation rests on an assumption: the predicates of lines 9 and 10 compare `std::string`s and read an `std::optional` through `operator->`, calls that should give their lines no branch as long as libstdc++ declares them `noexcept`. If either line carries an unwind edge, §23.7 says so.
+
+### 23.5 The bridge's finding
+
+Review found it, not the campaign. The fault-injection campaign (FTS-FI-001) runs the C++ pipeline in-process and judges each frame; the transports, the bridge and the page are outside it, and no campaign run encodes a frame as JSON.
+
+- **The fault.** `json.dumps` writes NaN, Infinity and -Infinity as bare tokens unless told otherwise, and they are not JSON. The page's `JSON.parse` refused each such message, `parseMessage` returned null and the hook dropped it, frame and all. Since FAULT-024 (Entry 22) the detector declares a reading that is not a finite number OUT_OF_RANGE and its raw field keeps the reading, so the frame dropped was the one carrying the verdict. A GPS fix is held until the next one, so a fix that was not a number rode about 50 frames, 1,000 ms, which is the page's stale threshold: the page went STALE at the threshold's edge for each such fix, and a receiver that kept sending one would have left it STALE without ever showing the GPS DEGRADED. The relative position, computed from the NaN latitude, went the same way.
+- **The fix.** A value that is not a finite number crosses as null, the status or the validity beside it saying why (REQ-DISP-005's sentence), and the page never draws a null.
+- **Before and after:**
+  - **In-process,** with the frames as the binary sends them (a NaN pressure under BARO DEGRADED, gyro x +∞ and gyro y −∞ under IMU DEGRADED, a NaN fix held across 49 frames under GPS DEGRADED): on `40cfd54`'s bridge the strict parse failed at the first of them; now every message parses, with null exactly where a value was not finite.
+  - **Through the binary,** with the session's own frames, three readings replaced, replayed: BARO, IMU and GPS DEGRADED on those frames, the detector's OUT_OF_RANGE event for each, every computed field a number, every frame VOTED and every frame forwarded.
+  - **On the page,** the held NaN fix as the bridge now sends it, every 20 ms for 2 s: RUNNING throughout, the GPS DEGRADED in the channel row, the GS, TRK and POS flags. The same frames with bare tokens: every one refused, and STALE past 1,000 ms.
+- **A second fault, which the null exposed.** Before the rule the page drew a null as zero: a null coordinate is 0 in arithmetic, so the red run's trail drew each null fix at the origin (`150,150 150,150 150,150` for one real fix and two null ones), and a ground speed that arrived as null under NOMINAL, on a frame between fixes that the detector does not judge, read 0 kt. `instrumentState` now flags a null whatever its verdict, and the trail and the marker take only a position whose coordinates are numbers.
+- **The one float a flag puts on the wire,** `--track-min-speed`, accepted `nan`: the red run's bridge served with it until the test's 10 s timeout. It now refuses NaN and both infinities, exiting with status 2.
+
+### 23.6 Decisions taken, and deviations
+
+- **The request (2026-10-19).** Derek asked for the cleanup pass as the last change before the stack merges, plan mode first, on this branch as Entry 23. Four questions were answered before the plan was written:
+  - the marker list lives in §1.3, which becomes the standing exclusions table;
+  - the four fixture identifiers in real namespaces are replaced;
+  - Entry 18's FlightAware clause keeps the landing time only;
+  - the CI run's `coverage-html` artifact may be downloaded, this run's and the next.
+- **One encoder at the boundary,** not a conversion per field: the coordinate rule's place, so that a float added to the frame later crosses as null with no change.
+- **The page's rule goes beyond DEGRADED.** A null under NORMAL or NOMINAL needs an injected value or a crafted log today, and the old page would have drawn it as zero.
+- **`--track-min-speed`'s refusal,** the refinement the plan proposed, came with its approval.
+- **The marker rule.** The marker's own effect on lcov 2.0 decided it: a marked line loses its whole branch record, so restructuring keeps measured a decision that marking hides. Lines 5 and 8 of §23.4 had been tested but not measured since Entry 5.
+- **The plan's model of line 11 was wrong.** It counted six branches; the record has twelve. The artifact, read before any edit, set §23.4's expectations from the record instead of the model.
+- **Entry 18 (commit 19).** Four of its lines named six aircraft by callsign and ICAO address, and its first selection's row named the first aircraft's flight by FlightAware's flight number, route, aircraft type and gate. Each aircraft became a label, A to F in order of first appearance, one label for a callsign and its address, and every number stayed; the FlightAware clause keeps that the hand check agreed, and the landing time. A note at the entry's head says that earlier revisions named them, that the history keeps them, and that the message of commit `4dabebd` names the first aircraft too. History is not rewritten: every later tree hash is pinned, the preview's included.
+- **The tree, searched (2026-10-19).** Nothing else from the live run is in the 244 tracked files, the PNGs' metadata included, nor in the titles and descriptions of pull requests 2 to 4. Four fixtures used identifiers in real namespaces, against `opensky_examples.h`'s rule of unallocated addresses and callsigns no airline uses: the callsign `UAL1234`, an airline's designator, and the addresses `a1b2c3`, `b2c3d4` and `0a0b0c`. They moved into that file's set (TEST001; `000001`, `000002`, `000003`; `00000a` and `00000A` for the case test) in `test_session_message.cpp`, `test_bridge.py`, `test_session_status.py`, `testMessages.ts`, `Pfd.test.tsx` and TC-021's and TC-031's steps; no test count changed. A search of the tree for the twelve identifiers, with a list kept outside the repository, finds nothing.
+- **Flags, pre-existing, found while reading:**
+  - the matrix's header had named SRD v0.15.0 since Entry 22's commit 12, and FTS-DS-001's v0.14.0; both now name v0.17.0;
+  - `main.cpp`'s marker, added in `bc7bc59` for the replay probe, was removed in `f8cebb5` with no entry saying so (`main.cpp` is outside lcov's scope);
+  - Entry 12 §12.7 says "the three marked lines of `list_log_files`", which held two, and Entry 13 §13.3 cites a coverage style rule in CLAUDE.md that then lived in `telemetry_config.cpp`'s coverage note; both are dated and left as they are;
+  - Entry 18's row of switches says "eight" and lists seven; the eighth is the first selection, as the next row's count of 8 changes says; kept.
+- **Library facts:**
+  - Python's `json.dumps` defaults to `allow_nan=True` and writes `NaN`, `Infinity` and `-Infinity`; `json.loads` accepts them, and `parse_constant` is how a test refuses them;
+  - `JSON.stringify(NaN)` is `"null"`, so a page test of a bare token writes its text by hand;
+  - in JavaScript, `null` in arithmetic is 0, and `null >= 0` is true;
+  - `std::basic_string::rfind` and `std::filesystem::path`'s `operator==` are `noexcept`;
+  - argparse reads `--track-min-speed -inf` as a second option, so the test writes `--track-min-speed=-inf`.
+
+### 23.7 Measurement of record
+
+Owed after the push. The run should show:
+- **No unwind edge on a restructured line:** `aircraft_selector.cpp` 55 of 62, `http_client.cpp` 2 of 2, `opensky_client.cpp` 88 of 96;
+- **The two decisions the markers had hidden, measured and taken:** `log_replay_source.cpp` 23 of 24, `log_reader.cpp` 22 of 22;
+- **The new marker's line gone, the rest unchanged:** `opensky_json.cpp` 103 of 122; `fault_detector.cpp` 80 of 80, `voter.cpp` 84 of 84;
+- **The totals:** 1,512 of 1,602 (94.4%); drivers 90.3%, logging 100.0%, replay 97.8%; processing, config, timing and transport unchanged;
+- **The suites:** Google Test 575, pytest 179, the page 89.
+
+### 23.8 Open
+
+- §23.7.
+- Entry 22's open items stand (the campaign of record after the bench session; the ADS-B extras' finiteness, with Phase B), with Entry 21's TC-037 step 9 and Entry 20's TC-009 step 8. The README's count of exception markers (Entry 21 §21.8) is closed.
