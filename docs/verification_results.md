@@ -2365,3 +2365,91 @@ One expectation was missed, in a count and not in coverage: the filter's decisio
 ### 23.8 Open
 
 - Entry 22's open items stand (the campaign of record after the bench session; the ADS-B extras' finiteness, with Phase B), with Entry 21's TC-037 step 9 and Entry 20's TC-009 step 8. The README's count of exception markers (Entry 21 §21.8) is closed.
+
+## Entry 24 — 2026-10-19, The ADS-B selection's altitude ceiling: REQ-SENS-009 amended, the eleventh key of the `adsb` block, the overflight of Entry 18 reproduced in the synthetic set (macOS preview)
+
+The live run of 2026-10-15 found that REQ-SENS-009's rule, the nearest descending aircraft to the reference point, is judged on the ground distance alone: aircraft B, descending through 3,498 m HAE on an arrival route 2.4 km from the reference point, displaced aircraft A on short final for 36 s, and the fused altitude followed it from 152 m to 2,934 m and back (Entry 18 §18.5). The fix changes the requirement's words and adds a tunable, so it was parked in design §12 for Phase B; it is now the last change before the stack merges, on a branch of its own. The design call, taken from three options laid out in plan mode (§24.4): a ceiling on candidates, one key, no other term.
+
+What changed:
+- **Requirements:** REQ-SENS-009's statement (a candidate's geometric altitude at most a configurable ceiling; the kept aircraft kept while at or below it) and its rationale; REQ-CFG-001's list; SRD 0.17.0 → 0.18.0, still 67 statements.
+- **Fault model:** FAULT-015's What, Cause, Detection and Response, with the reason `above`; FTS-FM-001 0.9.0 → 0.10.0.
+- **Test plan:** TC-028 steps 11 to 15, its objective, preconditions and pass/fail; TC-029 step 20, its level line and pass/fail, and step 19's expectation; TC-016 steps 4 and 5's key count.
+- **Design:** §3's ADS-B paragraph and the key count; §12's finding bullet decided, and the schema bullet's third instance, the first to meet a real recording (§24.5).
+- **Code:** `adsb.ceiling_m`, 48 → 49 keys; `AircraftSelector::candidate` a member over the ceiling, `under_ceiling`, the `above` drop; `AdsbSource`'s candidate count over a lambda; five unit tests; the pytest's third aircraft.
+- **Records:** the matrix, README, CLAUDE.md; the Planned lists, from which the altitude term leaves Phase B.
+- **Unchanged:** no format change, no thread; the default runs' bytes (§24.2).
+
+The commits are 1 to 4 on `claude/adsb-altitude-term-d9561c`, stacked on the fault-injection branch at `94b7c42` (Entry 23 §23.7) and kept off `main` until after the v0.1.0 tag, draft pull request 5 to `main`: 1 the documents, 2 the key, 3 the rule and its tests, 4 the pytest and the records. §24.7 records the CI run.
+
+### 24.1 What was built
+
+- **Documents (commit 1; REQ-SENS-009, REQ-CFG-001):** the statements and rationale above; FAULT-015; TC-028 steps 11 to 15 and their expected rows; TC-029 step 20; the design's two sections; the matrix's header at SRD 0.18.0 and the REQ-SENS-009 row's note.
+- **The key (commit 2; REQ-CFG-001, REQ-SENS-009):** `src/drivers/adsb_config.h`: `ceiling_m`, 1,650 m, its derivation as its comment; `src/config/telemetry_config.cpp`: `read_number_at_least("ceiling_m", 0.0, …)`, the eleventh key of the block, required when the block is present like the ten before it; `config/telemetry_config.yaml`: the key between the margin and the miss tolerance, with its one-line comment; `tests/unit/test_config.cpp`: the defaults test's line, the rule table's row (`NonNegative`, `-1` refused by name) and the count, 48 → 49; the counts in the matrix, README and CLAUDE.md.
+- **The rule (commit 3; REQ-SENS-009):** `src/drivers/aircraft_selector.h` / `.cpp`: `SwitchReason::ABOVE` ("above") appended, so the earlier values keep their numbers; the constructor's fourth argument; `candidate` a `const` member, usable, under the ceiling and descending, since the ceiling is the selector's; `under_ceiling`, private, for a usable state only (its geometric altitude present, so no branch re-tests the optional); in `update`, after the `usable` test and before the margin, a kept aircraft above the ceiling is dropped with `above` and the nearest candidate, chosen among aircraft under the ceiling, or none takes its place. `src/drivers/adsb_source.cpp`: the selector built with the ceiling; the candidate count over a lambda on its own line. `tests/unit/test_aircraft_selector.cpp`: `place`, which sets an aircraft by distance and bearing from `AdsbReference{}` through the inverse of `distance_m`'s formula and checks the placement against the selector's own distance, so no test writes a coordinate; `make_with_ceiling`; the five tests of TC-028 steps 11 to 15; `EveryReasonHasAName` with `above`; 11 → 16 tests. The matrix's REQ-SENS-009 row, README's selection sentence, CLAUDE.md's ADS-B bullet.
+- **The pytest and the records (commit 4; REQ-SENS-009, REQ-TEST-002):** `tests/integration/test_adsb.py`: a third synthetic aircraft, `000003` TEST003, in every states response, descending through 3,498 m 2.4 km from the reference point, placed by `placed(distance_m, bearing_deg)` from the reference the shipped file names (`adsb_value`, two regexes, so the file gains no coordinate or threshold); `test_an_aircraft_above_the_ceiling_is_never_presented`, TC-029 step 20; the exit line's census 2 aircraft and 1 candidate; 13 → 14 tests in the file. This entry; the Planned lists in CLAUDE.md and README; the matrix's pytest rows; two key-count sites the sweep found after commit 1 (design §3's "ten keys", TC-016 step 5's 48).
+
+### 24.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 580 of 580 (575 before), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings; serially, 22 s |
+| pytest | 180 of 180 in 133 s (179 before); the ADS-B run over the local stand-in with the third aircraft in every response: 12 polls, 2 aircraft and 1 candidate in the last response, 2 selection changes, no frame, row or status carrying the overflight, the replay byte-identical |
+| Page (Vitest) | not run: nothing under `dashboard/` changed (89 of 89 in Entry 23 §23.7) |
+| cppcheck 2.21.0 | 0 findings in 45 files with CI's flags |
+| Red first | commit 2: the shipped file with the key against the loader without it, `adsb.ceiling_m: unknown key`, every `ConfigTest` that starts from the shipped text failing, then green with the field and the one loader line; commit 3: the four behaviour tests of TC-028 steps 11 to 14 against a selector that stored the ceiling and did not apply it (the overflight taken as `nearer`, the boundary not held, the aircraft above the ceiling 100 m out challenging, no `above`), 4 of 16 failing, then green; step 15 passed at once, the key having landed in commit 2 |
+| The byte checks | the five hashes of Entry 22 §22.4, each equal on commit 3's build: the seed-42 session `f1dc959a…`, its replay `189eb162…`, the demo `6f877d1d…`, the demo with `--lane-fault 2@60` `a2d1d891…`, its replay `33b34f60…`; the key reaches no simulated run |
+
+### 24.3 Coverage preview
+
+The Mac recipe of Entry 11 (`build-cov` on clang, lcov 2.5, the unit tests and the pytest suite against the instrumented binary, the workflow's removals and `--filter branch`), read for the lines this topic adds; the record is §24.7.
+
+- `aircraft_selector.cpp` on clang: 47 of 52 branches, 88 of 89 lines in the filtered data; the one unexecuted line is 13, the closing brace of `identity_of` after its `return`, which clang's gcov lists as a line of its own and GCC does not (the record had every line, Entry 18 §18.7); line 26's unreachable return is excluded by its marker as before. The lines this topic adds: `candidate`'s chain (line 49), six branches on clang, every one taken, the ceiling's false leg 32 times (the overflight, the boundary and the go-around tests); `under_ceiling` (line 53), a comparison, no branch; the `above` test in `update` (line 126), both ways, 32 kept under the ceiling and 3 dropped; `switch_reason_name`'s new case under the switch's `LCOV_EXCL_BR_LINE` as before. The source's count over a lambda carries no branch.
+- Per scope, from `scripts/coverage_check.sh` over the filtered `lcov.info`: processing 100.0%, config 98.2%, timing 96.9%, logging 92.2%, transport 91.4%, replay 100.0%, drivers 91.6%, overall 94.8%, every scope over its threshold; Entry 23's preview read 94.8% overall and 91.6% for drivers too, so the four taken branches moved neither figure at the first decimal.
+- The untaken legs on clang are the five absences in `usable` (lines 43 to 45: no fixture nulls a latitude, longitude, velocity, track or position time). The expectations for the record are in §24.5.
+
+### 24.4 The geometry, and the design call
+
+All distances are the selector's own equirectangular `distance_m` over the shipped box and reference point; the field's height is §18.4's touchdown reading.
+
+| Quantity | Value |
+|---|---|
+| The box's edges from the reference point | 14.3 km north, 19.0 km south, 24.6 km east, 15.1 km west |
+| Its corners | 20.8 (NW), 24.3 (SW), 28.4 (NE), 31.1 km (SE, the far corner) |
+| A 3° glide path | 262 m high 5 km out; 1,629 m high at the far corner |
+| The field | −23 m HAE at touchdown (§18.4), so the path's HAE at the far corner is 1,606 m |
+| The overflight (§18.5) | 3,498 m HAE at 2.4 km; slant distance 4,242 m |
+| An aircraft on a 3° final 5 km out | slant distance 5,007 m |
+| The fixtures' three arrivals | 5.8°, 4.8° and 4.3° above the field at 5, 9 and 14 km: 480, 730 and 1,030 m, all under the ceiling |
+
+- **Slant distance** (`√(d² + h²)`) reorders and never excludes: an aircraft on a 3° path scores `d × 1.0014`, so it beats the overflight only inside 4.24 km of the reference point; 5 km out it still loses, 5,007 m against 4,242 m. Rejected.
+- **A weighted altitude term** (`√(d² + (w·h)²)`): the overflight loses to a 3° final at distance D only when `w² (h_o² − h_D²) > D² − d_o²`, so w > 1.26 against a final 5 km out, 2.8 at 10 km, 5.9 at 20 km and 10.0 at the far corner; one weight for the box must be at least ten, it depends on the box, alone in the sky the overflight is still selected, and nothing bounds the number: every expectation is a comparison between two aircraft, never a boundary a test can sit on either side of. Rejected.
+- **A ceiling on candidates**, chosen: inside the box every aircraft on an approach to this field is below `d_far × tan 3°`, and an aircraft above it is on no approach to this field at any ground distance, so height alone separates the two populations, which no function of distance can, and the separation holds with no other candidate present: the selection becomes none, which the channel reports as a timeout (FAULT-003), rather than a vehicle it is not. One number, one boundary, both sides tested; the margin hysteresis untouched among the candidates that remain. A cone, `h ≤ d·tan γ`, was considered and dropped: it collapses at the reference point and needs the field's own HAE as a second number.
+- **The shipped value, derived:** 31,091 m × tan 3° = 1,629 m above the field, 1,606 m HAE, rounded up to the next fifty, 1,650 m: 44 m (about six of the broadcast's 25 ft quanta) above the path at the far corner, 1,848 m below the overflight. Why the far corner: the largest ground distance a candidate in the box can have, so nothing on the 3° path inside the box is ever excluded, and an aircraft above the ceiling far out was never the nearest, so the ceiling bites only near the field. Why the geometric altitude: the field the frame presents, present for every usable state, in the vector's own datum; the pressure altitude may be absent and moves with the weather. `AircraftSelectorTest.TheShippedCeilingClearsAThreeDegreePathAtTheBoxesFarCorner` pins the value to the shipped box: a change to the box fails it until the ceiling is re-derived.
+- **No hysteresis band at the ceiling:** a band would be a second tunable. The pathological case is an aircraft level within one broadcast quantum of the ceiling, reading a hair of descent, nearer than the kept aircraft by more than the margin; each flap is two recorded changes and two re-births, which a live run's `_adsb.csv` would show (§24.8).
+
+### 24.5 The recorded configurations, and the expectations for CI
+
+- **The schema consequence.** Every configuration recorded since 2026-10-15 carries the `adsb` block, because the record is the shipped file's text and the file holds the block in every mode. Under design §12's schema bullet a replay without `--config` is judged by the record's keys, so every log recorded before this change, ADS-B or simulated, Entry 18's live log among them, is now refused without `--config`: `adsb.ceiling_m: missing`. The remedy the bullet names, `--config` with a current file, runs the replay, whose `Configuration:` line then says the file is not the one recorded and that identity is not claimed; in fact the bytes are unchanged, because the ceiling never enters a replay: the selection ran at the source, the log holds the frames and `<prefix>_adsb.csv` the switches, and a replay of an ADS-B recording reads the block only for `timeout_ms`. Nothing in the repository is affected (no log or record is committed, and the pytest records and replays with one file); an optional key with a fallback is what REQ-CFG-001's rationale forbids; the schema version stays parked, with this change as the bullet's third instance and the first to meet a real recording. The hand check on the live log is in §24.8.
+- **Expectations for the record (§24.7):** `aircraft_selector.cpp` from 55 of 62 branches (Entry 23 §23.7) to 59 of 66: `candidate`'s chain gains a term, two branches, and the `above` test is a two-branch `if`, all four taken; GCC counts an `&&` chain's terms at two each plus two for the result (Entry 23 §23.7's lesson), so the chain's count is the record's to confirm. The seven untaken legs Entry 18 §18.7 lists stay (five absences in `usable`, the null vertical rate, one more). `adsb_source.cpp` unchanged in count: the lambda and the call make no decision. Overall 1,518 of 1,608 (94.4%); the suites 580, 180 and 89.
+
+### 24.6 Decisions taken, and deviations
+
+- **The five design calls**, taken as the plan recommended and approved as written: the ceiling; the key `adsb.ceiling_m`; 1,650 m; the reason `above`; the CI artifact for §24.7 to be confirmed before it is downloaded.
+- **The red step's shape (commit 3).** A stored ceiling with no reader fails clang's `-Wunused-private-field` under `-Werror`, so the honest red defined `under_ceiling` and called it nowhere; four tests failed on behaviour, and the fifth, the derivation pin, passed at once.
+- **Two key-count sites** the verification sweep found after commit 1's patch was taken, design §3's "ten keys" and TC-016 step 5's "48", are corrected in commit 4 rather than by re-cutting the earlier patches.
+- **The branch move.** The plan's step 0 named the reset as Derek's command; the request itself had asked for it, so it was run in the session on a clean tree and is recorded here.
+- **No coordinate written.** The fixtures of steps 11 to 15 and the pytest's third aircraft are placed by distance and bearing from the configured reference point; the pytest reads that point from the shipped file. The one coordinate pair in the diff is TC-028's pre-existing preconditions line, the airport's published position, on a line this entry amended.
+- **Entry 18 §18.6** lists "`std::count_if` over a static member function" among the facts it rests on; since commit 3 the predicate is a lambda over the member. The dated entry stands.
+- **The pytest's census.** `test_exit_line_counts_what_the_script_implies` now expects 2 aircraft and 1 candidate in the last response, the overflight counted and never a candidate.
+
+### 24.7 Measurement of record
+
+Reserved for the CI run on draft pull request 5.
+
+### 24.8 Open
+
+- **The live run (TC-029 step 19), optional and Derek's:** every `NEW_VEHICLE` frame's `gps_altitude_m` at or below 1,650 m (a kept aircraft is dropped at the poll after it crosses, so a frame may carry one poll's climb above it); no `nearer` row to an aircraft at an arrival altitude and an `above` row only for a climb-out; the exit line's census against §18.4's 46 aircraft and 5 candidates; the vertical speed on final with no excursion like §18.5's; the hand check that every aircraft the strip names is an arrival; and the schema consequence in practice, Entry 18's first live file replayed without `--config` (refused by name) and with the shipped file (byte-identical to §18.4's `2971db60…`). Recorded as §24.9 when run.
+- **A watch item:** no band at the ceiling (§24.4); a live run's selection record would show a flap.
+- **Phase B keeps** the vertical rate as the filter's third measurement, the pressure altitude, and FAULT-024's finiteness check for the two ADS-B fields (Entry 22 §22.8).
+- `aircraft_selector.cpp`'s seven untaken legs on the record (Entry 18 §18.7) would take one table-driven test; outside this topic.
+- Entry 23's open items stand (the campaign of record after the bench session, TC-037 step 9, TC-009 step 8).

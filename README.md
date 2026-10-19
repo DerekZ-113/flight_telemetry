@@ -123,7 +123,7 @@ cd dashboard && npm test -- --run && npm run build                      # 89 pag
 ```
 
 ```bash
-.venv/bin/python -m pytest                                              # 179 tests in about 133 s: one simulated session, replay identity, the log reader, the noise oracles, both transports, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in, the voter, the lane fault and its replay, the campaign's statistics and report
+.venv/bin/python -m pytest                                              # 180 tests in about 133 s: one simulated session, replay identity, the log reader, the noise oracles, both transports, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in, the voter, the lane fault and its replay, the campaign's statistics and report
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence: counts, steps, freshness, events
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # per-channel noise, Allan deviation, the derived Kalman constants
 ```
@@ -169,7 +169,7 @@ scripts/        coverage_check.sh, the per-scope branch threshold gate; fault_ca
 
 ## Roadmap
 
-Planned, no dates: the GPS receiver's first fixes on the Pi and the board's own capture as a test fixture; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); the v0.2.0 demo video from the replay demo; the fault-injection campaign of record, rerun after the stationary capture's constants land; ADS-B Phase B, the broadcast's vertical rate as the filter's third measurement and the selection's altitude term.
+Planned, no dates: the GPS receiver's first fixes on the Pi and the board's own capture as a test fixture; the first stationary capture, with the measured barometric variance replacing its placeholder (the analysis is built and verified); the v0.2.0 demo video from the replay demo; the fault-injection campaign of record, rerun after the stationary capture's constants land; ADS-B Phase B, the broadcast's vertical rate as the filter's third measurement, the pressure altitude, and FAULT-024's finiteness check for the two ADS-B fields.
 
 ## Data sources
 
