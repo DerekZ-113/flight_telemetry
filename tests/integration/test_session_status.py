@@ -49,7 +49,7 @@ def status_bytes(mode: int, state: int, identity: bytes = bytes(11), version: in
     return b"FTSS" + bytes([version, mode, state, mode if source is None else source]) + identity
 
 
-IDENTITY = bytes.fromhex("a1b2c3") + b"TEST001 "   # the address as three bytes, the callsign space-padded
+IDENTITY = bytes.fromhex("000001") + b"TEST001 "   # the address as three bytes, the callsign space-padded
 
 
 def test_parse_message_reads_a_status():
@@ -58,10 +58,10 @@ def test_parse_message_reads_a_status():
         SessionStatus("REPLAY", "ENDED", None, "SIMULATED")
     assert frame_format.parse_message(status_bytes(1, 1)) == SessionStatus("LIVE", "RUNNING", None, "LIVE")
     assert frame_format.parse_message(status_bytes(4, 1, IDENTITY)) == \
-        SessionStatus("ADSB", "RUNNING", ("a1b2c3", "TEST001"), "ADSB")
+        SessionStatus("ADSB", "RUNNING", ("000001", "TEST001"), "ADSB")
     # An aircraft without a callsign is eight spaces on the wire: an identity, not none.
-    assert frame_format.parse_message(status_bytes(4, 1, bytes.fromhex("0a0b0c") + b" " * 8)) == \
-        SessionStatus("ADSB", "RUNNING", ("0a0b0c", ""), "ADSB")
+    assert frame_format.parse_message(status_bytes(4, 1, bytes.fromhex("000003") + b" " * 8)) == \
+        SessionStatus("ADSB", "RUNNING", ("000003", ""), "ADSB")
     # The source mode (REQ-LOG-007, TC-031 step 10): a replay of an ADS-B recording, and of a log older
     # than format version 3, whose source nobody recorded.
     assert frame_format.parse_message(status_bytes(3, 1, source=4)) == SessionStatus("REPLAY", "RUNNING", None, "ADSB")

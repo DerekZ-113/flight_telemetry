@@ -44,8 +44,9 @@ def status(mode: int, state: int, identity: bytes = bytes(11), source: int | Non
 
 RUNNING = status(3, 1, source=2)   # REPLAY of a simulated recording, RUNNING
 ENDED = status(3, 2, source=2)     # the same, ENDED
-IDENTITY_A = bytes.fromhex("a1b2c3") + b"TEST001 "
-IDENTITY_B = bytes.fromhex("b2c3d4") + b"TEST002 "
+# Synthetic aircraft from tests/unit/opensky_examples.h: unallocated addresses, callsigns no airline uses.
+IDENTITY_A = bytes.fromhex("000001") + b"TEST001 "
+IDENTITY_B = bytes.fromhex("000002") + b"TEST002 "
 ADSB_A = status(4, 1, IDENTITY_A)   # ADSB, RUNNING, the first aircraft
 ADSB_B = status(4, 1, IDENTITY_B)
 
@@ -363,9 +364,9 @@ def test_identity_is_forwarded_in_session_and_hello():
 
     session, hello, none_selected = asyncio.run(check())
     assert (session["type"], session["mode"], session["state"]) == ("session", "ADSB", "RUNNING")
-    assert session["identity"] == {"icao24": "a1b2c3", "callsign": "TEST001"}
+    assert session["identity"] == {"icao24": "000001", "callsign": "TEST001"}
     assert session["source_mode"] == "ADSB"
-    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "a1b2c3", "callsign": "TEST001"},
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "000001", "callsign": "TEST001"},
                                 "source_mode": "ADSB"}
     assert none_selected["identity"] is None
 
@@ -411,7 +412,7 @@ def test_origin_is_retaken_when_the_identity_changes():
     assert first[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
     assert first[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
     assert repeated[1]["position"]["north_m"] == pytest.approx(2.0, abs=0.01), "a repeated identity keeps the origin"
-    assert switched[0]["identity"] == {"icao24": "b2c3d4", "callsign": "TEST002"}
+    assert switched[0]["identity"] == {"icao24": "000002", "callsign": "TEST002"}
     assert switched[1]["position"] == {"east_m": 0.0, "north_m": 0.0}, "a new identity re-takes the origin"
     assert switched[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
 
@@ -436,7 +437,7 @@ def test_hide_identity_forwards_none_and_keeps_the_origin_rule():
     assert messages[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
     assert messages[4]["position"] == {"east_m": 0.0, "north_m": 0.0}, "the hidden identity still re-takes the origin"
     for message in messages:
-        assert "a1b2c3" not in json.dumps(message) and "TEST00" not in json.dumps(message)
+        assert '"000001"' not in json.dumps(message) and "TEST00" not in json.dumps(message)
 
 
 # --- TC-022 step 17: a value that is not a finite number crosses as null (REQ-DISP-005) ------------

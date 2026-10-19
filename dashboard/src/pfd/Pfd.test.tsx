@@ -115,9 +115,9 @@ describe("the identity after the label", () => {
     expect(mode.dataset.boxed).toBe("false");
     expect(container.textContent).not.toMatch(/LIVE/);
 
-    const nameless = { icao24: "a1b2c3", callsign: "" };
+    const nameless = { icao24: "000001", callsign: "" };
     rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: nameless, source_mode: "ADSB" } })} />);
-    expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 a1b2c3");
+    expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 000001");
     rerender(<Pfd feed={runningFeed({ session: { mode: "ADSB", state: "RUNNING", identity: null, source_mode: "ADSB" } })} />);
     expect(screen.getByTestId("pfd-mode").textContent).toBe("ADS-B \u00b7 ---");
 

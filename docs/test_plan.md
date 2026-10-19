@@ -730,7 +730,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Objective:** Verify that the status message is nineteen bytes under its own magic and version that no frame reader accepts, carrying the mode, the state, since version 3 the source mode of REQ-LOG-007, and, in ADS-B mode, the aircraft's identity, that both transports send it through the same seam and count it apart from frames, that a run announces its mode before the first frame, repeats it about once a second and reports the end after the last frame, that the receiver reads it and ends on it, and that the status messages change no byte of the log.
 - **Preconditions:** The in-process subscriber of TC-005 over `inproc://`; a datagram socket bound on the loopback; the receiver harness of TC-005 for the integration steps.
 - **Steps:**
-  1. Build the status for REPLAY RUNNING with no identity and for ADSB RUNNING with the address `a1b2c3` and the callsign `TEST001` (`session_message(mode, state, identity)` until status version 3; since it, a `SessionStatus` carrying the source mode as well, the replay's ADSB, TC-031 step 10); copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
+  1. Build the status for REPLAY RUNNING with no identity and for ADSB RUNNING with the address `000001` and the callsign `TEST001` (`session_message(mode, state, identity)` until status version 3; since it, a `SessionStatus` carrying the source mode as well, the replay's ADSB, TC-031 step 10); copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
   2. Publish a status over `inproc://` to a settled subscriber; read the publisher's counters.
   3. Publish a status to a bound datagram socket; read it.
   4. Publish a status through a publisher that is not ok.
@@ -749,7 +749,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | one datagram of nineteen bytes |
   | 4 | false, `send_failures` 1 |
   | 5 | a RUNNING SIMULATED status before frame 0 (UDP: before any frame; ZeroMQ: before the first frame received, within the join), another before frames 50 and 100, ENDED after frame 119 (three copies over UDP, at least one over ZeroMQ); the receiver exits on ENDED well inside its 1 s quiet timeout, printing `session: mode=SIMULATED state=ENDED`; `status messages = 6` on the transport line |
-  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)` (with `source_mode="SIMULATED"` since status version 3); `FormatError` naming the length; `FormatError` naming version 1, and version 2; `FormatError` naming mode 9; `identity=("a1b2c3", "TEST001")`; `source_mode="ADSB"` under mode REPLAY |
+  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)` (with `source_mode="SIMULATED"` since status version 3); `FormatError` naming the length; `FormatError` naming version 1, and version 2; `FormatError` naming mode 9; `identity=("000001", "TEST001")`; `source_mode="ADSB"` under mode REPLAY |
   | 7 | mode REPLAY on every status, since status version 3 with the source mode the input's header records (REQ-LOG-007), ENDED last |
   | 8 | byte-identical |
   | 9 | mode LIVE before the first frame and ENDED at exit, shown by the receiver and by the page |
@@ -1097,7 +1097,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   7. The ADS-B source after a poll with the example's row (vertical rate and pressure altitude present), then 100 cycles without a poll; after a poll whose row has a null vertical rate.
   8. The ADS-B source's frame on the first poll, on the next cycle, after a poll that keeps the aircraft, and after a poll that selects another.
   9. Through a processor: twenty fresh frames of one aircraft at one altitude, then a frame flagged NEW_VEHICLE with a fresh GPS reading 500 m lower; then a flagged frame with no fresh reading, followed by a fresh one; then a flagged frame after the attitude filter was seeded and the barometer read.
-  10. Build `session_message` for a `SessionStatus` of mode REPLAY, source mode ADSB, RUNNING, no identity, and for ADSB, ADSB, RUNNING with the address `a1b2c3` and the callsign `TEST001`; copy the bytes over a zeroed `LogFileHeader` and run `header_problem`; publish a status on each transport and read it.
+  10. Build `session_message` for a `SessionStatus` of mode REPLAY, source mode ADSB, RUNNING, no identity, and for ADSB, ADSB, RUNNING with the address `000001` and the callsign `TEST001`; copy the bytes over a zeroed `LogFileHeader` and run `header_problem`; publish a status on each transport and read it.
   11. *(pytest)* The Python reader: the dtype's size and every offset of step 1; a hand-written version-2 file read as frames; `frames_array` on it; `summary()` on a version-3 log.
   12. *(pytest)* The session fixture's log: the header's version and modes, every frame's sequence, flags, fix quality, satellites and tail.
   13. *(pytest)* A synthetic version-2 log of 50 raw frames replayed with `--replay`: exit code, the notice, the replay log's header, its raw fields against the input's, its sequence and tail; a synthetic version-4 log replayed.
