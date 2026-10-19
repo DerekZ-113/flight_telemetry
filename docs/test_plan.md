@@ -760,9 +760,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
 ### TC-022: The Bridge and the Page
 
 - **Requirement:** REQ-DISP-003, REQ-DISP-004, REQ-DISP-005, REQ-DISP-007 (also exercises REQ-PROC-007 and REQ-TRANS-004)
-- **Level:** Integration (steps 1 through 7: `tests/integration/test_bridge.py`, in-process but for step 7, which runs the binary), Page (steps 8 through 14: `dashboard/src/useTelemetryFeed.test.ts` and `dashboard/src/App.test.tsx`, Vitest with jsdom, a fake socket and fake timers); steps 15 and 16 (added 2026-10-15): `test_bridge.py` and `dashboard/src/pfd/Pfd.test.tsx`
-- **Objective:** Verify that the bridge listens on the loopback unless told otherwise, greets each client with the threshold and the last session status, forwards every frame and status as JSON by name without absolute coordinates, serves several clients, and carries a paced replay end to end; and that the page shows no mode until a status arrives and never shows SIM or REPLAY as LIVE, renders each validity value by name, marks the feed stale from its own arrival clock and recovers, shows an ended stream as ended, and reports a lost bridge.
-- **Preconditions:** A `ByteSource` fed from a list, as TC-005 step 6's; a `websockets` client; for step 7 the session fixture's log and a free ZeroMQ port; the page tests inject a fake `WebSocket` and a fake clock through the hook's options.
+- **Level:** Integration (steps 1 through 7: `tests/integration/test_bridge.py`, in-process but for step 7, which runs the binary), Page (steps 8 through 14: `dashboard/src/useTelemetryFeed.test.ts` and `dashboard/src/App.test.tsx`, Vitest with jsdom, a fake socket and fake timers); steps 15 and 16 (added 2026-10-15): `test_bridge.py` and `dashboard/src/pfd/Pfd.test.tsx`; steps 17 and 18 (added 2026-10-19): `test_bridge.py`, and `useTelemetryFeed.test.ts` with `App.test.tsx`
+- **Objective:** Verify that the bridge listens on the loopback unless told otherwise, greets each client with the threshold and the last session status, forwards every frame and status as JSON by name without absolute coordinates, serves several clients, and carries a paced replay end to end; and that the page shows no mode until a status arrives and never shows SIM or REPLAY as LIVE, renders each validity value by name, marks the feed stale from its own arrival clock and recovers, shows an ended stream as ended, and reports a lost bridge. Since 2026-10-19: that a value that is not a finite number crosses as null beside the status that says why, so its frame reaches the page, which shows the channel's flags instead of going stale.
+- **Preconditions:** A `ByteSource` fed from a list, as TC-005 step 6's; a `websockets` client; for step 7 the session fixture's log and a free ZeroMQ port; the page tests inject a fake `WebSocket` and a fake clock through the hook's options. Every message the bridge's tests read is parsed as `JSON.parse` parses it, refusing `NaN` and `Infinity`, which Python's `json.loads` accepts by default.
 - **Steps:**
   1. Start the bridge with no `--listen`; read the bound address. Start it with `--listen 0.0.0.0:0`; read the bound address.
   2. Connect a client; read its first message.
@@ -780,6 +780,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
   14. Search the rendered DOM for "latitude", "longitude" and any decimal degree.
   15. Feed an ADSB RUNNING status with an identity, then frames with fresh fixes, then a status with another identity, then a frame with a fresh fix; connect a client and read its `hello`; start a bridge with `--hide-identity` and feed the same.
   16. Deliver an ADSB status with an identity and read the strip; with no identity; a REPLAY status (since status version 3, with the source mode ADSB; TC-031 step 16 has the other source modes); a LIVE status.
+  17. Feed, after a NOMINAL fresh fix, a frame with a NaN pressure under BARO DEGRADED, one with gyro x +∞ and gyro y −∞ under IMU DEGRADED, a fresh fix whose five fields are NaN under GPS DEGRADED held across 49 frames, and the next good fix; read every message. Then replay the session fixture's log with three readings replaced (a NaN pressure, a +∞ gyro x, a GPS fix's five fields NaN through the frames that hold it) through the binary, and feed the replay's frames to the bridge. Run the bridge with `--track-min-speed` set to `nan`, `inf` and `-inf`.
+  18. Deliver a frame whose pressure arrived as null under BARO DEGRADED, and the same text with a bare `NaN`; deliver fresh fixes whose position arrived as null; deliver, every 20 ms for 2 s, a fix that arrived as null held on every frame under GPS DEGRADED, then the same frames with bare `NaN` tokens.
 - **Expected result:**
 
   | Step | Expected |
@@ -800,12 +802,14 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 14 | nothing found |
   | 15 | `session` and `hello` carry `identity: {"icao24": …, "callsign": …}`; the first fix after the second identity reads `east_m` 0 and `north_m` 0 (the origin re-taken); with `--hide-identity`, `identity` null in every message and the start line says so |
   | 16 | `ADS-B · TEST001` plain, not boxed, "LIVE" absent; `ADS-B · ---`; `REPLAY · ID UNAVAILABLE` boxed; `LIVE` plain with nothing after it |
+  | 17 | every message parses; each value that is not a finite number is null and every other field holds its value, with the status by name; the position's coordinates null on the 50 frames of the held fix and numbers again on the next, the origin kept; every frame forwarded. Through the binary: BARO, IMU and GPS DEGRADED on those frames with the detector's OUT_OF_RANGE event for each, every computed field a number and every frame VOTED. The bridge refuses each threshold and exits with status 2 |
+  | 18 | the frame kept with the pressure null, and the bare `NaN` refused; no trail point for a fix that arrived as null; RUNNING throughout, never STALE, GPS DEGRADED, the GS, TRK and POS flags, no `NaN` or `null` text; with bare tokens every frame refused and STALE past the threshold |
 
-- **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, or an ended stream shown as stale fails.
+- **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, an ended stream shown as stale, a bare `NaN` or `Infinity` on the wire, or a frame lost for carrying one fails.
 
 ### TC-023: The Instruments Under Each Validity, Status and Feed State
 
-- **Requirement:** REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-007 (also exercises REQ-DISP-003, REQ-DISP-006 and REQ-FAULT-007)
+- **Requirement:** REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-007 (also exercises REQ-DISP-003, REQ-DISP-005, REQ-DISP-006 and REQ-FAULT-007)
 - **Level:** Page (`dashboard/src/pfd/instrumentState.test.ts`, the six instrument test files under `dashboard/src/pfd/`, `dashboard/src/pfd/Pfd.test.tsx`; Vitest with jsdom)
 - **Objective:** Verify that one rule decides what every instrument shows (the value, dashes, or a flag naming the instrument); that the rule follows each computed field's validity and each raw instrument's channel status with the precedence FTS-DS-001 §2.1 states; that the feed's state overrides every field; that no instrument ever shows a removed value struck through or dimmed; that the strip names the mode and the cause; and that the instruments are labelled TRK and GS, never heading or airspeed.
 - **Preconditions:** Frames built by `testMessages.frame()` with any value and validity; the feed's state built directly for `instrumentState`, and through the hook with the fake socket and fake clock for the rendered panel.
@@ -817,6 +821,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Render each of the six instruments under steps 1, 2 and 4; read its text, its geometry element and its flag.
   6. Render the panel with no status; with SIM; with REPLAY (since status version 3, with the source mode ADSB and then SIMULATED); with LIVE; with ADS-B and an identity; with ADS-B and none; then under each feed state of step 4; then with a NOT_JUDGED field; then in ADS-B mode read the altitude tape's unit label, in SIM mode again and, since status version 3, in REPLAY under each source mode (TC-031 step 16).
   7. Search the panel's text for "HDG", "heading", "airspeed" and "IAS".
+  8. *(added 2026-10-19)* Call `instrumentState` with a value that arrived as null under NORMAL, NOMINAL and DEGRADED, beside a number, with the feed stale and with no frame yet; call `trackShown` with a speed that arrived as null and a threshold of zero. Render the panel with a GPS fix whose fields arrived as null, under DEGRADED and then under NOMINAL (a frame between fixes, which the detector does not judge), and with a pitch that arrived as null under NORMAL.
 - **Expected result:**
 
   | Step | Expected |
@@ -828,8 +833,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 5 | `value`: the number's text and the geometry element present and no flag; `dashes`: `---` and no geometry; `flag`: a box with the instrument's name (ATT, ALT, VS, GS, TRK, POS), no number, red for every cause but `ended` and `unavailable`, grey for `ended`, a white outline on no fill for `unavailable`; no element inside the panel carries a line-through or the `stale` class |
   | 6 | MODE UNKNOWN in amber; SIM and REPLAY each in an amber box with "LIVE" absent from the panel, REPLAY followed by ` · ID UNAVAILABLE` (since status version 3, only under the source mode ADSB, and by nothing under SIMULATED); LIVE plain; ADS-B plain with ` · TEST001` after it and "LIVE" absent, ` · ---` with none; `ft HAE` above the tape whenever the source mode is ADSB, live or replayed, and `ft` otherwise; the state text WAITING, RUNNING, STALE with the age, ENDED, LAG with the lag, BRIDGE DISCONNECTED as FTS-DS-001 §5 lists; PIPELINE shown only with the NOT_JUDGED field |
   | 7 | nothing found |
+  | 8 | `flag` with the cause `fail` whatever the verdict, and `value` for a zero; the feed's cause first (`stale`); dashes before any frame; no track; GS and TRK flagged `fail` under both statuses, then ATT, with no readout, no `NaN` or `null` text and the strip RUNNING |
 
-- **Pass/fail:** Exact as listed. A value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
+- **Pass/fail:** Exact as listed. A value that arrived as null drawn as a number, a value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
 
 ### TC-024: The Attitude Indicator's Signs, the Tapes and the Display Units
 

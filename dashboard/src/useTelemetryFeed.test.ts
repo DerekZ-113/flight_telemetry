@@ -149,6 +149,36 @@ describe("useTelemetryFeed", () => {
     expect(result.current.frameCount).toBe(0);
   });
 
+  // --- TC-022 step 18: a value that is not a finite number arrives as null (REQ-DISP-005) ------
+
+  it("keeps a frame whose value arrived as null, and refuses the same text with a bare NaN", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello();
+    const degraded = frame(1, {}, { pressure_hpa: null });
+    degraded.status.baro = "DEGRADED";
+    const sent = JSON.stringify(degraded);
+    const bare = sent.replace('"pressure_hpa":null', '"pressure_hpa":NaN'); // what Python's default encoder wrote
+    expect(bare).toContain("NaN");
+    deliver(bare);
+    expect(result.current.frameCount).toBe(0); // JSON.parse refuses it, and the frame is gone with it
+    deliver(sent);
+    expect(result.current.frameCount).toBe(1);
+    expect(result.current.lastFrame?.frame.pressure_hpa).toBeNull();
+    expect(result.current.lastFrame?.status.baro).toBe("DEGRADED");
+  });
+
+  it("adds no point to the trail for a fresh fix whose position arrived as null", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello();
+    deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
+    deliver({ ...frame(50), position: { east_m: null, north_m: null } }); // a fix that was not a number
+    deliver({ ...frame(100), position: { east_m: 2, north_m: 1 } });
+    expect(result.current.trail).toEqual([
+      { east_m: 0, north_m: 0 },
+      { east_m: 2, north_m: 1 },
+    ]);
+  });
+
   // --- TC-025 step 5: the lag, its origins, the thresholds, the trail (REQ-DISP-006) ---------
 
   it("takes the lag and track thresholds from hello", () => {

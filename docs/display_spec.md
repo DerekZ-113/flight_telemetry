@@ -1,10 +1,10 @@
 # Flight Telemetry System — Display Specification
 
 > **Document ID:** FTS-DS-001
-> **Version:** 0.4.0
+> **Version:** 0.5.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-18
-> **Related:** FTS-SRD-001 v0.14.0 (REQ-DISP-001 to REQ-DISP-008, REQ-RED-002 to REQ-RED-004, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2, 12 and 13), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030 to TC-033), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
+> **Last Updated:** 2026-10-19
+> **Related:** FTS-SRD-001 v0.17.0 (REQ-DISP-001 to REQ-DISP-008, REQ-RED-002 to REQ-RED-004, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2, 12 and 13), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030 to TC-033), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
 
 ## 1. Purpose and Scope
 
@@ -22,11 +22,12 @@ The display is a ground-station view of telemetry, not a certified cockpit displ
 | NO_COMPUTED_DATA; channel NO_DATA | dashes (`---`) in white and no flag: nothing has failed, nothing is known yet |
 | NOT_JUDGED | dashes, and the amber PIPELINE annunciator in the strip: the pipeline never judged the field (a source's raw frame, a version-1 log) |
 | FAILURE_WARNING; channel DEGRADED | the value removed; a red flag with the instrument's name over the instrument's centre |
+| a value that arrived as null: a reading that was not a finite number, which the bridge forwards as null (REQ-DISP-005) | the value removed; the red flag with the instrument's name, whatever the field's validity or the channel's status says, since a page never draws a number it was not sent (0.5.0). The detector declares such a reading's channel DEGRADED, so the flag is usually that row's too |
 | the feed stale, lagging or disconnected (Section 5) | every value removed; a red flag with each instrument's name; the strip names the cause |
 | the stream ended (Section 5) | every value removed; a grey flag with each instrument's name; the strip reads ENDED |
 | channel NOT_AVAILABLE (REQ-FAULT-007): the source has no sensor for it | the value removed; a no-source flag with the instrument's name, a white outline on no fill, and no cause in the strip: nothing failed, and nothing will come |
 
-An instrument driven by more than one field (the attitude indicator: pitch and roll) shows the most severe state of its fields: the failure flag, then dashes with PIPELINE, then the no-source flag, then dashes, then the value. The feed's state takes precedence over every field's. A removed value is never shown struck through, dimmed or greyed on an instrument; that rendering is the diagnostic view's (Section 8). The rule is one function, `instrumentState` in `dashboard/src/pfd/instrumentState.ts`, and every instrument calls it. The voter panel (Section 4.7) follows a field of its own, the voter's status, by the same feed causes first.
+An instrument driven by more than one field (the attitude indicator: pitch and roll) shows the most severe state of its fields: the failure flag, then dashes with PIPELINE, then the no-source flag, then dashes, then the value; a value that arrived as null counts as the failure flag. The feed's state takes precedence over every field's. A removed value is never shown struck through, dimmed or greyed on an instrument; that rendering is the diagnostic view's (Section 8). The rule is one function, `instrumentState` in `dashboard/src/pfd/instrumentState.ts`, and every instrument calls it. The voter panel (Section 4.7) follows a field of its own, the voter's status, by the same feed causes first.
 
 ### 2.2 Colours
 
@@ -156,7 +157,7 @@ The strip at the top of the panel shows, left to right, the mode label, the feed
 ## 6. The ground track plot (REQ-DISP-002, REQ-DISP-005)
 
 - **Source:** `position.east_m` and `position.north_m` from the bridge, in metres from the first NOMINAL fresh fix the bridge saw after its start, after an ENDED, after a backwards timestamp, or after the identity the session status names changed (the origin is never sent); `gps_read_ok` marks a fresh fix; `course_deg` and the speed rule of 4.5 orient the marker; `gps_status` is the channel rule.
-- **The trail:** one point per fresh fix, capped at 3,600 (an hour at 1 Hz), cleared when the origin resets and when the identity changes.
+- **The trail:** one point per fresh fix, capped at 3,600 (an hour at 1 Hz), cleared when the origin resets and when the identity changes. A fresh fix whose position arrived as null (its fix was not a number, REQ-DISP-005) adds no point, and no marker is drawn while the position is null; the POS flag stands in for it (0.5.0).
 - **Geometry:** `viewBox="0 0 300 300"`, north up, the origin at the centre. The half-extent is max(10 m, 1.2 × the trail's largest |east| or |north|), so the scale is 150 px per half-extent; the grid step is the 1-2-5 value nearest to a quarter of the half-extent (2 m at the 10 m minimum, 1 km for a 3 km trail), with grid lines at multiples of the step through the origin; the scale bar at the bottom left is one step long, labelled in m, or in km from 1,000 m. The trail is one polyline; the current position is a triangle rotated to the track while the track is shown (4.5), a dot otherwise. A `N` arrow and the title `GROUND TRACK · relative to first fix`. No image element, no tiles, no coordinate anywhere: a test searches the DOM.
 - **Update:** the trail on each fresh fix; the marker every frame.
 - **Flags:** dashes have no place on a plot; before any fix the grid is drawn empty with `no fix`. Under a flag the trail stays drawn, since it is history, and the marker is replaced by the flag `POS`.

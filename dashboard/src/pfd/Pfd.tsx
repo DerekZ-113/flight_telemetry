@@ -50,7 +50,9 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
     feed.lastFrame !== null && COMPUTED_FIELDS.some((field) => feed.lastFrame?.validity[field] === "NOT_JUDGED");
   const labelWidth = label.length * 11 + 16;
   // Each instrument's state from its own fields (REQ-DISP-001): the attitude
-  // from both angles, the tape and the vertical speed from the fused fields.
+  // from both angles, the tape and the vertical speed from the fused fields,
+  // each beside its values, since a value that arrived as null is never
+  // drawn (REQ-DISP-005).
   // The attitude also takes the IMU channel's availability, and only that
   // (REQ-FAULT-007, FTS-DS-001 §4.1): an IMU the source does not provide
   // shows the no-source flag, while a DEGRADED IMU before the first seed
@@ -60,12 +62,31 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
   if (frame !== null && frame.status.imu === "NOT_AVAILABLE") {
     attitudeVerdicts.push("NOT_AVAILABLE");
   }
-  const attitude = instrumentState(attitudeVerdicts, feed);
-  const altitude = instrumentState(frame === null ? [] : [frame.validity.fused_altitude_m], feed);
-  const verticalSpeed = instrumentState(frame === null ? [] : [frame.validity.vertical_speed_mps], feed);
+  const attitude = instrumentState(
+    attitudeVerdicts,
+    feed,
+    frame === null ? [] : [frame.frame.pitch_deg, frame.frame.roll_deg],
+  );
+  const altitude = instrumentState(
+    frame === null ? [] : [frame.validity.fused_altitude_m],
+    feed,
+    frame === null ? [] : [frame.frame.fused_altitude_m],
+  );
+  const verticalSpeed = instrumentState(
+    frame === null ? [] : [frame.validity.vertical_speed_mps],
+    feed,
+    frame === null ? [] : [frame.frame.vertical_speed_mps],
+  );
   // The raw instruments follow the GPS channel's status (REQ-DISP-002); the
-  // track is withheld below the speed threshold besides.
-  const gps = instrumentState(frame === null ? [] : [frame.status.gps], feed);
+  // track is withheld below the speed threshold besides, and takes the speed
+  // among its values because the rule reads it.
+  const gpsStatus: FieldVerdict[] = frame === null ? [] : [frame.status.gps];
+  const groundSpeed = instrumentState(gpsStatus, feed, frame === null ? [] : [frame.frame.ground_speed_mps]);
+  const trackState = instrumentState(
+    gpsStatus,
+    feed,
+    frame === null ? [] : [frame.frame.course_deg, frame.frame.ground_speed_mps],
+  );
   const track = trackShown(feed);
   // The voter's lanes and its no-majority flag, from the frame's voter
   // status (REQ-DISP-008); its own rule, with the feed's causes first.
@@ -120,8 +141,8 @@ export function Pfd({ feed }: { feed: FeedState }): JSX.Element {
       <AttitudeIndicator pitchDeg={frame?.frame.pitch_deg ?? 0} rollDeg={frame?.frame.roll_deg ?? 0} state={attitude} />
       <AltitudeTape altitudeM={frame?.frame.fused_altitude_m ?? 0} state={altitude} unit={altitudeUnit} />
       <VerticalSpeed verticalSpeedMps={frame?.frame.vertical_speed_mps ?? 0} state={verticalSpeed} />
-      <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={gps} />
-      <TrackIndicator trackDeg={frame?.frame.course_deg ?? 0} shown={track} state={gps} />
+      <GroundSpeed groundSpeedMps={frame?.frame.ground_speed_mps ?? 0} state={groundSpeed} />
+      <TrackIndicator trackDeg={frame?.frame.course_deg ?? 0} shown={track} state={trackState} />
       <VoterPanel state={voter} />
     </svg>
   );

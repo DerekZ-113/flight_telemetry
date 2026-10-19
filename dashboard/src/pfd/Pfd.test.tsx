@@ -149,6 +149,29 @@ describe("the identity after the label", () => {
   });
 });
 
+// TC-023 step 8 (REQ-DISP-001, REQ-DISP-005): a value that arrived as null
+// is never drawn, under the channel's DEGRADED or a verdict that says NORMAL.
+describe("a value that arrived as null", () => {
+  it("flags GS and TRK for a fix that was not a number, and ATT for a null pitch, drawing no number", () => {
+    const fix = frame(0, {}, { gps_altitude_m: null, ground_speed_mps: null, course_deg: null });
+    fix.status.gps = "DEGRADED";
+    const { rerender, container } = render(<Pfd feed={runningFeed({ lastFrame: fix })} />);
+    expect(container.querySelector('[data-testid="gs-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(container.querySelector('[data-testid="trk-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(container.textContent).not.toMatch(/NaN|null/);
+    // A frame between fixes, which the detector does not judge, could carry one under NOMINAL.
+    const between = { ...fix, status: { ...fix.status, gps: "NOMINAL" as const } };
+    rerender(<Pfd feed={runningFeed({ lastFrame: between })} />);
+    expect(container.querySelector('[data-testid="gs-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(container.querySelector('[data-testid="trk-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(container.querySelector('[data-testid="gs-readout"]')).toBeNull();
+    rerender(<Pfd feed={runningFeed({ lastFrame: frame(0, {}, { pitch_deg: null }) })} />);
+    expect(container.querySelector('[data-testid="att-flag"]')?.getAttribute("data-cause")).toBe("fail");
+    expect(screen.getByTestId("pfd-state").textContent).toBe("RUNNING");
+    expect(container.textContent).not.toMatch(/NaN|null/);
+  });
+});
+
 // The voter panel inside the whole panel (REQ-DISP-008; TC-033 step 8): no
 // majority is the vote's own flag beside the instruments' FAILURE_WARNING
 // flags, with the strip still RUNNING; zero is dashes, never PIPELINE.

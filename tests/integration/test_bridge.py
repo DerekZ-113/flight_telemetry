@@ -1,11 +1,16 @@
-"""TC-022 steps 1 through 7 and TC-025 steps 1 through 4 (REQ-DISP-005; also REQ-DISP-002,
+"""TC-022 steps 1 through 7 and 17 and TC-025 steps 1 through 4 (REQ-DISP-005; also REQ-DISP-002,
 REQ-DISP-006, REQ-TRANS-004, REQ-PROC-007, REQ-TEST-002).
 
 The bridge is driven in-process: a scripted byte source stands in for the transport, a
 websockets client stands in for the page, and asyncio.run drives each check. TC-022 step 7 runs
 the binary as a paced replay through a real ZeroMQ socket and the bridge to a client. TC-025
 adds the position relative to the first fix (the fix itself never sent, the origin reset with
-the lag's) and the two display thresholds that ride hello.
+the lag's) and the two display thresholds that ride hello. Step 17 sends values that are not
+finite numbers, which cross as null.
+
+Every message is parsed as a browser's JSON.parse parses it: NaN, Infinity and -Infinity are
+not JSON. Python's json.loads accepts all three by default, so a test that parsed with it would
+pass with the bridge writing them.
 """
 from __future__ import annotations
 
@@ -13,17 +18,20 @@ import asyncio
 import json
 import math
 import queue
+import shutil
 import subprocess
+import sys
 import time
 
 import pytest
 from websockets.asyncio.client import connect
 
-from conftest import CONFIG_ARGS, free_tcp_port
+from conftest import CONFIG_ARGS, REPO_ROOT, free_tcp_port
 from pipeline.bridge import DEFAULT_HOST, Bridge
-from pipeline.frame_format import FRAME_FIELDS
+from pipeline.frame_format import CHANNEL_NAMES, COMPUTED_VALIDITY, FAULT_TYPE_NAMES, FRAME_FIELDS
+from pipeline.log_reader import read_log
 from pipeline.receiver import ZmqSource
-from synthetic_log import log_bytes, make_frame
+from synthetic_log import log_bytes, make_frame, write_log
 
 PERIOD_MS = 20
 
@@ -68,8 +76,15 @@ def frame_bytes(index: int, **overrides) -> bytes:
     return log_bytes([make_frame(index, **overrides)])
 
 
+def strict_loads(text: str):
+    """JSON as JSON.parse reads it in the page: a bare NaN, Infinity or -Infinity is refused."""
+    def refuse(name: str):
+        raise ValueError(f"{name} is not JSON")
+    return json.loads(text, parse_constant=refuse)
+
+
 async def recv_json(ws, timeout: float = 5.0) -> dict:
-    return json.loads(await asyncio.wait_for(ws.recv(), timeout))
+    return strict_loads(await asyncio.wait_for(ws.recv(), timeout))
 
 
 def ws_url(bridge: Bridge) -> str:
@@ -422,3 +437,116 @@ def test_hide_identity_forwards_none_and_keeps_the_origin_rule():
     assert messages[4]["position"] == {"east_m": 0.0, "north_m": 0.0}, "the hidden identity still re-takes the origin"
     for message in messages:
         assert "a1b2c3" not in json.dumps(message) and "TEST00" not in json.dumps(message)
+
+
+# --- TC-022 step 17: a value that is not a finite number crosses as null (REQ-DISP-005) ------------
+
+# A GPS fix's five fields, each judged for finiteness by the detector since FAULT-024 (REQ-FAULT-003).
+NON_FINITE_FIX = {"latitude": math.nan, "longitude": math.nan, "gps_altitude_m": math.nan,
+                  "ground_speed_mps": math.nan, "course_deg": math.nan}
+DEGRADED = 1   # ChannelStatus::DEGRADED
+
+
+def nulls(message: dict) -> set[str]:
+    """The frame fields that crossed as null."""
+    return {name for name, value in message["frame"].items() if value is None}
+
+
+def test_a_value_that_is_not_a_finite_number_crosses_as_null():
+    # The frames the detector flags since FAULT-024, as the binary sends them: the reading kept in
+    # its raw field, the channel DEGRADED beside it. The fix is held on the frames between fixes, so
+    # its fields ride every one of them until the next fix.
+    source = QueueSource()
+    held = [frame_bytes(i, gps_read_ok=(i == 10), gps_status=DEGRADED, **NON_FINITE_FIX) for i in range(10, 60)]
+    fed = [fix(0),                                                                # the origin: a NOMINAL fresh fix
+           frame_bytes(1, pressure_hpa=math.nan, baro_status=DEGRADED),           # a NaN pressure
+           frame_bytes(2, gyro_x=math.inf, gyro_y=-math.inf, imu_status=DEGRADED),  # infinite rates
+           *held,                                                                 # a NaN fix and its 49 holds
+           fix(60, north_m=1.0, gps_status=DEGRADED)]                             # the next fix, recovering
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)   # hello
+                source.feed(*fed)
+                messages = [await recv_json(ws) for _ in fed]
+            assert bridge.forwarded == len(fed)
+        return messages
+
+    origin, pressure, rates, *fixes, after = asyncio.run(check())
+    assert nulls(origin) == set() and origin["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert nulls(pressure) == {"pressure_hpa"} and pressure["status"]["baro"] == "DEGRADED"
+    assert pressure["frame"]["temperature_c"] == 0.0
+    assert nulls(rates) == {"gyro_x", "gyro_y"} and rates["status"]["imu"] == "DEGRADED"
+    assert rates["frame"]["gyro_z"] == 0.0
+    assert [message["frame"]["gps_read_ok"] for message in fixes] == [True] + [False] * 49
+    for message in fixes:
+        assert nulls(message) == {"gps_altitude_m", "ground_speed_mps", "course_deg"}
+        assert message["position"] == {"east_m": None, "north_m": None}
+        assert message["status"]["gps"] == "DEGRADED"
+    assert nulls(after) == set()
+    assert after["position"]["north_m"] == pytest.approx(1.0, abs=0.01), "the origin is kept, not re-taken"
+
+
+def test_the_detectors_verdict_on_a_non_finite_reading_reaches_the_client(telemetry_bin, tmp_path, sim_session):
+    # The same through the real detector: the session's own frames with three readings replaced,
+    # replayed by the binary with the configuration they were recorded with, and the replay's frames
+    # handed to the bridge as both transports carry them, one-record log messages.
+    recorded = read_log(sim_session.log)
+    frames = list(recorded.frames)
+    pressure_at, rate_at = 60, 70
+    fixes = [i for i, frame in enumerate(frames) if frame.gps_read_ok]
+    fix_at = next(i for i in fixes if i >= 100)
+    next_fix = next(i for i in fixes if i > fix_at)
+    frames[pressure_at] = frames[pressure_at]._replace(pressure_hpa=math.nan)
+    frames[rate_at] = frames[rate_at]._replace(gyro_x=math.inf)
+    for i in range(fix_at, next_fix):   # the fix and every frame that holds it
+        frames[i] = frames[i]._replace(**NON_FINITE_FIX)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    write_log(logs / "telemetry_000.bin", frames, recorded.header)
+    shutil.copy(sim_session.config_record, logs / "telemetry_config.yaml")
+    subprocess.run([str(telemetry_bin), "--replay", "logs/telemetry_000.bin"], cwd=tmp_path,
+                   capture_output=True, text=True, timeout=120, check=True)
+    replay = read_log(logs / "replay_000.bin")
+    assert len(replay.frames) == len(frames)
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)   # hello
+                source.feed(*(log_bytes([frame]) for frame in replay.frames))
+                messages = [await recv_json(ws) for _ in replay.frames]
+            assert bridge.forwarded == len(replay.frames)
+        return messages
+
+    messages = asyncio.run(check())
+    assert nulls(messages[pressure_at]) == {"pressure_hpa"} and messages[pressure_at]["status"]["baro"] == "DEGRADED"
+    assert nulls(messages[rate_at]) == {"gyro_x"} and messages[rate_at]["status"]["imu"] == "DEGRADED"
+    for i in range(fix_at, next_fix):
+        assert nulls(messages[i]) == {"gps_altitude_m", "ground_speed_mps", "course_deg"}, i
+        assert messages[i]["position"] == {"east_m": None, "north_m": None}, i
+        assert messages[i]["status"]["gps"] == "DEGRADED", i
+    altered = {pressure_at, rate_at, *range(fix_at, next_fix)}
+    assert all(nulls(message) == set() for i, message in enumerate(messages) if i not in altered)
+    # No filter saw a reading that is not a number: every computed field a number, every frame voted.
+    for message in messages:
+        assert all(message["frame"][field] is not None for field in COMPUTED_VALIDITY)
+        assert message["frame"]["voter_status"] & 0x0001 and not message["frame"]["voter_status"] & 0x0010
+    events = {(CHANNEL_NAMES[event.channel], FAULT_TYPE_NAMES[event.type], event.timestamp_ms)
+              for event in replay.events}
+    for channel, at in (("BARO", pressure_at), ("IMU", rate_at), ("GPS", fix_at)):
+        assert (channel, "OUT_OF_RANGE", frames[at].timestamp_ms) in events
+
+
+def test_track_min_speed_refuses_a_number_that_is_not_finite():
+    # The one float a flag puts on the wire (REQ-DISP-002): a threshold that crossed as null would
+    # compare as zero on the page and show a stationary receiver's track. A subprocess with a timeout,
+    # because a bridge that took the value would serve until stopped.
+    for text in ("nan", "inf", "-inf"):
+        completed = subprocess.run([sys.executable, "-m", "pipeline.bridge", f"--track-min-speed={text}",
+                                    "--listen", "127.0.0.1:0"], cwd=REPO_ROOT, capture_output=True, text=True,
+                                   timeout=10)
+        assert completed.returncode == 2, completed.stderr
+        assert "finite" in completed.stderr

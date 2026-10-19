@@ -167,6 +167,39 @@ describe("the page", () => {
     expect(row("Fused altitude (m)").classList.contains("stale")).toBe(false);
   });
 
+  // --- TC-022 step 18: a fix that was not a number, held across frames (REQ-DISP-005) --------
+
+  it("shows a fix that arrived as null under its GPS flags and never goes stale, as bare NaN tokens would", () => {
+    renderPage();
+    openWithHello();
+    deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } }); // the origin
+    const held = (i: number) => {
+      const message = frame(i, {}, { gps_altitude_m: null, ground_speed_mps: null, course_deg: null });
+      message.status.gps = "DEGRADED";
+      return { ...message, position: { east_m: null, north_m: null } };
+    };
+    // Two seconds of a fix that was not a number, held on every frame, as the bridge sends it now.
+    for (let i = 1; i <= 100; i++) {
+      advance(PERIOD_MS);
+      deliver(JSON.stringify(held(i)));
+      expect(bar().queryByText(/STALE/)).toBeNull();
+    }
+    expect(bar().getByText("RUNNING")).toBeTruthy();
+    expect(screen.getByTestId("status-gps").textContent).toContain("DEGRADED");
+    for (const flag of ["gs-flag", "trk-flag", "pos-flag"]) {
+      expect(screen.getByTestId(flag).getAttribute("data-cause")).toBe("fail");
+    }
+    expect(screen.getByTestId("plot-trail").getAttribute("points")).toBe("150,150"); // the fix joined no trail
+    expect(document.body.textContent).not.toMatch(/NaN|null/);
+    // The same frames as Python's default encoder wrote them: every one refused, so the page went
+    // stale and never showed the GPS DEGRADED.
+    for (let i = 101; i <= 200; i++) {
+      advance(PERIOD_MS);
+      deliver(JSON.stringify(held(i)).replaceAll("null", "NaN"));
+    }
+    expect(bar().getByText("STALE")).toBeTruthy();
+  });
+
   it("shows an ended stream as ended, never stale (step 12)", () => {
     renderPage();
     openWithHello();

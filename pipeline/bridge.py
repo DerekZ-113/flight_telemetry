@@ -28,6 +28,15 @@ restarted binary that never said ENDED), the same events that re-take the page's
 name beside the numbers, from the same tables the receiver prints from, so the page and the
 receiver cannot disagree.
 
+A value that is not a finite number goes out as null (REQ-DISP-005). JSON has no NaN and no
+infinity: Python's encoder would write them as bare tokens, which the page's JSON.parse refuses
+along with the whole message. Since FAULT-024 the detector declares such a reading OUT_OF_RANGE and
+the raw field keeps the value, so the frame refused would be the very frame that carries the
+verdict. A GPS fix is held until the next one, so a fix that is not a number would leave the page
+STALE instead of showing the GPS DEGRADED. Null with the status or the validity beside it says what
+happened. `wire_text` is the one encoder for every message, and its `allow_nan=False` turns a slip
+into an exception here rather than a dropped frame there.
+
 Two display thresholds ride `hello` beside the stale threshold, so the page has one source of
 truth for what it judges: the ground speed under which the track is withheld (`--track-min-speed`,
 REQ-DISP-002: a stationary receiver's course is noise) and the lag past which the instruments are
@@ -114,6 +123,24 @@ class RelativeOrigin:
             return None
         return {"east_m": (frame.longitude - self._longitude) * self._metres_per_degree_east,
                 "north_m": (frame.latitude - self._latitude) * METERS_PER_DEGREE}
+
+
+def finite_or_null(value: Any) -> Any:
+    """The value with every float that is not a finite number replaced by None, through every dict
+    and list in it (REQ-DISP-005)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: finite_or_null(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite_or_null(item) for item in value]
+    return value
+
+
+def wire_text(message: dict[str, Any]) -> str:
+    """A message as the WebSocket carries it: JSON with null for every value that is not a finite
+    number, and allow_nan=False behind that, so a bare NaN or Infinity is never written."""
+    return json.dumps(finite_or_null(message), allow_nan=False)
 
 
 def frame_message(frame: Frame, received_at_ms: float, position: dict[str, float] | None = None) -> dict[str, Any]:
@@ -277,15 +304,27 @@ class Bridge:
         # broadcast() writes to every open connection without waiting; a connection that has
         # closed is skipped. A slow page accumulates buffered data, which is its own problem:
         # the page judges staleness itself, and the bridge never slows the receiver for it.
-        broadcast(self._connections, json.dumps(message))
+        broadcast(self._connections, wire_text(message))
 
     async def _handle(self, connection: ServerConnection) -> None:
         self._connections.add(connection)
         try:
-            await connection.send(json.dumps(self.hello()))
+            await connection.send(wire_text(self.hello()))
             await connection.wait_closed()
         finally:
             self._connections.discard(connection)
+
+
+def finite_number(text: str) -> float:
+    """A number given on the command line that the page will compare against: a finite one, since a
+    threshold that is not a number would cross as null (REQ-DISP-005) and compare as zero."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, got {text!r}") from None
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError(f"expected a finite number, got {text!r}")
+    return value
 
 
 def parse_listen_address(text: str) -> tuple[str, int]:
@@ -310,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--period-ms", type=int, default=DEFAULT_PERIOD_MS, help="frame period, for the gap count")
     parser.add_argument("--stale-ms", type=int, default=DEFAULT_STALE_MS,
                         help="how long without a frame before the page marks the feed stale")
-    parser.add_argument("--track-min-speed", type=float, default=DEFAULT_TRACK_MIN_SPEED_MPS, metavar="M/S",
+    parser.add_argument("--track-min-speed", type=finite_number, default=DEFAULT_TRACK_MIN_SPEED_MPS, metavar="M/S",
                         help="the ground speed under which the page withholds the track (a stationary receiver's "
                              f"course is noise; default {DEFAULT_TRACK_MIN_SPEED_MPS})")
     parser.add_argument("--lag-ms", type=int, default=DEFAULT_LAG_MS,
