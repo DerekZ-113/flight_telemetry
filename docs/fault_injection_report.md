@@ -2,7 +2,7 @@
 
 > **Document ID:** FTS-FI-001
 > **Version:** 0.3.0
-> **Status:** Preview of 2026-10-19 (Section 2). Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed, and no prediction has been edited since; Section 5.6, the non-finite check's, was added and committed on 2026-10-19 before that check's code. Sections 3 and 6 and the table closing Section 7 are generated from the preview's record; the findings of Section 7 and the measured consequences in Section 8 were written after it.
+> **Status:** Preview of 2026-10-19 (Section 2). Sections 1, 2, 4 and 5, the method and the predictions, were written and committed on 2026-10-18 before the campaign's code existed, and no prediction has been edited since; Section 5.6, the non-finite check's, was added and committed on 2026-10-19 before that check's code. Sections 3 and 6 and the table closing Section 7 are generated from the preview's record; the findings of Section 7 and the measured consequences in Section 8 were written after it. Section 6's U06 and U07 rows show the system before the detector's non-finite check of 2026-10-19; Section 7's finding 7 shows the two cells before and after it.
 > **Last Updated:** 2026-10-19
 > **Related:** FTS-SRD-001 (REQ-TEST-005, REQ-TEST-006, REQ-RED-007), FTS-FM-001 (the failure modes injected), FTS-DD-001 (Section 14, the campaign's design; Section 13, the voter), FTS-TP-001 (TC-035 to TC-037), FTS-VR-001 (the summary of each campaign of record)
 
@@ -453,6 +453,32 @@ The prediction was of the settled value; the campaign measures the largest. Noth
 
 **6. V08: later exclusions, and the absorbed share.** Section 5.5's rule held in every run: excluded exactly when the lane disagreed on P consecutive majority cycles. Its typical latency, (P − 1) × 20 ms, is the median at every count, but some runs are later: 5 at P = 1, 17 at P = 3 and 23 at P = 8, the latest 480 ms. In those runs the upset reaches the compared outputs intermittently, and a difference the arithmetic rounds away on one cycle restarts the count. The absorbed share, measured rather than predicted, grows with the count: 7.6% of the runs were never excluded at P = 1, 8.2% at P = 3 and 9.5% at P = 8. A longer count gives an upset that decays the time to leave the outputs before the count is reached.
 
+**7. The non-finite check (FAULT-024), measured before and after it (2026-10-19).** The preview's U06 and U07 rows (Section 6.3) show the system before the check. REQ-FAULT-003's non-finite clause, predicted in Section 5.6 before its code, makes the detector declare a reading that is not a finite number OUT_OF_RANGE on its frame. U06 and U07 were rerun, 300 runs each, on the tree of the commit before the check (whose rows equal, column for column, a rerun at `307a69c`, which equals the preview's) and on the check's own tree:
+
+| Measure, runs of 300 | U06 before | U06 after | U07 before | U07 after |
+|---|---|---|---|---|
+| declared OUT_OF_RANGE on its frame (0 ms) | 0 | 300 | 0 | 300 |
+| recovered 80 ms after removal | 0 | 300 | 0 | 300 |
+| a voter event | 300 (NO_MAJORITY) | 0 | 0 | 0 |
+| no majority from the fault to the end of the run | 300 | 0 | 0 | 0 |
+| every field FAILURE_WARNING from the fault to the end | 300 | 0 | 0 | 0 |
+| any frame with every field FAILURE_WARNING | 300 | 0 | 0 | 0 |
+| every field NORMAL at the end of the run | 0 | 300 | 300 | 300 |
+| roll +∞, NORMAL and VOTED on every frame from onset | 0 | 0 | 300 | 0 |
+| a value emitted that is not a number | 0 | 0 | 300 | 0 |
+| as the gate predicts | 300 | 300 | 300 | 300 |
+| as Section 5.3 was written | 300 | 0 | 300 | 0 |
+| error against the twin, median / maximum | none (no NORMAL frame) | 0.086 / 0.274 m (fused altitude) | +∞ (roll) | 0.011 / 0.048° (roll) |
+
+- **A NaN pressure no longer holds every field under FAILURE_WARNING to the end of the run.**
+  - Before: every run lost the majority on the NaN's frame and held every field for the 500 frames to the end.
+  - After: no run loses a majority, no frame holds every field, and every field is NORMAL at the end. Only the barometric altitude reads FAILURE_WARNING, for the five frames the barometer is DEGRADED; the fused altitude stays NORMAL, the GPS still contributing.
+- **An infinite rotation rate is no longer voted NORMAL.**
+  - Before: every run voted a roll of +∞ with validity NORMAL on every frame from onset. U07's "every field NORMAL at the end" counted 300 before, and that NORMAL was the infinite roll's.
+  - After: no run emits a value that is not a number; the attitude holds its angles under FAILURE_WARNING for five frames and then flies on.
+- **Every run matches Section 5.6, and departs from Section 5.3 as written, by design.** The five frames without a measurement leave the fused altitude (U06) and the roll (U07) a little off the twin's, at most 0.27 m and 0.048°.
+- **The check changed nothing else.** The full campaign on the check's tree equals the preview's record in every column the two share, for every one of the 96,500 runs outside U06 and U07. Its U06 and U07 rows equal the targeted rerun's. No run anywhere in it emits a value that is not a number.
+
 **Not gaps:**
 - D03's median latency is 1,520 ms against the predicted distribution's 1,500. The latency follows the onset's place in the fix second; every run's latency equals its own prediction, and 1,520 is this sample's median, one frame from the population's.
 - The coincidences Sections 5.1 and 5.2 predicted run by run did not occur: D05 to D07's 140 ms after a repeat, their 100 ms recovery, and T03's eighth-frame hold. That matches their rarity: about 0.25, 0.25 and 0.01 runs expected.
@@ -489,7 +515,7 @@ What this campaign shows no check catches, and why:
    - a drift of 0.05 hPa/s puts 25 m on the altitude in a minute;
    - an accelerometer bias tilts the attitude by atan(offset / g), up to 2.9°;
    - all of it under NORMAL.
-2. **A non-finite reading** (FAULT-024: U06, U07). The detector's comparisons are all false for NaN, and it has no rotation-rate limit. The drivers keep such values out today. If one got through, a NaN would take the voted output down for the rest of the run, on the voter's channel rather than the sensor's, and an infinity would be voted through as valid. Measured: every NaN run lost the majority to the end of the run, and every infinite rate was voted with the roll NORMAL (Section 6.3).
+2. **A non-finite reading** (FAULT-024: U06, U07), **closed on 2026-10-19.** The detector's comparisons were all false for NaN, and it had no rotation-rate limit; a NaN that got through took the voted output down for the rest of the run, on the voter's channel rather than the sensor's, and an infinity was voted through as valid. Measured in the preview: every NaN run lost the majority to the end of the run, and every infinite rate was voted with the roll NORMAL (Section 6.3). The campaign's evidence brought the fix: REQ-FAULT-003's non-finite clause, a finiteness test first on every channel. Section 7's finding 7 measures both cells before and after it.
 3. **A fault common to two lanes** (V09, V12). The voter trusts a majority. Two lanes wrong in the same way outvote the healthy one and exclude it, and the wrong value leaves marked VOTED. Measured (Section 6.5):
    - V09 threw out the healthy lane in every run;
    - V12 did so in 8.1% of runs at P = 1, rising to 73.3% at P = 8;

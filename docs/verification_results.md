@@ -1986,3 +1986,140 @@ The one untaken branch is a decision, not an exception edge, on `lane_fault_inje
 - FAULT-024 at the detector, a non-finite raw value declared OUT_OF_RANGE: the follow-up the plan recommended (FTS-DD-001 §12).
 - The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author.
 - Entry 20's TC-009 step 8 stands, as do Entry 19's (Phase B, FAULT-003b) and Entry 18's open items.
+
+## Entry 22 — 2026-10-19, The detector's non-finite check (FAULT-024): the campaign's cells U06 and U07 measured before and after (macOS preview)
+
+The check closes the two blind spots the fault-injection campaign measured in Entry 21: a NaN pressure that left the voter without a majority to the end of the run with every field held, and an infinite rotation rate voted through as a NORMAL roll. What changed:
+- **Requirements:** one amendment, REQ-FAULT-003's non-finite clause; SRD 0.15.0 → 0.16.0, still 67 statements.
+- **Fault model:** FAULT-024 moved from *Uncovered Failures* to *Out-of-Range Failures*, its number kept; FTS-FM-001 0.8.0 → 0.9.0.
+- **Test plan:** one test card, TC-038; TC-035 step 4 amended.
+- **Design:** §7's rule written and §12's parked bullet decided.
+- **The report:** FTS-FI-001's Section 5.6, predictions committed before the code, and its finding 7.
+- **Code:** a check in `fault_detector.cpp`, and three validity measures in the campaign's classifier.
+- **Unchanged:** no format, no key, no thread.
+
+The commits are 12 to 15 on `claude/fault-injection-monte-carlo-694c09`, after commit 11 (Entry 21 §21.7): 12 the amendment and the predictions, 13 the measures, 14 the check, 15 the records. §22.7 records the CI run.
+
+### 22.1 What was built
+
+- **The amendment and the predictions (commit 12):**
+  - REQ-FAULT-003 gains: "A reading of the barometer or the IMU, or a GPS fix's position, altitude, ground speed or course, that is not a finite number is invalid and shall be detected as out of range." Its rationale says why it is tested first and why the ADS-B extras are not.
+  - FAULT-024's new Detection and Response.
+  - TC-038.
+  - Design §7's paragraph, and §12's bullet decided.
+  - FTS-FI-001 §5.6: U06 and U07 since the check. Section 5.3 stays as written.
+- **The measures (commit 13):** `held_frames` (every computed value FAILURE_WARNING), `normal_at_end` and `nonfinite_voted_frames` in `RunOutcome` and the record, with `OutcomeTest.TheValidityMeasuresAreCounted`. No behaviour changed: commit 13's U06 and U07 rows equal `307a69c`'s in every column they share (§22.5).
+- **The check (commit 14), in `src/processing/fault_detector.cpp`:**
+  - `first_non_finite`, a `std::find_if_not` over an initializer list whose decision sits on a line of its own, is the first test of `observe_baro`, `observe_imu` and `observe_gps`, and declares OUT_OF_RANGE with the value.
+  - `observe_gps` gains its guard that a frame between fixes, carrying the held fix, is not judged again.
+- **The campaign's side (commit 14):**
+  - The gate for U06 and U07 moves to Section 5.6: `judge_non_finite`, which is `judge_detected` with a NaN-aware event value plus the downstream measures. `judge_as_written` keeps Section 5.3.
+  - The two known answers are rewritten.
+  - The generator's U06 and U07 rows tabulate both predictions and the new measures, with a dash for a record older than them.
+  - `test_fault_campaign.py`'s planted-departure test counts U06's and U07's by-design departures.
+- **The records (commit 15):** this entry; FTS-FI-001's status, finding 7 and Section 8's second blind spot, closed; the matrix, the README, CLAUDE.md, test plan §7.
+- **Tests:**
+  - unit +5, 480 → 485, the five `NonFinite*` tests in `test_fault_detection.cpp`;
+  - fault-injection +1, 89 → 90, `OutcomeTest.TheValidityMeasuresAreCounted` (the two known answers were replaced, not added);
+  - pytest 176, one assertion changed.
+
+### 22.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 575 of 575 (485 unit, 90 fault-injection), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 176 of 176 in 132.2 s, against the instrumented binaries as against the plain ones. The first run of commit 14 failed one test: `test_a_departure_from_section_5_is_named_in_section_7` assumed that no unplanted run departs from Section 5 as written, and U06's and U07's now do by design; it counts them |
+| cppcheck 2.21.0 | 0 findings on `src/`, 45 files. The hand preview on `tests/fault_injection/` found one style finding, a counting loop in a known answer, now `std::count_if`; then 0 |
+| Red first | the five `NonFinite*` tests failed against commit 13's detector. The barometer, IMU and GPS tests saw no event; the pipeline test saw NO_MAJORITY (16) and the fields held FAILURE_WARNING from the NaN's frame on |
+| The byte checks | §22.4 |
+| U06 and U07 before and after, and the full campaign | §22.5 |
+
+### 22.3 Coverage preview
+
+Mac, clang, `build-cov`, every C++ test and the pytest suite against the instrumented binaries; the record is §22.7's on GCC. Every scope is above its threshold:
+
+| Scope | Branches |
+|---|---|
+| processing | 100.0% |
+| config | 98.2% |
+| timing | 96.9% |
+| logging | 86.8% |
+| transport | 91.4% |
+| replay | 100.0% |
+| drivers | 91.2% |
+| overall | 94.3% (1,392 of 1,476); lines 99.1%, functions 419 of 419 |
+
+`processing/fault_detector.cpp` has 205 of 205 lines, 76 of 76 branches and 15 of 15 functions, against 66 and 13 before. The ten new branches are the helper's decision and the four new decisions in the three observers, each taken both ways; the two new functions are the helper and its predicate. Each new decision is a test of a local on a line of its own, so GCC's record should show no exception edge on it.
+
+### 22.4 The byte checks
+
+No default run carries a non-finite value, so no byte may move. Every hash is equal to Entry 21 §21.4's:
+
+| Run | SHA-256 |
+|---|---|
+| The seed-42 session | `f1dc959aa7583c90b65293470056ce79561b71caac1ef0c7dfed8ba3e0e20ec5` |
+| Its replay | `189eb162b045fe2b3abe5f9b133c170f909d0d14dcce01c50418bcfc7172b9e3` |
+| The demo | `6f877d1de11e83a7f3c37e91325e06070276b880ec5d7fff9c88c3d73d5bfd1c` |
+| The demo with `--lane-fault 2@60` | `a2d1d891b85efbaad0440035eacfc66a1177c5ed1a8534454742bb08331bf4cc` (the voter's status alone differing from the unaltered demo, three events) |
+| Its replay | `33b34f6034cfe202460f1c531d74814dece33d9b468ba0c340d886227f02a5e8` (every record identical, the header differing in the run mode alone) |
+
+### 22.5 U06 and U07 before and after the check
+
+The cells were rerun, 300 runs each, with `build/fault_campaign --cells U06,U07`:
+- **Before:** on commit 13's tree (`0e0e73d8c1b9d158e83fa30c5359bde03d0cda98`), into `build/campaign/u06-u07-before`. That record equals in every shared column a rerun at `307a69c` (`build/campaign/u06-u07-before-307a69c`), which equals the preview's U06 and U07 rows byte for byte.
+- **After:** on commit 14's tree (`777d1704563ec6bde1b96d702fea1cefde96fc2e`), into `build/campaign/u06-u07-after`.
+
+| Measure, runs of 300 | U06 before | U06 after | U07 before | U07 after |
+|---|---|---|---|---|
+| declared OUT_OF_RANGE on its frame (0 ms) | 0 | 300 | 0 | 300 |
+| recovered 80 ms after removal | 0 | 300 | 0 | 300 |
+| a voter event | 300 (NO_MAJORITY) | 0 | 0 | 0 |
+| no majority from the fault to the end of the run | 300 | 0 | 0 | 0 |
+| every field FAILURE_WARNING from the fault to the end | 300 | 0 | 0 | 0 |
+| any frame with every field FAILURE_WARNING | 300 | 0 | 0 | 0 |
+| every field NORMAL at the end of the run | 0 | 300 | 300 (the roll's +∞ NORMAL) | 300 |
+| roll +∞, NORMAL and VOTED on every frame from onset | 0 | 0 | 300 | 0 |
+| a value emitted that is not a number | 0 | 0 | 300 | 0 |
+| an invariant broken | 0 | 0 | 0 | 0 |
+| as the gate predicts | 300 | 300 | 300 | 300 |
+| as FTS-FI-001 Section 5.3 was written | 300 | 0 | 300 | 0 |
+| error against the twin, median / maximum | none (no NORMAL frame) | 0.086 / 0.274 m (fused altitude) | +∞ (roll) | 0.011 / 0.048° (roll) |
+
+The two claims, measured:
+- **A NaN pressure no longer holds every field under FAILURE_WARNING to the end of the run.** Before, all 300 runs held every field for the 500 frames from the NaN to the end. After, none holds every field on any frame, none loses the majority, and all 300 end NORMAL.
+- **An infinite rotation rate is no longer voted NORMAL.** Before, all 300 runs voted a roll of +∞ with validity NORMAL on every frame from onset. After, no run emits a value that is not a number.
+
+Every run is as Section 5.6 predicted, and departs from Section 5.3 as written by design.
+
+**The rest of the campaign is unchanged.** The full campaign on commit 14's tree, into `build/campaign/after-full` (97,100 runs in 154.4 s, every one as the gate predicts), equals the preview's record (`build/campaign/tree-140644b3…`) in every column the two share, for every one of the 96,500 runs outside U06 and U07. Its U06 and U07 rows equal the targeted after-run's. Its 694 departures from Section 5 as written are the preview's 94 in V09 and V12 and U06's and U07's 600. No run in it emits a value that is not a number.
+
+### 22.6 Decisions taken, and deviations
+
+- **The request (2026-10-19).** Derek asked to close the loop with evidence: rerun U06 and U07 before and after the fix, and record that a NaN pressure no longer holds every field under FAILURE_WARNING to the end of the run and that an infinite roll is no longer voted NORMAL. The fix is the follow-up the plan's flag 7 recommended and the session had offered as a session of its own. None had started it, so it was built here, test first, the recommended scope taken without a further question.
+- **The scope:** every fresh reading of the barometer and the IMU, and a GPS fix's five fields. The ADS-B vertical rate and pressure altitude are left out: nothing consumes them until Phase B, and a field nobody reads should not take a valid fix down. No source writes NaN into a judged field, so no run's bytes move (§22.4):
+  - the NMEA parser refuses a non-finite number and reads an empty field as 0;
+  - the ADS-B source dereferences only the values a state vector holds;
+  - the simulator's values are finite.
+- **One amendment, not a new requirement.** REQ-FAULT-003 already asked for invalid readings to be detected; the clause names the non-finite case and the GPS fields.
+- **FAULT-024 moved, its number kept,** to sit beside FAULT-008 to FAULT-010; *Uncovered Failures* says where it went.
+- **Predictions before the code, measures before the check.** FTS-FI-001 §5.6 was committed (commit 12) before the check (commit 14). The measures got a commit of their own (13), so that the before and after records come from one classifier and each names a commit's tree.
+- **The report's generated blocks were not regenerated.** They are the preview's, at commit 8's tree, and FTS-FI-001's status line says that their U06 and U07 rows predate the check. The next campaign of record regenerates them with commit 14's generator, whose rows show both predictions.
+- **A test's assumption corrected (§22.2),** not a prediction.
+- **Library facts:**
+  - `std::find_if_not` over `std::initializer_list<double>`: the list's backing array lives until the end of the full expression that made it, so the helper returns the value, never a pointer into it.
+  - `std::isfinite` is false for NaN and both infinities.
+
+### 22.7 Measurement of record
+
+Owed after the push. The run should show:
+- `lane_fault_injector.cpp` at 60 of 60, the leg Entry 21 §21.7 found untaken now taken by `1@.5`;
+- `fault_detector.cpp`'s new branches all taken, with no exception edge;
+- processing at 100.0%;
+- the subset's U06 and U07 as predicted on libstdc++.
+
+### 22.8 Open
+
+- §22.7.
+- The campaign of record after the bench session, whose generated tables will show U06 and U07 as detected.
+- The ADS-B extras' finiteness, with Phase B.
+- Entry 21's open items stand (TC-037 step 9; the README's count of exception markers), and Entry 20's (TC-009 step 8).
