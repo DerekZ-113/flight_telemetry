@@ -205,7 +205,11 @@ def test_a_departure_from_section_5_is_named_in_section_7(campaign_record, tmp_p
     departures = text.split("<!-- generated:departures -->")[1].split("<!-- end generated -->")[0]
     assert status == 0
     assert planted["run_id"] in departures and "a planted departure" in departures
-    assert f"1 of {len(rows):,} runs depart from Section 5 as written" in departures
+    # U06 and U07 depart from Section 5.3 as written by design since the non-finite check (Section 5.6),
+    # so the planted departure is counted beside theirs.
+    departing = sum(row["as_written"] == "0" for row in rows)
+    assert departing == 1 + sum(row["kind"] in ("U06", "U07") for row in rows)
+    assert f"{departing} of {len(rows):,} runs depart from Section 5 as written" in departures
 
 
 def test_an_incomplete_record_is_refused(campaign_record, tmp_path):

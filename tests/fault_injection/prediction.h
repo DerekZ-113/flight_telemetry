@@ -69,7 +69,9 @@ struct ReplayedVote {
 ReplayedVote replay_vote(const RunSchedule& schedule, const Timeline& timeline);
 
 // The CI gate's verdict (REQ-TEST-006): FTS-FI-001 Section 5 as written,
-// except V09 and V12, whose vote is replayed frame by frame.
+// except V09 and V12, whose vote is replayed frame by frame, and, since the
+// detector's non-finite check of 2026-10-19, U06 and U07, held to Section
+// 5.6: declared OUT_OF_RANGE on their frame and recovered like D08.
 Verdict judge(const RunSchedule& schedule, const Timeline& timeline, const RunOutcome& outcome,
               const CampaignTiming& t);
 

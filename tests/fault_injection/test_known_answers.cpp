@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -263,10 +264,14 @@ TEST(KnownAnswerTest, TwoIdenticalFaultsOutvoteTheHealthyLaneInsideTheCount) {
     }
 }
 
-// U06: one NaN pressure passes every check, poisons every lane's Kalman
-// state and leaves no majority to the end: one event, three lanes in the
-// vote, every frame from onset held, none NaN.
-TEST(KnownAnswerTest, NanPressureLeavesNoMajorityToTheEnd) {
+// U06 since the detector's non-finite check (FTS-FI-001 Section 5.6;
+// TC-035 step 4, TC-038): one NaN pressure is OUT_OF_RANGE on the
+// barometer on its frame and never reaches a lane. No majority is lost, no
+// frame holds every value, every value is NORMAL at the end, nothing that
+// is not a number is emitted. Before the check it left no majority from
+// that frame to the end, 250 frames held; Section 5.3 as written still
+// says so, so the run departs from it by design.
+TEST(KnownAnswerTest, NanPressureIsDeclaredAndNeverReachesTheLanes) {
     RunSchedule s = schedule_for("U06");
     s.twin = true;
     s.sensor.mode = SensorMode::OVERRIDE_FIELD;
@@ -276,18 +281,25 @@ TEST(KnownAnswerTest, NanPressureLeavesNoMajorityToTheEnd) {
     s.sensor.removal_ms = 3020;
     s.end_ms = 8000;
     const Result r = run(s);
-    EXPECT_EQ(r.outcome.declarations, 0);
-    EXPECT_EQ(r.outcome.nm_episodes, 1);
-    EXPECT_EQ(r.outcome.nm_first_ms, 3000);
-    EXPECT_EQ(r.outcome.nm_lanes, 3.0f);
-    EXPECT_EQ(r.outcome.nm_frames, 250);
-    EXPECT_EQ(r.outcome.invariant_violations, 0);
+    EXPECT_TRUE(baro(r.outcome).declared);
+    EXPECT_EQ(baro(r.outcome).type, FaultType::OUT_OF_RANGE);
+    EXPECT_EQ(baro(r.outcome).latency_ms, 0);
+    EXPECT_TRUE(std::isnan(baro(r.outcome).value));
+    EXPECT_EQ(baro(r.outcome).recovery_ms, 80);
+    EXPECT_EQ(r.outcome.voter_events, 0);
+    EXPECT_EQ(r.outcome.nm_frames, 0);
+    EXPECT_EQ(r.outcome.held_frames, 0);
+    EXPECT_TRUE(r.outcome.normal_at_end);
+    EXPECT_EQ(r.outcome.nonfinite_voted_frames, 0);
     EXPECT_TRUE(r.verdict.as_predicted) << r.verdict.mismatch;
+    EXPECT_FALSE(judge_as_written(s, r.timeline, r.outcome, kTiming).as_predicted);
 }
 
-// U07: one infinite rotation rate makes the roll +inf in every lane; the
-// lanes agree on it, and it is voted with validity NORMAL on every frame.
-TEST(KnownAnswerTest, InfiniteRateIsVotedNormal) {
+// U07 since the check: one infinite rotation rate is OUT_OF_RANGE on the
+// IMU on its frame. The attitude holds its angles under FAILURE_WARNING for
+// the five frames the IMU is DEGRADED and the roll is never infinite. Before
+// the check the roll was +inf, voted NORMAL, on every frame from onset.
+TEST(KnownAnswerTest, InfiniteRateIsDeclaredAndNeverVoted) {
     RunSchedule s = schedule_for("U07");
     s.twin = true;
     s.sensor.mode = SensorMode::OVERRIDE_FIELD;
@@ -297,11 +309,23 @@ TEST(KnownAnswerTest, InfiniteRateIsVotedNormal) {
     s.sensor.removal_ms = 3020;
     s.end_ms = 6000;
     const Result r = run(s);
-    EXPECT_EQ(r.outcome.declarations, 0);
+    const ChannelOutcome& imu = r.outcome.channel[1];
+    EXPECT_TRUE(imu.declared);
+    EXPECT_EQ(imu.type, FaultType::OUT_OF_RANGE);
+    EXPECT_EQ(imu.latency_ms, 0);
+    EXPECT_EQ(imu.value, INFINITY);
+    EXPECT_EQ(imu.recovery_ms, 80);
     EXPECT_EQ(r.outcome.voter_events, 0);
-    EXPECT_TRUE(r.outcome.roll_infinite_normal);
-    EXPECT_TRUE(std::isinf(r.outcome.max_error[2]));
+    EXPECT_FALSE(r.outcome.roll_infinite_normal);
+    EXPECT_EQ(r.outcome.nonfinite_voted_frames, 0);
+    EXPECT_TRUE(std::isfinite(r.outcome.max_error[2]));
+    EXPECT_TRUE(r.outcome.normal_at_end);
+    const auto held_attitude = std::count_if(r.timeline.frames.begin(), r.timeline.frames.end(), [](const TimelineFrame& f) {
+        return f.validity[2] == Validity::FAILURE_WARNING;
+    });
+    EXPECT_EQ(held_attitude, 5);
     EXPECT_TRUE(r.verdict.as_predicted) << r.verdict.mismatch;
+    EXPECT_FALSE(judge_as_written(s, r.timeline, r.outcome, kTiming).as_predicted);
 }
 
 // TC-035 step 6: the twin is the run's exact counterfactual. Before onset

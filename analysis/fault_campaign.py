@@ -374,6 +374,52 @@ def frames_after_onset(row: dict[str, str], period_ms: int) -> int:
     return (whole(row, "end_ms") - whole(row, "onset_ms")) // period_ms
 
 
+# FTS-FI-001 Section 5.3 predicted U06 and U07 before the detector's non-finite check of 2026-10-19,
+# Section 5.6 since; a record from either side of the check is tabulated against both.
+BEFORE_SINCE = {
+    "declared": "none before the check (5.3); every run since (5.6)",
+    "lost": "every run before the check (5.3); none since (5.6)",
+    "kept": "none before the check (5.3); every run since (5.6)",
+}
+
+
+def runs_where(rows: list[dict[str, str]], column: str, test: Callable[[dict[str, str]], bool]) -> str:
+    """How many runs pass `test`, or a dash for a record older than the column."""
+    if column not in rows[0]:
+        return "— (not in this record)"
+    return f"{sum(test(r) for r in rows):,} of {len(rows):,} runs"
+
+
+def non_finite_lines(kind: str, rows: list[dict[str, str]], manifest: dict) -> list[tuple[str, str, str]]:
+    """U06 (a NaN pressure) and U07 (an infinite rotation rate), measured against both predictions."""
+    period = manifest["timing"]["period_ms"]
+    recovery = manifest["predictions"]["recovery_ms"]
+    c = "baro" if kind == "U06" else "imu"
+    channel = "barometer" if kind == "U06" else "IMU"
+    lines = [(f"declared OUT_OF_RANGE on the {channel} on its frame, recovered {recovery} ms after removal",
+              runs_where(rows, f"{c}_declared", lambda r: yes(r, f"{c}_declared") and whole(r, f"{c}_latency_ms") == 0
+                         and whole(r, f"{c}_recovery_ms") == recovery), BEFORE_SINCE["declared"])]
+    if kind == "U06":
+        lines.append(("no majority from the NaN to the end",
+                      runs_where(rows, "nm_frames", lambda r: whole(r, "nm_frames") == frames_after_onset(r, period)),
+                      BEFORE_SINCE["lost"]))
+        lines.append(("every field held under FAILURE_WARNING to the end",
+                      runs_where(rows, "held_frames",
+                                 lambda r: whole(r, "held_frames") == frames_after_onset(r, period)),
+                      BEFORE_SINCE["lost"]))
+    else:
+        lines.append(("roll +∞, NORMAL and VOTED on every frame from onset",
+                      runs_where(rows, "roll_infinite_normal", lambda r: yes(r, "roll_infinite_normal")),
+                      BEFORE_SINCE["lost"]))
+        lines.append(("a value emitted that is not a number",
+                      runs_where(rows, "nonfinite_voted_frames", lambda r: whole(r, "nonfinite_voted_frames") > 0),
+                      BEFORE_SINCE["lost"]))
+    lines.append(("every field NORMAL at the end of the run",
+                  runs_where(rows, "normal_at_end", lambda r: yes(r, "normal_at_end")),
+                  BEFORE_SINCE["kept"] if kind == "U06" else "every run, before the check (the roll's +∞ NORMAL) and since"))
+    return lines
+
+
 def block_uncovered(record: Record, links: dict[str, str]) -> str:
     period = record.manifest["timing"]["period_ms"]
     rows_out = []
@@ -416,17 +462,8 @@ def block_uncovered(record: Record, links: dict[str, str]) -> str:
         elif kind == "U05":
             lines.append(("fused altitude error, m", spread([real(r, "err_fused_alt_m") for r in rows]),
                           "negligible"))
-        elif kind == "U06":
-            to_end = sum(whole(r, "nm_episodes") == 1 and whole(r, "nm_frames") == frames_after_onset(r, period)
-                         and real(r, "nm_lanes") == 3.0 for r in rows)
-            nan_voted = sum(whole(r, "invariant_violations") > 0 for r in rows)
-            lines.append(("no majority from the NaN to the end: one event, three lanes in the vote",
-                          f"{to_end:,} of {n:,} runs", "every run"))
-            lines.append(("runs breaking an invariant (a NaN voted among them)", f"{nan_voted:,} of {n:,}", "none"))
-        elif kind == "U07":
-            infinite = sum(yes(r, "roll_infinite_normal") for r in rows)
-            lines.append(("roll +∞, NORMAL and VOTED on every frame from onset", f"{infinite:,} of {n:,} runs",
-                          "every run"))
+        elif kind in ("U06", "U07"):
+            lines.extend(non_finite_lines(kind, rows, record.manifest))
         lines.append(("frames after onset with a NORMAL value off the twin's, share", spread(off_twin, percent),
                       "—"))
         for i, (measured, values, predicted) in enumerate(lines):

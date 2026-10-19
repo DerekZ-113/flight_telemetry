@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <sstream>
 #include <string>
 
@@ -96,7 +97,12 @@ void judge_detected(Checker& c, const RunSchedule& s, const Timeline& tl, const 
             recovery = recovery_time(repeats_at_removal(s, tl, t), t);
         }
         c.equal(ch.latency_ms, latency, name + " latency");
-        c.equal(static_cast<double>(ch.value), value, name + " event value");
+        // A NaN equals nothing, itself included: a NaN is predicted as a NaN.
+        if (std::isnan(value)) {
+            c.expect(std::isnan(ch.value), name + " event value: not NaN, predicted NaN");
+        } else {
+            c.equal(static_cast<double>(ch.value), value, name + " event value");
+        }
         c.equal(ch.repeats, 0, name + " repeats");
         c.expect(ch.recovered, name + ": no recovery after removal");
         c.equal(ch.recovery_ms, recovery, name + " recovery");
@@ -140,6 +146,21 @@ void judge_uncovered(Checker& c, const RunSchedule& s, const RunOutcome& o, cons
         c.equal(o.voter_events, 0, "voter events");
         c.equal(o.nm_episodes, 0, "no-majority episodes");
     }
+}
+
+// U06 and U07 since the detector's non-finite check of 2026-10-19 (FTS-FI-001
+// Section 5.6): a detected fault like D08, declared OUT_OF_RANGE on its
+// frame with the injected value and recovered 80 ms after removal, which
+// judge_detected checks; and downstream, no frame without a majority, no
+// frame holding every value under FAILURE_WARNING, every value NORMAL at
+// the end, and no value emitted that is not a number.
+void judge_non_finite(Checker& c, const RunSchedule& s, const Timeline& tl, const RunOutcome& o,
+                      const CampaignTiming& t) {
+    judge_detected(c, s, tl, o, t);
+    c.equal(o.nm_episodes, 0, "no-majority episodes");
+    c.equal(o.held_frames, 0, "frames holding every value under FAILURE_WARNING");
+    c.expect(o.normal_at_end, "a value not NORMAL at the end of the run");
+    c.equal(o.nonfinite_voted_frames, 0, "frames emitting a value that is not a number");
 }
 
 // The voter's count rule (REQ-RED-003, REQ-RED-006) replayed over the
@@ -317,7 +338,11 @@ Verdict judge_cells(const RunSchedule& s, const Timeline& tl, const RunOutcome& 
             judge_sub_threshold(c, s, tl, o, t);
             break;
         case CellClass::UNCOVERED:
-            judge_uncovered(c, s, o, t);
+            if (!as_written && (id == "U06" || id == "U07")) {
+                judge_non_finite(c, s, tl, o, t);
+            } else {
+                judge_uncovered(c, s, o, t);
+            }
             break;
         case CellClass::CLEAN:
             c.equal(o.declarations, 0, "declarations");
