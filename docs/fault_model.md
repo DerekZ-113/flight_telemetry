@@ -1,13 +1,15 @@
 # Flight Telemetry System — Fault Model
 
 > **Document ID:** FTS-FM-001
-> **Version:** 0.7.0
+> **Version:** 0.8.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-18
 
 This document defines every known failure mode, how the system detects it, and how the system responds. Each entry traces to a requirement and a test.
 
-Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9). The channel is a sensor channel, or VOTER for the voter's own events (FAULT-019 to FAULT-022), new values of the existing channel and type bytes since 0.7.0, with no format change.
+Where a response says "log fault event", the event is a `FaultEvent` record (timestamp, channel, fault type, value) written by `BinaryLogger::log_event` into the same binary log as the telemetry frames, tagged so replay can skip it (FTS-DD-001 Section 9). The channel is a sensor channel, or VOTER for the voter's own events (FAULT-019 to FAULT-022) and, since 0.8.0, for the one lane fault the demonstration option injects (LANE_FAULT_INJECTED, REQ-RED-007), new values of the existing channel and type bytes since 0.7.0, with no format change.
+
+Since 0.8.0 a seeded fault-injection campaign (REQ-TEST-005, FTS-FI-001) injects every entry that names a detection (FAULT-001 to FAULT-011, FAULT-019 to FAULT-022) and the two entries under *Uncovered Failures* (FAULT-023, FAULT-024), and its coverage table gives each one's measured detection, latency and recovery; the ADS-B entries (FAULT-012 to FAULT-017) and FAULT-018 keep their unit tests, the campaign's source being the simulator.
 
 Every threshold below is a key of `config/telemetry_config.yaml` under `fault` (REQ-CFG-001), except FAULT-010's, which is the full-scale range the driver configures and is derived from the driver's own constants; the ADS-B entries' (FAULT-012 to FAULT-015), whose keys sit in the optional `adsb` block (REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001); and the lane entries' persistence count, three, which REQ-RED-003 states and the voter holds as a named constant (FTS-DD-001 Section 12); the values quoted are the shipped file's, validated at startup (REQ-CFG-002).
 
@@ -281,6 +283,30 @@ Since 0.7.0 every checked frame is processed by three identical lanes and a vote
 - **Response:** The lane takes no part in that cycle's vote, so two stale lanes can never outvote a current one. On a cycle with a majority it counts as outside it toward FAULT-020's three, and its onset event is LANE_OVERRUN (value: the lane) when staleness is that cycle's reason.
 - **Requirement:** REQ-RED-006, REQ-RED-003
 - **Test:** `VoterTest.StaleLaneIsAnOverrun`, `VoterTest.TwoStaleLanesNeverOutvoteACurrentOne`, `VoterTest.StaleThenDisagreeingCountsOnce`
+
+## Uncovered Failures
+
+Since 0.8.0 the fault model lists two failure modes that no check catches. They are here because the fault-injection campaign (REQ-TEST-005) injects them, and because a failure mode left out of the fault model reads as covered. Neither has a detection to verify; each has a measured consequence (FTS-FI-001).
+
+### FAULT-023: Reading in error inside the limits (a bias step, a drift, a GPS fix that stops changing)
+
+- **What:** A sensor reports a value offset from the truth by a constant (a bias step) or by an amount that grows (a drift), every reading inside its limits and, for the barometer and IMU, still varying as a live reading does; or the GPS keeps delivering the same fix.
+- **Cause:** A calibration shift, temperature drift, a damaged sensing element, a partly blocked static port; for the GPS, receiver firmware repeating its last solution.
+- **Likelihood:** Medium over a sensor's life for a bias or a drift; low for a repeated fix.
+- **Detection:** None. Each check compares a channel with fixed limits (FAULT-008 to FAULT-010), with its own previous value (FAULT-005 to FAULT-007, which the GPS does not have, FTS-DD-001 Section 12), or with the clock (FAULT-001 to FAULT-003); an error inside the limits that keeps the readings changing passes all three. Detecting it needs a reference: another sensor of the same quantity, the barometric altitude against the GPS altitude, or a model of the vehicle, an analytical-redundancy check parked in FTS-DD-001 Section 12.
+- **Response:** None. The error reaches the computed fields with validity NORMAL: a barometric bias of b hPa moves the barometric and fused altitude by about 8.3 b m; a drift shows as a false vertical speed; an accelerometer bias tilts the attitude by atan(b/g). FTS-FI-001 measures how far (campaign cells U01 to U05).
+- **Requirement:** None: no requirement asks for this detection. The entry exists so that the fault model lists what the campaign shows nothing catches.
+- **Test:** `tests/fault_injection/` cells U01 to U05 (TC-035, TC-036): no declaration, and the error against the run's clean twin recorded.
+
+### FAULT-024: Non-finite reading
+
+- **What:** A raw field holds NaN or an infinity.
+- **Cause:** A defect in a driver or a parser: arithmetic on a corrupt value, a conversion that accepts "nan". The drivers make it remote: the NMEA parser refuses a number that is not finite (`src/drivers/nmea.cpp`), and the BMP280 and MPU6050 values are integer counts scaled by constants, so a finite count always gives a finite value.
+- **Likelihood:** Remote: a software fault, not a sensor's.
+- **Detection:** None at the detector. Every comparison with NaN is false, so a NaN pressure, temperature or acceleration passes the range checks (FAULT-008 to FAULT-010), and NaN never equals itself, so it is never stuck (FAULT-005 to FAULT-007); no gyroscope range check exists (FTS-DD-001 Section 12), and a one-frame infinity never repeats. Downstream, the voter refuses a NaN in any computed field (REQ-RED-002), so a NaN the lanes all carry leaves no majority; an infinity agrees with itself and is voted.
+- **Response:** By field. A NaN pressure, or a NaN GPS altitude on a fix frame, enters the Kalman filter's state and never leaves it (only a new-vehicle frame resets the filter, REQ-PROC-008): from that frame to the end of the run the lanes have no majority, one NO_MAJORITY event is logged, on channel VOTER and not on the sensor's, and every computed field holds its last voted value under FAILURE_WARNING (FAULT-021); no NaN reaches the output. A NaN acceleration is absorbed: the attitude filter's usability test fails and that cycle coasts on the gyroscope. A NaN gyroscope rate makes the attitude NaN until a gap longer than the IMU timeout re-seeds it. An infinite gyroscope rate makes the attitude infinite in every lane, and the voter passes it under VOTED with validity NORMAL: one value through which the voter's blindness to a fault common to every lane shows. FTS-FI-001 shows the NaN pressure and the infinite rate (cells U06, U07).
+- **Requirement:** REQ-FAULT-003 ("invalid sensor readings"), met at the drivers, not at the detector; a detector check for non-finite values is parked (FTS-DD-001 Section 12).
+- **Test:** cells U06 and U07 (TC-035, TC-036).
 
 ## System-Level Degradation Summary
 
