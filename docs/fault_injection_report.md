@@ -224,21 +224,31 @@ On every frame, at least two lanes stay in the vote, at most one lane bit is set
 
 ## 6. Results
 
+### 6.1 Faults the detector is built for
+
 <!-- generated:detector -->
 *Not yet run.*
 <!-- end generated -->
+
+### 6.2 Faults below the thresholds
 
 <!-- generated:transients -->
 *Not yet run.*
 <!-- end generated -->
 
-<!-- generated:false-alarms -->
-*Not yet run.*
-<!-- end generated -->
+### 6.3 Faults no check covers
 
 <!-- generated:uncovered -->
 *Not yet run.*
 <!-- end generated -->
+
+### 6.4 False alarms: clean runs and untouched channels
+
+<!-- generated:false-alarms -->
+*Not yet run.*
+<!-- end generated -->
+
+### 6.5 Lane faults, at persistence count P
 
 <!-- generated:voter -->
 *Not yet run.*
@@ -249,6 +259,10 @@ On every frame, at least two lanes stay in the vote, at most one lane bit is set
 ## 7. Measured against predicted
 
 *Written after the first run: every gap between Section 5 and Section 6, with its explanation.*
+
+<!-- generated:departures -->
+*Not yet run.*
+<!-- end generated -->
 
 ---
 
@@ -280,7 +294,9 @@ What this campaign shows no check catches, and why:
 
 ```
 scripts/fault_campaign.sh                     # the full campaign on a clean tree: build, run, generate this report's blocks
+scripts/fault_campaign.sh --preview           # the same on a tree with changes, recording the tree that ran instead of a commit
 build/fault_campaign --seed <id> --log <dir>  # any one run, from its seed alone, with its binary log
+python -m analysis.fault_campaign <record>    # the blocks and figures again from a campaign's record, without rerunning it
 ```
 
-The script records the commit, the platform and the configuration's hash, runs every cell at its stated count, and rewrites only the generated blocks of Sections 3 and 6 and the figures, so `git diff` shows which numbers moved. The rerun after the bench session changes the configuration's measured constants and the simulator's noise, and with them the uncovered faults' consequences; it cannot change the detection latencies, which follow from the thresholds and the frame period alone, or the false-alarm figure, which the unquantized noise fixes at zero.
+The script records the commit, the platform and the configuration's hash, runs every cell at its stated count, and rewrites only the generated blocks of Sections 3, 6 and 7 and the figures, so `git diff` shows which numbers moved. A campaign of record runs on a clean tree; `--preview` is for a run made before its commit exists, and records the tree's hash, which `git rev-parse <commit>^{tree}` matches once the commit is made. The rerun after the bench session changes the configuration's measured constants and the simulator's noise, and with them the uncovered faults' consequences; it cannot change the detection latencies, which follow from the thresholds and the frame period alone, or the false-alarm figure, which the unquantized noise fixes at zero.
