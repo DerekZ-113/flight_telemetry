@@ -2111,15 +2111,57 @@ Every run is as Section 5.6 predicted, and departs from Section 5.3 as written b
 
 ### 22.7 Measurement of record
 
-Owed after the push. The run should show:
-- `lane_fault_injector.cpp` at 60 of 60, the leg Entry 21 §21.7 found untaken now taken by `1@.5`;
-- `fault_detector.cpp`'s new branches all taken, with no exception edge;
-- processing at 100.0%;
-- the subset's U06 and U07 as predicted on libstdc++.
+CI run 39298962945 on `aedd45b`, the branch's head, on draft pull request 4, 2026-10-19 18:00:40 to 18:05:10 UTC. It ran on the one push that carried commits 11 to 15 (`307a69c..aedd45b`). Both jobs passed.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 575 of 575, the five `NonFinite*` tests and the subset's 45 cells among them; no warning in the build |
+| The CI subset on libstdc++ | every cell's ten seeds as predicted, `Subset/CellTest.AsPredicted/U06` and `U07` under FTS-FI-001 Section 5.6 |
+| pytest (Python 3.13.16, against the instrumented binaries) | 176 of 176 in 138.2 s |
+| lcov over `src/` | lines 98.4% (3,185 of 3,237), functions 97.2% (353 of 363), branches 93.8% (1,518 of 1,618) |
+| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| `page` job | 84 of 84 in 13 files; no file under `dashboard/` changed |
+| Wall time | the C++ job 4 min 27 s; the page job 17 s |
+
+Per-scope branch coverage on GCC, beside Entry 21's record and this entry's preview:
+
+| Scope | Record (GCC) | Run 39292191411 on `307a69c` (GCC) | §22.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 100.0% | 99.7% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 86.8% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 97.6% | 97.6% | 100.0% | 80% |
+| drivers | 89.4% | 89.4% | 91.2% | 70% |
+| overall | 93.8% | 93.7% | 94.3% | 80% |
+
+The files commits 11 to 15 changed under lcov's scope, on GCC:
+
+| File | Lines | Branches | Functions | At `307a69c` |
+|---|---|---|---|---|
+| `processing/fault_detector.cpp` | 181 of 181 | 80 of 80 | 15 of 15 | 155 of 155, 70 of 70, 13 of 13 |
+| `processing/lane_fault_injector.cpp` (only its test changed) | 109 of 109 | 60 of 60 | 11 of 11 | 109 of 109, 59 of 60, 11 of 11 |
+
+The record reconciles with Entry 21's exactly:
+- **Branches:** 1,608 and the check's 10 make the 1,618.
+- **Taken:** 1,507, the check's 10 and the leading point's leg make the 1,518.
+- **Lines:** 3,159 and the detector's 26 make the 3,185.
+- **Functions:** 351 and the helper with its predicate make the 353.
+
+The four expectations this entry set before the push:
+
+| Expectation | Measured |
+|---|---|
+| `lane_fault_injector.cpp` at 60 of 60, the leg Entry 21 §21.7 found untaken now taken by `1@.5` | 60 of 60: met |
+| `fault_detector.cpp`'s new branches all taken, with no exception edge | 80 of 80. That is the 70 of the earlier run and exactly the check's 10 decision legs, so GCC added no unwind edge to the lines that test a local: met |
+| processing at 100.0% | 100.0%: met |
+| the subset's U06 and U07 as predicted on libstdc++ | both passed under Section 5.6, with every other cell: met |
+
+None was missed. Entry 21 §21.7's one open measurement, the leading point's leg, is closed by the same run.
 
 ### 22.8 Open
 
-- §22.7.
 - The campaign of record after the bench session, whose generated tables will show U06 and U07 as detected.
 - The ADS-B extras' finiteness, with Phase B.
 - Entry 21's open items stand (TC-037 step 9; the README's count of exception markers), and Entry 20's (TC-009 step 8).
