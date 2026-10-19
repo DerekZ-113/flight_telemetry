@@ -63,6 +63,7 @@ add_library(telemetry_core STATIC
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp
     src/replay/log_replay_source.cpp
+    src/replay/recorded_injections.cpp
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
     src/timing/timestamp_pacer.cpp
