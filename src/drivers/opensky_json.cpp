@@ -118,7 +118,7 @@ StatesParse parse_states(const std::string& body) {
         parse.problem = "states is neither an array nor null";
         return parse;
     }
-    for (const json& row : states) {
+    for (const json& row : states) {  // LCOV_EXCL_EXCEPTION_BR_LINE: a range-for over nlohmann's iterators, which can throw; its decision is tested, not measured (FTS-VR-001 §1.3)
         const std::optional<AircraftState> state = parse_row(row);
         if (state.has_value()) {
             parse.document.states.push_back(*state);

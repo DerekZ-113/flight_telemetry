@@ -100,8 +100,8 @@ std::optional<SelectionChange> AircraftSelector::update(const opensky_json::Stat
         return take(nearest, SwitchReason::INITIAL);
     }
 
-    const auto current = std::find_if(document.states.begin(), document.states.end(),
-                                      [this](const opensky_json::AircraftState& s) { return s.icao24 == selected_->icao24; });
+    const auto is_selected = [this](const opensky_json::AircraftState& s) { return s.icao24 == selected_->icao24; };
+    const auto current = std::find_if(document.states.begin(), document.states.end(), is_selected);
     if (current == document.states.end()) {
         // Absent from this response: held through the tolerated misses with
         // no vector to read, gone after them.

@@ -101,7 +101,7 @@ bool LogReader::next(LogRecord& out) {
 
 std::optional<TelemetryFrame> LogReader::next_frame() {
     LogRecord record;
-    while (next(record)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
+    while (next(record)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: next() is the loop's condition; its decision is tested, not measured (FTS-VR-001 §1.3)
         if (record.type == RecordType::FRAME) {
             return record.frame;
         }
@@ -113,9 +113,15 @@ std::vector<std::filesystem::path> list_log_files(const std::filesystem::path& d
                                                   const std::string& prefix) {
     std::vector<std::filesystem::path> files;
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
+    // What the filter compares is built before the loop, and each name's
+    // parts on lines of their own, so the condition calls only rfind and
+    // path equality, which cannot throw (FTS-VR-001 Entry 23 §23.4).
+    const std::string numbered = prefix + "_";
+    const std::filesystem::path log_extension(".bin");
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {  // LCOV_EXCL_EXCEPTION_BR_LINE: a range-for whose increment can throw; its decision is tested, not measured (FTS-VR-001 §1.3)
         const std::string name = entry.path().filename().string();
-        if (name.rfind(prefix + "_", 0) == 0 && entry.path().extension() == ".bin") {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
+        const std::filesystem::path extension = entry.path().extension();
+        if (name.rfind(numbered, 0) == 0 && extension == log_extension) {
             files.push_back(entry.path());
         }
     }

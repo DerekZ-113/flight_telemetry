@@ -152,13 +152,15 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
     // asymmetric, the positive rail one count short of 2 g and the count
     // one inside the negative rail equal to minus the positive rail, so a
     // fabs() against either rail misses one case or flags a valid reading.
-    // std::find_if names the intent: locate the first saturated axis.
+    // std::find_if names the intent: locate the first saturated axis. The
+    // predicate is named so that the call fits on a line of its own, where
+    // lcov's filter drops its unwind edge (FTS-VR-001 Entry 23 §23.4).
     const float accel[3] = {raw.accel_x, raw.accel_y, raw.accel_z};
-    const float* saturated = std::find_if(std::begin(accel), std::end(accel),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-                                          [](float a) {
-                                              return a >= Mpu6050::kAccelPositiveRailMps2 ||
-                                                     a <= Mpu6050::kAccelNegativeRailMps2;
-                                          });
+    const auto at_a_rail = [](float a) {
+        return a >= Mpu6050::kAccelPositiveRailMps2 ||
+               a <= Mpu6050::kAccelNegativeRailMps2;
+    };
+    const float* saturated = std::find_if(std::begin(accel), std::end(accel), at_a_rail);
     if (saturated != std::end(accel)) {
         obs.faulted = true;
         obs.type = FaultType::OUT_OF_RANGE;

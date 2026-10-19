@@ -95,10 +95,11 @@ jobs:
           # class of strictness on library headers and unmatched patterns.
           #
           # '--filter branch' strips exception-unwind edges only from lines
-          # with no conditional; GCC keeps them on `if`/`for` lines that
-          # build std::string temporaries. Those lines carry a
-          # LCOV_EXCL_EXCEPTION_BR_LINE marker in the source instead
-          # (verification_results.md Entry 5, 5.6). Do not add
+          # with no conditional, so the source keeps every call that can
+          # throw on a line of its own (CLAUDE.md); the loop lines whose
+          # calls cannot leave the condition carry a
+          # LCOV_EXCL_EXCEPTION_BR_LINE marker instead
+          # (verification_results.md §1.3). Do not add
           # '--rc no_exception_branch=1': on the runner's lcov 2.0 it
           # discards nearly every branch (run 34444099506, reproduced in
           # a container in 5.6).

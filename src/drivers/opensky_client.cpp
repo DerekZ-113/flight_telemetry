@@ -23,8 +23,14 @@ bool unreserved(unsigned char c) {
 FetchResult failure(FetchStatus status, const HttpResponse& response) {
     FetchResult result;
     result.status = status;
-    result.http_status = response.transport_ok ? response.status : 0;
-    result.detail = response.transport_ok ? "" : response.error;
+    // One decision for both fields, the copy of libcurl's text, which can
+    // throw, on a line of its own (FTS-VR-001 Entry 23 §23.4); the defaults
+    // are 0 and empty.
+    if (response.transport_ok) {
+        result.http_status = response.status;
+    } else {
+        result.detail = response.error;
+    }
     return result;
 }
 

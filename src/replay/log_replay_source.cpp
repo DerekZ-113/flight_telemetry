@@ -53,9 +53,14 @@ bool LogReplaySource::has_next() {
     // until it holds a frame or the files run out. Nothing is consumed
     // here: read_frame() hands the buffered frame out.
     while (!next_.has_value() && !exhausted_) {
-        if (!reader_.has_value() && !open_next_file()) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-            exhausted_ = true;
-            break;
+        if (!reader_.has_value()) {
+            // The call on a line of its own, the decision on the next
+            // (FTS-VR-001 Entry 23 §23.4).
+            const bool opened = open_next_file();
+            if (!opened) {
+                exhausted_ = true;
+                break;
+            }
         }
         next_ = reader_->next_frame();
         if (!next_.has_value()) {
