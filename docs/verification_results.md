@@ -1621,5 +1621,18 @@ One correction to Entry 18, made with this record: §18.7's cppcheck row read 40
 - Phase B (design §12): the vertical rate, recorded since commit 7, as the filter's third measurement; the pressure altitude; the selection's altitude term.
 - FAULT-003b: the detector's judgment of the fix quality and the satellite count the frame now carries.
 - The voter (design §11.1), whose status field waits for it.
-- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made.
+- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made. Made 2026-10-18 with this build before the voter's first line, Entry 20 §20.4.
 - Entry 18's open items stand: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines; and Entry 17's: §17.7, TC-025 step 8, the Pi.
+
+## Entry 20 — 2026-10-18, The redundancy voter: three identical processing lanes behind one detector, a majority voter, the voter's status on every frame (macOS preview)
+
+Opened at the topic's first step, before any code, with the single-lane references its byte checks compare against (§20.4); the rest of the entry is written as the topic lands. Branch `claude/redundancy-voter-phase-1-3e0ca4`, stacked on the ADS-B branch at `a7461a3` (Entry 19 §19.7), off `main` until after the v0.1.0 tag.
+
+### 20.4 The byte checks
+
+**The single-lane references (step 1).** The voter must change the simulator's logs in `voter_status` alone, so the comparison needs the logs of the pipeline without it, recorded by the same toolchain at the same format version. `build-ref/` was configured from the untouched tree at `a7461a3` (`-DWARNINGS_AS_ERRORS=ON`, the `telemetry` target), its binary copied aside as `build-ref/telemetry_a7461a3` and never rebuilt during the topic; both logs are kept beside it in `build-ref/ref_logs/` (`build*/` is ignored, so neither is committed; the hashes below let either be checked or regenerated).
+
+| Item | Observed |
+|---|---|
+| The seed-42 500-frame session, `--config config/telemetry_config.yaml --cycles 500` | `7720966cb87473bc429f975794ffb4fdfcba1652b7c1a0bec54bc15da2f15ae3`, Entry 19 §19.4's version-3 hash reproduced; every validity NORMAL from frame 0, no event, `voter_status` 0 on every frame. Its replay `703f621cca12153e267be4794a28dd28a8be4df58a929d8ce40c1c9a55b01269`, Entry 19's too: every record identical, `cmp -l` printing `11 2 3` |
+| The demo, `--motion demo --cycles 7500` (FTS-DS-001 §7; Entry 19 §19.8's open item) | 7,500 frames in 907,516 bytes (16 + 7,500 × 121), one file, no event, `voter_status` 0 and the sequence equal to the frame's index on every frame, every validity NORMAL from frame 0, missed cycles 0; `d9ee490a17a9c4cc74d4b019b93e14cb55cfc304b9734e9e5b19d41f61ce41e9` on this Mac (libc++; the runner's libstdc++ draws differently, FTS-DD-001 §8). Its unpaced replay `bb9a8af7a979f24ae02d2b201fe41e1732a4a221289c847d8786e6530f9ee89e`: every record identical, the header differing in the run-mode byte alone. Entry 17's `caba9aeb…` is the same flight at format version 2 |
