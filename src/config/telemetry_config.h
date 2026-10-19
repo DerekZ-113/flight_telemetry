@@ -121,7 +121,7 @@ struct TelemetryConfig {
     // The one block a file may omit (REQ-CFG-001): empty when the file
     // has no `adsb` block, which a run without --adsb accepts, so that a
     // configuration recorded before the block existed replays as
-    // recorded; present, its ten keys are required like any other
+    // recorded; present, its eleven keys are required like any other
     // (adsb_config.h). A bare TelemetryConfig has none.
     std::optional<AdsbConfig> adsb;
 };

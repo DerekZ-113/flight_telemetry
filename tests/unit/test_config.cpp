@@ -133,7 +133,7 @@ TEST(ConfigTest, ShippedFileEqualsDefaults) {
     EXPECT_EQ(c.simulation.noise.gps_altitude_sigma_m, d.simulation.noise.gps_altitude_sigma_m);
 
     // The optional block (REQ-CFG-001): the shipped file carries it, so
-    // its ten keys equal AdsbConfig's defaults; a bare TelemetryConfig has
+    // its eleven keys equal AdsbConfig's defaults; a bare TelemetryConfig has
     // no block, the recorded-configuration case.
     EXPECT_FALSE(d.adsb.has_value());
     ASSERT_TRUE(c.adsb.has_value());
@@ -146,6 +146,7 @@ TEST(ConfigTest, ShippedFileEqualsDefaults) {
     EXPECT_EQ(c.adsb->reference.longitude, a.reference.longitude);
     EXPECT_EQ(c.adsb->poll_interval_ms, a.poll_interval_ms);
     EXPECT_EQ(c.adsb->switch_margin_m, a.switch_margin_m);
+    EXPECT_EQ(c.adsb->ceiling_m, a.ceiling_m);
     EXPECT_EQ(c.adsb->gone_after_polls, a.gone_after_polls);
     EXPECT_EQ(c.adsb->timeout_ms, a.timeout_ms);
 }
@@ -620,7 +621,7 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"latitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.latitude_sigma_deg", Rule::Positive},
         {"longitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.longitude_sigma_deg", Rule::Positive},
         {"gps_altitude_sigma_m: 2.0", "2.0", "simulation.noise.gps_altitude_sigma_m", Rule::Positive},
-        // The optional block's ten keys, required when the block is present (REQ-CFG-001).
+        // The optional block's eleven keys, required when the block is present (REQ-CFG-001).
         {"lat_min: 37.45", "37.45", "adsb.box.lat_min", Rule::Range, "-90.1", "must be -90 to 90 (got -90.1)", "90.1",
          "must be -90 to 90 (got 90.1)"},
         {"lat_max: 37.75", "37.75", "adsb.box.lat_max", Rule::Range, "-90.1", "must be -90 to 90 (got -90.1)", "90.1",
@@ -636,10 +637,11 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"poll_interval_ms: 5000", "5000", "adsb.poll_interval_ms", Rule::Whole, "999", "must be 1000 to 3600000 (got 999)",
          "3600001", "must be 1000 to 3600000 (got 3600001)"},
         {"switch_margin_m: 2000", "2000", "adsb.switch_margin_m", Rule::NonNegative, "-1", "must be at least 0 (got -1)"},
+        {"ceiling_m: 1650", "1650", "adsb.ceiling_m", Rule::NonNegative, "-1", "must be at least 0 (got -1)"},
         {"gone_after_polls: 2", "2", "adsb.gone_after_polls", Rule::Whole, "0", "must be at least 1 (got 0)"},
         {"timeout_ms: 20000", "20000", "adsb.timeout_ms", Rule::Whole, "0", "must be at least 1 (got 0)"},
     };
-    EXPECT_EQ(std::size(keys), 48u);   // the file's key count, as the documents state it: 38, and the optional block's 10
+    EXPECT_EQ(std::size(keys), 49u);   // the file's key count, as the documents state it: 38, and the optional block's 11
 
     const std::string shipped = shipped_text();
     for (const Key& key : keys) {

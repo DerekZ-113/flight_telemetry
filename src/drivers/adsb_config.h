@@ -50,6 +50,21 @@ struct AdsbConfig {
     // alternate on the display (REQ-SENS-009). At least 0.
     double switch_margin_m = 2000.0;
 
+    // The geometric altitude (the vector's own datum, WGS-84 HAE, the
+    // field the frame presents as gps_altitude_m) above which an aircraft
+    // is not a candidate and the kept aircraft is dropped (REQ-SENS-009;
+    // FTS-FM-001 FAULT-015). Ground distance cannot tell an overflight
+    // from an approach: an arrival descending through 3,500 m 2.4 km from
+    // the field was nearer than the aircraft on short final and displaced
+    // it for 36 s (FTS-VR-001 Entry 18 §18.5). Height can: inside the box
+    // every aircraft on an approach to this field is below the 3° glide
+    // path's height at the box's far corner, 31.1 km from the reference
+    // point, 1,629 m above the field, which sits 23 m below the
+    // ellipsoid; rounded up to 1,650 m, so nothing on the approach inside
+    // the box is excluded (a test pins the derivation to the shipped
+    // box). At least 0.
+    double ceiling_m = 1650.0;
+
     // Responses without the kept aircraft before it counts as gone: a
     // receiver's coverage flickers, and a failed poll is not a response.
     // At least 1.
