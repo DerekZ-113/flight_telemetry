@@ -87,7 +87,9 @@ COMPUTED_VALIDITY = {
     "vertical_speed_mps": "vertical_speed_validity",
 }
 VALIDITY_FIELDS = tuple(COMPUTED_VALIDITY.values())
-CHANNEL_NAMES = {0: "BARO", 1: "IMU", 2: "GPS"}                                 # Channel
+# Channel: the three sensor channels and, for the voter's own events (REQ-RED-003, REQ-RED-004,
+# REQ-RED-006), the voter, a new value of the existing byte (2026-10-18; no format change).
+CHANNEL_NAMES = {0: "BARO", 1: "IMU", 2: "GPS", 3: "VOTER"}                     # Channel
 # The flags byte's bits (FrameFlag): facts a source states about a frame (REQ-PROC-008, REQ-SENS-005,
 # REQ-SENS-008); the voter's status bits (VoterStatus), zero meaning no voter ran.
 FLAG_NAMES = {0x01: "NEW_VEHICLE", 0x02: "VERTICAL_RATE", 0x04: "PRESSURE_ALTITUDE", 0x08: "FIX_QUALITY"}
@@ -103,7 +105,10 @@ SESSION = struct.Struct("@4sBBBB3s8s")                          # 19 bytes: magi
 NO_IDENTITY = bytes(11)                                         # the eleven identity bytes zero: nothing selected, or another mode
 MODE_NAMES = {1: "LIVE", 2: "SIMULATED", 3: "REPLAY", 4: "ADSB"}   # RunMode as the status names the run
 STATE_NAMES = {1: "RUNNING", 2: "ENDED"}                        # StreamState
-FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY"}   # FaultType
+# FaultType: the detector's four, then the voter's four (FTS-FM-001 FAULT-019 to FAULT-022), whose
+# event value is the lane (1 to 3), or for NO_MAJORITY the lanes still in the vote.
+FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY",
+                    4: "LANE_DISAGREEMENT", 5: "LANE_FAULTED", 6: "NO_MAJORITY", 7: "LANE_OVERRUN"}   # FaultType
 
 assert len(FRAME_FIELDS) == len(FRAME.unpack(bytes(FRAME.size)))
 # The prefix rule (REQ-LOG-005): a frame of versions 1 and 2 is the first 104 bytes of a version-3

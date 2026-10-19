@@ -48,6 +48,8 @@ void FaultInjectingSource::copy_channel(Channel channel, const TelemetryFrame& f
             to.gps_satellites = from.gps_satellites;
             to.flags = static_cast<uint8_t>((to.flags & ~kGpsPresenceBits) | (from.flags & kGpsPresenceBits));
             break;
+        case Channel::VOTER:   // LCOV_EXCL_LINE: read_frame() copies the three sensor channels only
+            break;             // LCOV_EXCL_LINE
     }
 }
 
@@ -102,6 +104,7 @@ void FaultInjectingSource::fail_reads(Channel channel, bool enable) {
         case Channel::BARO: fail_baro_ = enable; break;
         case Channel::IMU:  fail_imu_ = enable; break;
         case Channel::GPS:  fail_gps_ = enable; break;
+        case Channel::VOTER: break;   // not a sensor channel: nothing to fail
     }
 }
 
@@ -110,6 +113,7 @@ void FaultInjectingSource::hold_values(Channel channel, bool enable) {
         case Channel::BARO: hold_baro_ = enable; break;
         case Channel::IMU:  hold_imu_ = enable; break;
         case Channel::GPS:  hold_gps_ = enable; break;
+        case Channel::VOTER: break;   // not a sensor channel: nothing to hold
     }
 }
 

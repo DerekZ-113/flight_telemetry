@@ -264,6 +264,7 @@ const char* channel_name(Channel channel) {
         case Channel::BARO: return "BARO";
         case Channel::IMU:  return "IMU";
         case Channel::GPS:  return "GPS";
+        case Channel::VOTER: return "VOTER";
     }
     // Unreachable: the switch covers every enumerator. Exists only to
     // satisfy -Wreturn-type, so it is excluded from coverage.
@@ -276,6 +277,10 @@ const char* fault_type_name(FaultType type) {
         case FaultType::STUCK:        return "STUCK";
         case FaultType::OUT_OF_RANGE: return "OUT_OF_RANGE";
         case FaultType::RECOVERY:     return "RECOVERY";
+        case FaultType::LANE_DISAGREEMENT: return "LANE_DISAGREEMENT";
+        case FaultType::LANE_FAULTED:      return "LANE_FAULTED";
+        case FaultType::NO_MAJORITY:       return "NO_MAJORITY";
+        case FaultType::LANE_OVERRUN:      return "LANE_OVERRUN";
     }
     return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see channel_name)
 }

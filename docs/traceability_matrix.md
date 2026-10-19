@@ -136,19 +136,19 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 |---|---|---|---|---|---|
 | REQ-RED-001 | | | TC-034, TC-009 (step 8) | Not started | Entered 2026-10-18: three lanes, each a processor with state of its own, behind one detector, in the loop's thread. TC-009 step 8 (the three lanes' cost on the Pi) is a hand step. |
 | REQ-RED-002 | | | TC-032, TC-034 | Not started | Entered 2026-10-18: the one comparison, bit for bit over the thirteen compared fields, a NaN agreeing with nothing; the checked frame with the majority's computed fields and validities; VOTED. |
-| REQ-RED-003 | | | TC-032 | Not started | Entered 2026-10-18: excluded after 3 consecutive misses on majority cycles, until restart; the onset and exclusion events; the lane's bit on every later frame. |
-| REQ-RED-004 | | | TC-033 | Not started | Entered 2026-10-18: (a) two agreeing lanes carry on; (b) no majority: NO_MAJORITY, held values under FAILURE_WARNING or 0 under NO_COMPUTED_DATA, one event, the loop continues. |
+| REQ-RED-003 | `src/processing/fault_detector.h` / `.cpp` (`Channel::VOTER`, the lane `FaultType`s and their names, new values of the event's bytes), `pipeline/frame_format.py` (`CHANNEL_NAMES`, `FAULT_TYPE_NAMES`) | `test_fault_detection.cpp: FaultDetectionTest.EventNamesAreReadable` (the names and the numbers), `FaultInjectingSourceTest.VoterIsNotASensorChannel`; `tests/integration/test_voter.py` (`test_voter_event_names`) | TC-032 | Partial | The event vocabulary (commit 3 of the topic); the count and the exclusion follow. Entered 2026-10-18: excluded after 3 consecutive misses on majority cycles, until restart; the onset and exclusion events; the lane's bit on every later frame. |
+| REQ-RED-004 | `src/processing/fault_detector.h` / `.cpp` (`Channel::VOTER`, the lane `FaultType`s and their names, new values of the event's bytes), `pipeline/frame_format.py` (`CHANNEL_NAMES`, `FAULT_TYPE_NAMES`) | `test_fault_detection.cpp: FaultDetectionTest.EventNamesAreReadable` (the names and the numbers), `FaultInjectingSourceTest.VoterIsNotASensorChannel`; `tests/integration/test_voter.py` (`test_voter_event_names`) | TC-033 | Partial | The NO_MAJORITY event type (commit 3 of the topic); the rule follows. Entered 2026-10-18: (a) two agreeing lanes carry on; (b) no majority: NO_MAJORITY, held values under FAILURE_WARNING or 0 under NO_COMPUTED_DATA, one event, the loop continues. |
 | REQ-RED-005 | | | TC-032, TC-034 | Not started | Entered 2026-10-18: the lane-fault interface, each lane's input and output, for verification only; the binary never sets it. |
-| REQ-RED-006 | | | TC-032 | Not started | Entered 2026-10-18: a lane whose output names another frame is overrun, out of that vote, a miss on a majority cycle, LANE_OVERRUN at onset. |
+| REQ-RED-006 | `src/processing/fault_detector.h` / `.cpp` (`Channel::VOTER`, the lane `FaultType`s and their names, new values of the event's bytes), `pipeline/frame_format.py` (`CHANNEL_NAMES`, `FAULT_TYPE_NAMES`) | `test_fault_detection.cpp: FaultDetectionTest.EventNamesAreReadable` (the names and the numbers), `FaultInjectingSourceTest.VoterIsNotASensorChannel`; `tests/integration/test_voter.py` (`test_voter_event_names`) | TC-032 | Partial | The LANE_OVERRUN event type (commit 3 of the topic); the rule follows. Entered 2026-10-18: a lane whose output names another frame is overrun, out of that vote, a miss on a majority cycle, LANE_OVERRUN at onset. |
 
 ## 11. Coverage Summary
 
 | Status | Count | Requirements |
 |---|---|---|
 | Verified | 47 | SENS-006, SENS-007, SENS-009, SENS-010, SENS-011, PROC-001, PROC-002, PROC-003, PROC-005, PROC-006, PROC-007, PROC-008, FAULT-001, FAULT-002, FAULT-004, FAULT-005, FAULT-006, FAULT-007, LOG-001, LOG-002, LOG-003, LOG-004, LOG-005, LOG-006, LOG-007, LOG-008, TIME-001, TIME-002, TIME-004, TRANS-001, TRANS-002, TRANS-003, TRANS-004, DISP-001, DISP-002, DISP-003, DISP-004, DISP-005, DISP-006, DISP-007, CFG-001, CFG-002, CFG-003, CFG-004, TEST-001, TEST-002, TEST-003 |
-| Partial | 10 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, SENS-008, PROC-004, FAULT-003, TIME-003, TEST-004 |
+| Partial | 13 | SENS-001, SENS-002, SENS-003, SENS-004, SENS-005, SENS-008, PROC-004, FAULT-003, TIME-003, TEST-004, RED-003, RED-004, RED-006 |
 | Implemented | 0 | |
-| Not started | 7 | RED-001, RED-002, RED-003, RED-004, RED-005, RED-006, DISP-008 |
+| Not started | 4 | RED-001, RED-002, RED-005, DISP-008 |
 | **Total** | **64** | |
 
 **Reverse trace.** Every source file under `src/` is named in at least one row above, so no code exists without a requirement:
@@ -163,7 +163,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/drivers/simulated_data.h` / `.cpp` | REQ-SENS-006, REQ-CFG-001 (`SimulationNoise`), REQ-SENS-007 (`scripted_readings`, the `BaseReadings` seam), REQ-SENS-005 (`kFixQuality`, `kSatellites`: the simulated receiver's judgment of its fix under FIX_QUALITY) |
 | `src/drivers/simulated_source.h` / `.cpp` | REQ-SENS-006, REQ-LOG-004, REQ-SENS-007 (the profile owned for the generator), REQ-LOG-008 (the frames numbered) |
 | `src/drivers/motion_profile.h` / `.cpp` | REQ-SENS-007 (the scripted flight: `MotionState`, the demo's keyframes, `state_at`) |
-| `src/drivers/fault_injecting_source.h` / `.cpp` | REQ-TEST-001 (fault injection support), REQ-LOG-006 (`has_next` forwarded), REQ-LOG-008 (the wrapped source's count passed through), REQ-SENS-005 and REQ-SENS-008 (a held GPS reading held whole, the presence bits with it) |
+| `src/drivers/fault_injecting_source.h` / `.cpp` | REQ-TEST-001 (fault injection support; `Channel::VOTER` accepted and ignored, not a sensor channel), REQ-LOG-006 (`has_next` forwarded), REQ-LOG-008 (the wrapped source's count passed through), REQ-SENS-005 and REQ-SENS-008 (a held GPS reading held whole, the presence bits with it) |
 | `src/drivers/i2c_bus.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002, REQ-SENS-003, REQ-SENS-004 (the I2C seam) |
 | `src/drivers/mpu6050.h` / `.cpp` | REQ-SENS-003, REQ-SENS-004, REQ-FAULT-003 (the accelerometer's rails, the driver's full scale through its own scaling) |
 | `src/drivers/bmp280.h` / `.cpp` | REQ-SENS-001, REQ-SENS-002 |
@@ -195,7 +195,7 @@ Test functions are named as `file: TestSuite.TestName`. "(indirect)" means the r
 | `src/processing/altitude.h` / `.cpp` | REQ-PROC-001, REQ-SENS-007 (`altitude_to_pressure`, the inverse) |
 | `src/processing/kalman_filter.h` / `.cpp` | REQ-PROC-003 |
 | `src/processing/complementary_filter.h` / `.cpp` | REQ-PROC-002, REQ-PROC-007 (`seeded`) |
-| `src/processing/fault_detector.h` / `.cpp` | REQ-FAULT-001, REQ-FAULT-002, REQ-FAULT-003, REQ-FAULT-004, REQ-FAULT-005, REQ-FAULT-006, REQ-FAULT-007 (a NOT_AVAILABLE channel left alone), REQ-LOG-001 (`FaultEvent::reserved`) |
+| `src/processing/fault_detector.h` / `.cpp` | REQ-FAULT-001, REQ-FAULT-002, REQ-FAULT-003, REQ-FAULT-004, REQ-FAULT-005, REQ-FAULT-006, REQ-FAULT-007 (a NOT_AVAILABLE channel left alone), REQ-LOG-001 (`FaultEvent::reserved`), REQ-RED-003, REQ-RED-004, REQ-RED-006 (`Channel::VOTER` and the four lane fault types, new values of the event's bytes, and their names) |
 | `src/processing/processor.h` / `.cpp` | REQ-PROC-001, REQ-PROC-002, REQ-PROC-003, REQ-PROC-005, REQ-PROC-006, REQ-PROC-007 (`judge`, the only writer of validity), REQ-PROC-008 (the re-birth on NEW_VEHICLE), REQ-CFG-001 (`ProcessorConfig`) |
 
 Adding a file under `src/` without adding it to this table is a traceability failure.
@@ -210,7 +210,7 @@ The Python modules trace the same way. Test files are named in the Test column o
 
 | File | Traced by |
 |---|---|
-| `pipeline/frame_format.py` | REQ-LOG-001, REQ-LOG-005, REQ-PROC-007, REQ-FAULT-006, REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-004 (the byte layout shared by the log and the wire, the version range, the vocabularies' names, the session status told apart by its magic, nineteen bytes with the identity since version 2 and the source mode since version 3), REQ-FAULT-007 (the fourth status's name), REQ-LOG-005 (since format version 3: `FRAME_V2` and the prefix rule, the frame size per version), REQ-LOG-007 (the header's two modes, `RUN_MODE_NAMES`), REQ-LOG-008, REQ-PROC-008 (the version-3 fields, `FLAG_NAMES`, `VOTER_STATUS_NAMES`). |
+| `pipeline/frame_format.py` | REQ-LOG-001, REQ-LOG-005, REQ-PROC-007, REQ-FAULT-006, REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-004 (the byte layout shared by the log and the wire, the version range, the vocabularies' names, the session status told apart by its magic, nineteen bytes with the identity since version 2 and the source mode since version 3), REQ-FAULT-007 (the fourth status's name), REQ-LOG-005 (since format version 3: `FRAME_V2` and the prefix rule, the frame size per version), REQ-LOG-007 (the header's two modes, `RUN_MODE_NAMES`), REQ-LOG-008, REQ-PROC-008 (the version-3 fields, `FLAG_NAMES`, `VOTER_STATUS_NAMES`), REQ-RED-003, REQ-RED-004, REQ-RED-006 (the voter's channel and fault-type names). |
 | `pipeline/receiver.py` | REQ-TRANS-001, REQ-TRANS-002, REQ-TRANS-003, REQ-TRANS-004 (the latest status kept with its identity and its source mode, the source shown where it differs from the mode, the run ended on ENDED), REQ-PROC-007 (the validity beside each value), REQ-LOG-008 (the sequence beside the time) |
 | `pipeline/log_reader.py` | REQ-LOG-001, REQ-LOG-003, REQ-LOG-005 (each file's own layout, an older file's frames packed to version 3), REQ-LOG-007 (the summary's header line), REQ-LOG-008 (the summary's sequence line), REQ-PROC-007 (`invalid_as_nan`, the validity counts), REQ-FAULT-006, REQ-TEST-002 |
 | `pipeline/bridge.py` | REQ-DISP-005 (the WebSocket bridge: loopback by default, no coordinates forwarded, `RelativeOrigin` and the position relative to the first fix in their place), REQ-TRANS-004 and REQ-DISP-007 (the session status forwarded and carried in `hello` with the identity and the source mode, the origin re-taken on a change, `--hide-identity`), REQ-DISP-003 and REQ-DISP-004 (the threshold and the mode the page judges from, delivered in `hello`), REQ-DISP-002 and REQ-DISP-006 (the track's speed threshold and the lag threshold, delivered in `hello`) |

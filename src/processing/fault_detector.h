@@ -29,9 +29,18 @@
 //   Recovery               M consecutive valid readings        (FAULT-011)
 //   NO_DATA                until a channel's first reading     (REQ-FAULT-006)
 
-enum class Channel : uint8_t { BARO, IMU, GPS };
+// The channel an event concerns: a sensor channel, or for the voter's own
+// events (REQ-RED-003, REQ-RED-004, REQ-RED-006) the voter. VOTER and the
+// four lane types below are new values of the event's existing bytes
+// (2026-10-18), not a change to the struct: no byte moved, the format
+// version stayed 3, and a reader older than the values prints their
+// numbers, as for ChannelStatus::NOT_AVAILABLE (design.md section 9).
+enum class Channel : uint8_t { BARO, IMU, GPS, VOTER };
 
-enum class FaultType : uint8_t { COMM_TIMEOUT, STUCK, OUT_OF_RANGE, RECOVERY };
+enum class FaultType : uint8_t {
+    COMM_TIMEOUT, STUCK, OUT_OF_RANGE, RECOVERY,                  // the detector's (FAULT-001 to FAULT-011)
+    LANE_DISAGREEMENT, LANE_FAULTED, NO_MAJORITY, LANE_OVERRUN,   // the voter's, 4 to 7 (FAULT-019 to FAULT-022)
+};
 
 // One logged event (REQ-FAULT-004: timestamp and fault type), persisted by
 // BinaryLogger as a tagged record in the same stream as the frames
@@ -46,6 +55,8 @@ struct FaultEvent {
     // STUCK: the repeated value. OUT_OF_RANGE: the offending value.
     // RECOVERY: how long the channel was DEGRADED, in ms.
     // COMM_TIMEOUT: elapsed ms since the last successful read.
+    // LANE_DISAGREEMENT, LANE_FAULTED, LANE_OVERRUN: the lane, 1 to 3.
+    // NO_MAJORITY: the number of lanes still in the vote.
     float value;             // 12
 };
 
