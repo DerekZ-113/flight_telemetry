@@ -1980,7 +1980,7 @@ The 84 branches are the 88 of §20.7 less the two unwind edges that moving `has_
 | The CI subset on libstdc++ | every cell's ten seeds as predicted. The schedules are identical to the Mac's by construction (Section 14's draws), the noise is not, and no assertion depends on it, so the gate holds on both standard libraries, as REQ-TEST-006's rationale says |
 | pytest (Python 3.13.16, against the instrumented binaries) | 176 of 176 in 140.6 s, `test_lane_fault.py` and `test_fault_campaign.py` among them |
 | lcov over `src/` | lines 98.4% (3,159 of 3,211), functions 97.2% (351 of 361), branches 93.7% (1,507 of 1,608) |
-| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
 | `page` job | 84 of 84 in 13 files; no file under `dashboard/` changed |
 | Wall time | the C++ job 4 min 52 s; the page job 16 s |
 
@@ -2159,7 +2159,7 @@ CI run 39298962945 on `aedd45b`, the branch's head, on draft pull request 4, 202
 | The CI subset on libstdc++ | every cell's ten seeds as predicted, `Subset/CellTest.AsPredicted/U06` and `U07` under FTS-FI-001 Section 5.6 |
 | pytest (Python 3.13.16, against the instrumented binaries) | 176 of 176 in 138.2 s |
 | lcov over `src/` | lines 98.4% (3,185 of 3,237), functions 97.2% (353 of 363), branches 93.8% (1,518 of 1,618) |
-| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
 | `page` job | 84 of 84 in 13 files; no file under `dashboard/` changed |
 | Wall time | the C++ job 4 min 27 s; the page job 17 s |
 
@@ -2350,7 +2350,7 @@ CI run 39319857862 on `279e8c6`, the branch's head, on draft pull request 4, 202
 | Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 575 of 575 in 22.6 s; no warning in the build |
 | pytest (Python 3.13.16, against the instrumented binaries) | 179 of 179 in 138.5 s, the three new bridge tests among them |
 | lcov over `src/` | lines 98.4% (3,192 of 3,243), functions 97.2% (353 of 363), branches 94.4% (1,514 of 1,604) |
-| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
 | `page` job | 89 of 89 in 13 files, the TypeScript build clean |
 | Wall time | the C++ job 4 min 29 s; the page job 22 s |
 
@@ -2487,7 +2487,7 @@ CI run 39342447232 on `8fbdf03`, the branch's head, on draft pull request 5, 202
 | Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580 in 20.1 s; no warning in the build |
 | pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 135.8 s, TC-029 step 20's test among them |
 | lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.3% (1,519 of 1,610) |
-| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
 | `page` job | 89 of 89 in 13 files, the TypeScript build clean |
 | Wall time | the C++ job 4 min 0 s; the page job 19 s |
 
@@ -2601,7 +2601,7 @@ CI run 39346811798 on `14a30fa`, the branch's head, on draft pull request 5, 202
 | Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580 in 22.6 s; no warning in the build |
 | pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 138.7 s |
 | lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.4% (1,518 of 1,608) |
-| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
 | `page` job | 89 of 89 in 13 files, the TypeScript build clean |
 | Wall time | the C++ job 4 min 34 s; the page job 20 s |
 
@@ -2628,3 +2628,178 @@ Every expectation was met. This was the experiment Entry 24 §24.7 proposed: the
 ### 25.6 Open
 
 - Entry 24's open items stand: the live run (recorded as §24.9 when run), the watch item at the ceiling, Phase B, the other untaken legs and Entry 23's items.
+
+## Entry 26 — 2026-10-19, The stack merged into `main`: five merge commits, the tree check, the run on `main`; CI pinned to Ubuntu 24.04
+
+Pull requests 1 to 5, the stack built on branches from 2026-10-14 to 2026-10-19 (Entries 16 to 25), were merged into `main` on 2026-10-19, in order, each by a merge commit. `main` had stayed at `363b02b` since the stack was cut from it. This entry records the merge, the check that `main`'s tree is the last head's, and the runs on `main`. It also records three things decided with the merge: the dropped pre-stack tag, two corrections to the record, and a pinned runner image.
+
+What changed:
+- **`main`:** the 77 commits of the five topics, under five merge commits (§26.1). Nothing was rewritten or squashed.
+- **CI (commit 2):** both jobs run on `ubuntu-24.04` instead of `ubuntu-latest` (§26.6).
+- **Records:**
+  - this entry;
+  - Entry 17 §17.7 (commit 1), reserved since 2026-10-15;
+  - README's measurement of record, and the matrix's REQ-TEST-002 and REQ-TEST-003 rows, now on the run on `main`;
+  - five CI rows corrected from 45 to 43 files (§26.5);
+  - README's and CLAUDE.md's wording that assumed the dropped tag, three stale facts in README and one in FTS-DS-001 (§26.7).
+- **Unchanged:** no source file, test, requirement, format or key.
+
+The commits are 1 to 3 on `claude/stack-merge-main-9a0427`, cut from `main` at `80cd4ca`, pull request 6:
+1. Entry 17 §17.7.
+2. The pinned runner.
+3. This entry and the documents.
+
+§26.8 records the pull request's run, the first on the pinned image.
+
+### 26.1 The merge
+
+| Pull request | Topic | Head | Commits | Merge commit | Merged (UTC) |
+|---|---|---|---|---|---|
+| 1 | PFD parts 1 and 2 (Entries 16 and 17) | `dc989d6` | 18 | `9d2d3dd` | 2026-10-20 01:23:42 |
+| 2 | ADS-B Phase A and format version 3 (Entries 18 and 19) | `a7461a3` | 20 | `2d7b994` | 01:25:30 |
+| 3 | The redundancy voter (Entry 20) | `e23fc87` | 11 | `69e1901` | 01:26:27 |
+| 4 | The fault-injection campaign, FAULT-024's check and the cleanup pass (Entries 21 to 23) | `94b7c42` | 21 | `64a181b` | 01:27:12 |
+| 5 | The ADS-B selection's altitude ceiling (Entries 24 and 25) | `6ccfa08` | 7 | `80cd4ca` | 01:27:42 |
+
+How the merge was done:
+- **The pull requests were updated first.** Each title and description was rewritten to name its requirement IDs and to drop the hold for the pre-stack tag (§26.6).
+  - The titles matter beyond the pull request page. The repository writes each merge commit as "Merge pull request #N from DerekZ-113/<branch>", with the pull request's title as its body.
+  - So every merge commit names its requirement IDs, and none carries a trailer.
+- **Each merge ran alone.** Each pull request was merged with `gh pr checks`, `gh pr ready` and `gh pr merge --merge --match-head-commit <head>`, one at a time, in order.
+  - `--match-head-commit` refuses a head that has moved since it was verified.
+  - Each merge began only after the previous one had merged, so no pull request was carried into `main` inside another's merge.
+- **Every check passed.** Each pull request's three checks (`build-test-coverage`, `page`, GitGuardian) were green, and its mergeability read `CLEAN` before its merge.
+- **The branches are kept.** All five remain on `origin` at their heads; deleting them is a later decision.
+
+### 26.2 The tree check
+
+Before the merge, checked read-only with `git` and the GitHub API:
+- **`main` had not moved.** It was at `363b02b`.
+  - Its last push, `b2e0a05..363b02b` at 2026-10-15 04:24:39 UTC, came before the stack's first commit (`7c43ed3`, 06:14:04 UTC).
+  - The repository's activity log shows no later push or force-push to `main`.
+- **The heads formed a chain.** Each head was an ancestor of the next, and `363b02b` an ancestor of the first (`git merge-base --is-ancestor`).
+- **Nothing could force a rebase.** No branch protection or ruleset applied to `main`, so nothing could require a head to be brought up to date between merges.
+
+So each merge was a three-way merge whose base, the previous head, had the same tree as `main` at that moment. Its result was therefore the merged head's tree, and `main` had to end at `6ccfa08`'s tree.
+
+After the merge, each merge commit's first parent is the merge before it (`363b02b` for the first), its second parent is the pull request's head, and its tree equals the head's:
+
+| Merge commit | Parents | Tree, equal to the head's |
+|---|---|---|
+| `9d2d3dd` | `363b02b`, `dc989d6` | `9dc825ed…` |
+| `2d7b994` | `9d2d3dd`, `a7461a3` | `cd1325f3…` |
+| `69e1901` | `2d7b994`, `e23fc87` | `4ba401b1…` |
+| `64a181b` | `69e1901`, `94b7c42` | `19afc8ba…` |
+| `80cd4ca` | `64a181b`, `6ccfa08` | `1c29c435abd67d7201d26af2ef05c29688fee266` |
+
+`main` is `80cd4ca`. Its tree is the one Entry 25 §25.4 measured on its branch.
+
+### 26.3 The expectations for the record
+
+Written before the merge, from the five pull requests' runs on their heads, all green:
+
+| Head | Run | Google Test / pytest | Branches | Read before this entry |
+|---|---|---|---|---|
+| `dc989d6` | 38802982922 | 323 / 115 | 843 of 884 | never: Entry 17 §17.7 had been reserved, and commit 1 fills it |
+| `a7461a3` | 39179224047 | 412 / 142 | 1,320 of 1,420 | only in progress (documents only); now read, Entry 19 §19.7's figures exactly |
+| `e23fc87` | 39200167816 | 456 / 145 | 1,410 of 1,510 | Entry 21 §21.7 |
+| `94b7c42` | 39325798389 | 575 / 179 | 1,514 of 1,604 | never (documents only); now read, Entry 23 §23.7's figures exactly |
+| `6ccfa08` | 39347614840 | 580 / 180 | 1,518 of 1,608 | never (documents only); now read, Entry 25 §25.4's figures exactly |
+
+A pull request's run tests its head merged into `main`. With `main` an ancestor of every head, that merge is the head's own tree, so each run on a merge commit tests the tree its pull request's run tested. Expected of the run on `80cd4ca`:
+- **Tests:** Google Test 580, pytest 180, the page 89.
+- **Coverage:** lines 3,202 of 3,253, functions 355 of 365, branches 1,518 of 1,608 (94.4%).
+- **By scope:** processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 90.4%.
+- **cppcheck:** 0 findings in 45 files, the count taken from §25.4.
+- **The earlier runs:** each of the four runs on the earlier merge commits equal to its pull request's run.
+
+### 26.4 Measurement of record
+
+CI run 39353550801 on `80cd4ca`, the push of the last merge to `main`, 2026-10-20 01:27:44 to 01:32:34 UTC. Both jobs passed.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 136.4 s |
+| lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.4% (1,518 of 1,608) |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
+| `page` job | 89 of 89 in 13 files, the TypeScript build clean |
+| Wall time | the C++ job 4 min 46 s; the page job 24 s |
+
+Per-scope branch coverage on GCC: processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 90.4%, overall 94.4%, each equal to Entry 25 §25.4.
+
+The runs on the five merge commits, each pushed to `main` by its merge, all on Ubuntu 24.04 with GCC 13.3.0:
+
+| Merge commit | Run | Google Test / pytest / page | Branches |
+|---|---|---|---|
+| `9d2d3dd` | 39353187063 | 323 / 115 / 66 | 843 of 884 (95.4%) |
+| `2d7b994` | 39353352304 | 412 / 142 / 73 | 1,320 of 1,420 (93.0%) |
+| `69e1901` | 39353438222 | 456 / 145 / 84 | 1,410 of 1,510 (93.4%) |
+| `64a181b` | 39353505644 | 575 / 179 / 89 | 1,514 of 1,604 (94.4%) |
+| `80cd4ca` | 39353550801 | 580 / 180 / 89 | 1,518 of 1,608 (94.4%) |
+
+Each equals the run on its pull request's head, its lines and functions included. The runner image changed between the second and third runs (20261012.334.1 to 20261018.339.1, both Ubuntu 24.04 with GCC 13.3.0), and no figure moved with it.
+
+The expectations §26.3 set before the merge:
+
+| Expectation | Measured |
+|---|---|
+| Google Test 580, pytest 180, the page 89 | 580, 180 and 89: met |
+| Lines 3,202 of 3,253, functions 355 of 365, branches 1,518 of 1,608 | all as stated: met |
+| The scopes of §25.4 | all as stated: met |
+| cppcheck 0 findings in 45 files | 0 findings in 43 files: the count missed (§26.5) |
+| The four earlier runs equal to their pull requests' runs | all four: met |
+
+Every expectation was met except that one count, and the count was wrong in the record, not in the run.
+
+### 26.5 The cppcheck count
+
+- **What the runner checks.** cppcheck on the runner has checked 43 files on every run since Entry 21: one per `.cpp` under `src/`, of which there are 43 at `80cd4ca`. The runs behind Entries 21 §21.7 to 25 §25.4 (39292191411, 39298962945, 39319857862, 39342447232 and 39346811798) each print `43/43 files checked`.
+- **What the record said.** The CI rows of those five entries read "45 files", the count the same entries' Mac previews give for cppcheck 2.21.0. Entries 19 §19.7 and 20 §20.7 carry the runner's own counts, 39 and 41.
+- **What changes.**
+  - Every one of those runs found zero, so no conclusion changes.
+  - The five rows now read 43 (Derek's choice, 2026-10-19), as §18.7's 40 was corrected to 38 in Entry 19's commit 9.
+  - §26.3's expectation, taken from §25.4, carried the same error, and §26.4 records the miss.
+
+### 26.6 The release order, and the runner
+
+**The release order:**
+- **The hold.** The pull requests had been held for a `v0.1.0` tag on `main` before the stack merged. The titles of 1 and 2 said "hold until after v0.1.0", and the descriptions of 1, 3, 4 and 5 said the branch would merge, or stay off `main`, until after that tag.
+- **What changed.** The release order flipped: the stack merged first, so there is no pre-stack tag, and the first tag's name is decided at the release.
+- **What still names 0.1.0.** Four places, all left for the release to settle with the tag:
+  - `CMakeLists.txt:2`'s project version;
+  - the User-Agent the libcurl client sends the OpenSky Network (`src/drivers/curl_http_client.h:25`, asserted by `tests/unit/test_curl_http_client.cpp:153`);
+  - `dashboard/package.json:4`;
+  - the banner `src/main.cpp:685` prints.
+- **What stays as written.** The entries that described the hold are snapshots of their commits: Entry 14, in an item since closed, and the opening paragraphs of Entries 16 to 21 and 24.
+- **What this commit changes.** README and CLAUDE.md plan "the first release's demo video" where they said "the v0.2.0 demo video".
+- **REQ-TEST-004** stays Partial: no tag has run cppcheck's gate yet.
+
+**The runner:**
+- **The notice.** Run 39353550801 carried GitHub's notice that the `ubuntu-latest` label moves to Ubuntu 26 from 2026-10-19.
+- **Why it matters.** Every run on record so far ran on Ubuntu 24.04, and the record's GCC 13.3.0, lcov 2.0 and cppcheck 2.13.0 are that image's packages. So is CLAUDE.md's rule for exception-edge markers, written for lcov 2.0's handling of them.
+- **The pin.** Commit 2 pins both jobs to `ubuntu-24.04` (Derek's choice, 2026-10-19), with the reason beside it in the workflow. A newer image becomes a decision of its own, with its expectations written first.
+
+### 26.7 Corrections in this pull request
+
+- **Entry 17 §17.7** was reserved since 2026-10-15 and is filled from run 38802982922 (commit 1).
+- **The SRD's version.** README's document table and FTS-DS-001's Related line named SRD v0.17.0. Entry 24's first commit (`c6896d0`) made it v0.18.0 and updated the matrix's header, not these two. FTS-DS-001's own version is unchanged, since only its reference was corrected.
+- **README's key count.** README's configuration paragraph said "the 48 tunables" and listed the `adsb` block without its altitude ceiling. Both have been out of date since Entry 24's second commit.
+- **README's campaign figure.** README's status said "97,100 fault injections", but 10,000 of the campaign's 97,100 runs are the clean cell C00 (FTS-FI-001 §3). It now says 87,100 of them inject a fault.
+- **README's measurement of record** moves from run 38674948292 on `c988cf9` to the run of §26.4, and the sentence about branches not yet on `main` goes.
+  - The matrix's REQ-TEST-002 and REQ-TEST-003 rows name the same run.
+  - REQ-TEST-002's per-file counts are taken from its `-rA` lines (`test_bridge.py` 16, `test_adsb.py` 16), and its Mac figure from Entry 25 §25.2.
+
+### 26.8 This pull request's run
+
+Reserved for the CI run on this pull request's head, the first on the pinned image. Expected:
+- the image `ubuntu-24.04`;
+- §26.4's figures exactly, since nothing under `src/` or `tests/` differs from `80cd4ca`.
+
+### 26.9 Open
+
+- **§26.8**, from this pull request's run.
+- **`simulated_data.cpp:118`.** GCC counts four edges on the line, one never taken (§17.7). No entry has classified that edge: it may be an exception-unwind edge under CLAUDE.md's rule, or another of GCC's edges.
+- **The branches.** The five pull requests' branches stay on `origin` until Derek deletes them.
+- **The topics' open items.** Each topic's open items stand (Entries 16 to 25). On the Pi that means TC-009 steps 7 and 8, TC-021 step 9 and TC-014 step 13.
+- **The first release:** its tag's name, and the four places that name 0.1.0 (§26.6).
