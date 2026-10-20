@@ -2835,6 +2835,7 @@ Six items before the first release, on one branch from `main` at `7d01520` (Entr
 What changes:
 - **A requirement:** REQ-TEST-007, the sanitized build (SRD 0.19.0), with TC-039; TC-016 steps 22 and 23 and TC-028 step 16 for the two code changes that need a test of their own.
 - **Code:** `src/main.cpp` (the replay's `--config`), `src/drivers/aircraft_selector.cpp` and `src/drivers/simulated_data.cpp` (one call each off a decision line), `CMakeLists.txt` (`ENABLE_SANITIZERS`).
+- **Tests:** `test_aircraft_selector.cpp` (one table-driven test), `test_config.py` (two tests), `test_udp_publisher.cpp` (one test skipping itself under the sanitized build, §27.8).
 - **CI:** a third job, `sanitize`; the four actions on their first Node.js 24 majors; `ubuntu-24.04` kept on every job.
 - **Documents:** FTS-DD-001 §2 (the crosswalk) and §9 (one sentence); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md.
 - **Unchanged:** the frame, the log format, every key, the five default hashes (§27.6).
@@ -2909,9 +2910,83 @@ Entry 26 §26.8's notice: `checkout@v4`, `setup-python@v5`, `setup-node@v4` and 
 
 GitHub-hosted runners are past v2.327.1. The pin to `ubuntu-24.04` stays (§26.6).
 
-### 27.4 to 27.8
+### 27.4 What was built
 
-Written with commit 9, after the code: what was built, the preview on this container, the byte checks, the README's mapping, the decisions.
+- **The replay's `--config` (commit 2; REQ-CFG-003).** `src/main.cpp` derives the record's path for every replay but refuses a log not named `<prefix>_NNN.bin` only when no `--config` was given; with one, the named file is the configuration and the `Configuration:` line reads `(no configuration recorded beside <log>, which is not named <prefix>_NNN.bin; replay identity is not claimed)`, while a prefix-named log with no record beside it keeps `(no configuration recorded with <log>; replay identity is not claimed)`, a branch no test had run. The usage line for `--config` says "or this one when given". FTS-DD-001 §9's recorded-configuration paragraph gains the sentence. Tests: `test_config.py`'s `test_replay_of_a_log_not_named_by_prefix_needs_config` (the refusal, naming the log, the rule and `--config`, with no `logs/` created; then the replay under `--config`, its records byte-identical to the session's and its record equal to the shipped file) and `test_replay_with_config_and_no_record_says_so` (TC-016 steps 22 and 23).
+- **The selector (commit 3; REQ-SENS-009, REQ-TEST-003).** `AircraftSelectorTest.EveryAbsentFieldReplacesTheKeptAircraftAndNoCandidateKeepsIt` (TC-028 step 16): one table of seven rows, the kept aircraft with latitude, longitude, geometric altitude, ground speed, track and position time absent in turn and once on the ground, each row through `update()` so that the absence is judged where candidates are gathered and where the kept aircraft is checked (`incomplete` six times, `landed` once, the nearest candidate taking over); then the kept aircraft alone and levelled off, kept with no candidate anywhere, the leg on line 139. In `aircraft_selector.cpp` the landed-or-incomplete reason goes into a local on its own line and `take` is called on a line with no decision, under a comment that says why.
+- **The simulator (commit 4; REQ-SENS-007, REQ-TEST-003).** `simulated_data.cpp`: `BaseReadings base = kStationary;` and an `if (profile_ != nullptr)` whose body calls `scripted_readings` on a line of its own, the same arithmetic in the same order, so no byte of a default run moves (§27.6).
+- **The `sanitize` job (commit 5; REQ-TEST-007).** `CMakeLists.txt`'s `ENABLE_SANITIZERS`: `-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g` on `telemetry_core`, `telemetry`, `unit_tests`, `fault_campaign_core`, `fault_campaign` and `fault_injection_tests`, the link flag public on the two libraries, the fetched libraries not instrumented, and `TELEMETRY_SANITIZED` defined for `unit_tests`. The job: `ubuntu-24.04`, the two system libraries, the configure with the option and `-DWARNINGS_AS_ERRORS=ON`, the build, `ctest --output-on-failure` under `UBSAN_OPTIONS=print_stacktrace=1`; no coverage, no pytest, no cppcheck. The first sanitized run gave one report, §27.8's finding, and `UdpPublisherTest.SocketFailureIsReportedNotThrown` now skips itself under the definition with its reason printed (TC-039's preconditions, TC-010 step 8, REQ-TEST-007's rationale).
+- **The actions (commit 6).** §27.3's four versions, and the workflow's header says why.
+- **The crosswalk (commit 7).** FTS-DD-001 §2's last paragraph, "The same level in ISO 26262's terms": the derivations, the practices that carry over in each standard's own terms, no table numbers and no per-ASIL ratings (the secondary sources disagree on them and the standard's text was not available), no mapping and no ASIL claimed.
+- **The README (commit 8).** 1,195 words by `wc -w` (the diagram and the tables counted), from 5,533: the pitch (78 words), Status (75), one line per component to its design section, the numbers and the gate, the practices and the limits, five findings, the quick start, top-level folders, three roadmap lines, the OpenSky paragraph and citation byte for byte, the license. The command section moved verbatim to `docs/command_reference.md`, headed as a reference and not a controlled document, with the three CI configurations added. CLAUDE.md: one bullet under Scope Discipline, nothing else.
+
+### 27.5 Test results (preview, this container)
+
+Measured at commit 8's tree (`src/` and `tests/` as at commit 5), with the workflow's exact commands, `ctest` and `pytest` run as an ordinary user named `runner` so that `ConfigTest.UnreadableFileIsReported` runs as it does on the runner, the coverage counters zeroed first:
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 581 of 581 in 31.9 s, none skipped; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binary) | 182 of 182 in 139.2 s, TC-016's steps 22 and 23 among them (`test_config.py` 14, every other file's count as on the record) |
+| lcov 2.0 over `src/`, 62 files | lines 98.4% (3,205 of 3,256), functions 97.3% (355 of 365), branches 94.9% (1,522 of 1,604) |
+| cppcheck 2.13.0 (the runner's package), 43 files | 0 findings under CI's gating flags (`--error-exitcode=1`) |
+| The sanitized build (`-DENABLE_SANITIZERS=ON -DWARNINGS_AS_ERRORS=ON`, as root) | built clean; ctest 581 of 581 in 59.3 s, two skipped (the documented one and this container's root skip), no `AddressSanitizer`, `LeakSanitizer` or `runtime error:` line |
+| TC-039 step 4 | a one-past-the-end read of a `std::vector`, compiled with the option's flags: `ERROR: AddressSanitizer: heap-buffer-overflow`, exit 1; `INT_MAX + 1`: `runtime error: signed integer overflow`, exit 1 |
+
+Per-scope branch coverage, from `scripts/coverage_check.sh`: processing 300 of 300, config 242 of 242, timing 26 of 26, logging 54 of 54 (100.0%), transport 71 of 80 (88.8%), replay 45 of 46 (97.8%), drivers 757 of 829 (91.3%), overall 94.9%.
+
+The two files under study:
+
+| File | Lines | Branches | Functions | §27.1 predicted |
+|---|---|---|---|---|
+| `drivers/aircraft_selector.cpp` | 88 of 88 | 64 of 64 | 15 of 15 | 88 of 88, 64 of 64, 15 of 15 |
+| `drivers/simulated_data.cpp` | 84 of 84 | 13 of 14 | 3 of 3 | 84 of 84, 13 of 14, 3 of 3 |
+
+The only untaken edge in either file is line 61's, `timestamp_ms > last_timestamp_ms_` false. The selector's reason line (127 after the comment) carries the `?:`'s two branches, taken 4 and 7 times (the old tests' three landed and one incomplete, and the table's one and six), and no pair; the simulator's `if` (122) carries its two, 15,502 and 560,162, and no pair. Every figure §27.1 set is met on this container, down to the two scopes the changes move; the record is the run (§27.9).
+
+### 27.6 The byte checks
+
+No default run may change: the two code changes under the simulator and the selector keep every arithmetic step in its order, and the selector never runs in a default run. Entry 21 §21.4's five runs were recorded on this container at `7d01520`, before any edit, and again at the head (commit 4's tree, the last to touch `src/`), with the configuration of record, and hashed with `sha256sum`:
+
+| Run | At `7d01520` | At the head |
+|---|---|---|
+| The seed-42 session, `--cycles 500` | `e5e6523bd48b6f1f10f98592c513ad8bc3bcd438c4f6e5fff4a8667cd9920ac4` | equal |
+| Its replay | `500ac1a7fa5ffc6a674fdfd27e234c3b26b19d0ea998a903a8e7d18c6be0a285` | equal |
+| The demo, `--motion demo --cycles 7500` | `8ec4bd4af2c4e2d00fe54129dfada5d08e0de9f9bfd0d89a0d6151542cceeca4` | equal |
+| The demo with `--lane-fault 2@60` | `72162bd7b780c52f84bcd1df7fa2b0a76b5396de843f01175481fc8771c654ad` | equal |
+| Its replay | `2b3ae4ee73eb4773d805c0438cf3847572c3163c110c756ce67ba11b4b67b290` | equal |
+
+These are a Linux build's bytes (GCC 13.3.0, libstdc++), not the Mac's: FTS-DD-001 §8 claims no cross-platform identity, and `std::normal_distribution` differs between the two standard libraries, so Entry 22 §22.4's five Mac hashes (`f1dc959a…`, `189eb162…`, `6f877d1d…`, `a2d1d891…`, `33b34f60…`) are the expectation for Derek's check on the Mac (§27.1), which this entry cannot make. The exit lines on both builds read as Entry 21 §21.4 describes them: the lane fault's demo `lanes in the vote 1 3`, two voter events, the replay `re-applied: the replay's input records it`, every replay `end of log reached`.
+
+### 27.7 The README's mapping
+
+Nothing was cut whose home is not a document. Paragraph by paragraph of the README at `7d01520`:
+
+| README paragraph (before) | After | Where the cut facts live |
+|---|---|---|
+| The pitch | rewritten, 78 words | the timing evidence: FTS-DD-001 §10 |
+| **Status** (534 words) | 75 words | the deterministic core and the transports: FTS-DD-001 §8 and §9; the drivers and the GPS path awaiting the Pi: §3 and Entries 8 §8.6 and 13 §13.8; the Python reader, the replay-identity pytest and the noise analysis: §3 ("The Python side"), FTS-NP-001; pytest in CI: FTS-TP-001 §2.2; the configuration: §3; validity, NO_DATA and format version 3: §7 and §9; the replay's end and pace: §9 and §10; the session status, the bridge and the page: §9; the instruments: §9 and FTS-DS-001; the lanes and the voter: §13; the campaign's 97,100 and 87,100 runs: FTS-FI-001 §3 and Entry 26 §26.7; the ADS-B source and the live run of 2026-10-15: §3 and Entry 18; the data license: §12 |
+| The diagram | shortened | FTS-DD-001 §4, §9, §10 |
+| The seventeen Architecture bullets | fourteen one-line entries, each linking to its section | One seam, Drivers, Configuration, ADS-B source: §3; Detector before processor: §4 and §6; Processing: §5 and §6; Fault handling and Validity: §7 and FTS-FM-001; Redundancy and voting: §13; Fault-injection campaign: §14, its numbers (707.5 channel-hours, the latencies) FTS-FI-001 §5 to §7, the 300-run comparison Entry 22 §22.5; Logging and replay, Replay's end and pace, Session status, Bridge and page, Transport: §9 and §10; Instruments: §9 and FTS-DS-001; the overflight: Entry 18 §18.5 and §12 |
+| Verification: the record, the table, the merge paragraph, the gate and the exclusions | the record and the table kept, the gate in one sentence | the five merges: Entry 26 §26.1; the exclusions by site: FTS-VR-001 §1.3; the Mac-preview rule: this document's introduction |
+| DO-178C-aligned practices: the document table, the loop, the limits | four bullets and the limits sentence | each document's description: its own header and purpose; the limits in full: FTS-DD-001 §2 |
+| Findings (three) | five one-liners | the write-ups: Entries 5 §5.2, 7 §7.1, 5 §5.5 to §5.8, 18 §18.5, 22 §22.5 |
+| Build, test, run, replay: the prerequisites, five command blocks, the exit lines | the quick start | verbatim in `docs/command_reference.md` |
+| Layout: every folder with its files | top-level folders | the files by module: FTS-TM-001 §11's reverse-trace tables; CLAUDE.md's Project Structure |
+| Roadmap | three lines | FTS-TP-001 §7, FTS-DD-001 §12 |
+| Data sources, License | unchanged, byte for byte | |
+
+### 27.8 Decisions taken, and deviations from the plan
+
+- **REQ-TEST-007 is new, not an amendment of REQ-TEST-004 (the plan, approved).** cppcheck reports on ordinary pushes and gates on tags; the sanitizers gate every push and watch the code run. Two policies, two statements.
+- **The one sanitizer finding, and the skip (Derek's choice, 2026-10-20).** The first sanitized `ctest` failed one test of 581: `udp_publisher.cpp:15:21: runtime error: member access within address … which does not point to an object of type 'UdpPublisher'`, `object has invalid vptr`, `<memory cannot be printed>`, in `UdpPublisherTest.SocketFailureIsReportedNotThrown`. The test sets the `RLIMIT_NOFILE` soft limit to 0 around the construction so that `socket()` fails (TC-010 step 8); `UdpPublisher` is polymorphic, so the vptr check runs at the constructor's first member access, and GCC 13's libubsan validates a vtable by probing its memory through a `pipe()`, which the exhausted table refuses, so the failed probe is reported as an invalid vptr and the diagnostic cannot read the memory either. Proof: a scratch program constructing a plainly valid polymorphic object reports the same with the limit lowered first and runs clean without; with one object of the type constructed before the limit drops, libubsan's per-type cache answers and nothing is reported. No descriptor count separates the cases (`socket()` needs one, the probe two). Three ways were put to Derek: a skip under the sanitized build by name with its reason printed, the cache warmed by a construction before the limit drops (which leans on an implementation detail), or the job left red. The skip was chosen: `TELEMETRY_SANITIZED` is defined for `unit_tests` by the option, the test's `GTEST_SKIP()` names the cause, ctest reports the skip, and the branch stays measured on the coverage build. It is recorded in TC-039's preconditions, TC-010 step 8, REQ-TEST-007's rationale and the matrix's row, and a second such skip needs the same evidence. §27.1's expectation of 581 passing stands as written; ctest counts a skipped test as not failed.
+- **Two wordings for "no record".** A prefix-named log with no record beside it keeps the old note; a log of another name gets one that says why there can be no record. One wording would have hidden the rule.
+- **The flag reference's home.** `docs/command_reference.md`, a reference and not a controlled document, since the alternatives were a `--help` flag (code without a requirement) or the README's word budget. CLAUDE.md's Project Structure lists `docs/` by document and was not touched beyond the one rule, so it is one file short (§27.10).
+- **The Linux hashes beside the Mac's.** CI computes no hash and the Mac's bytes are not reproducible here, so the check this entry can make is a Linux build against itself, before and after; the Mac check is Derek's.
+- **The baseline corrected one prediction before the code.** The plan predicted `simulated_data.cpp` at 81 of 81 lines from Entry 17 §17.7's 79; the baseline measurement read 82 of 82, so §27.1 says 84 of 84. Written before commit 4, not after.
+- **The tests as an ordinary user.** The container runs as root, under which `ConfigTest.UnreadableFileIsReported` skips itself; the head's measurement runs ctest and pytest as a user named `runner` so that the local figures can equal the record exactly.
+- **A disagreement flagged, not resolved.** The README at `7d01520` said the full campaign takes "about 2.5 minutes on one core"; FTS-DD-001 §14 says "about two minutes". The new README states no duration; which figure is right is Derek's call (§27.10).
+- **The actions' years.** The release pages print day and month only; the years are the release feeds' timestamps where the feed still lists the release (`setup-python` v6.0.0, `upload-artifact` v6.0.0 and v5.0.0) and follow from the sequence for the two the feeds have aged out (`checkout` v5.0.0, `setup-node` v5.0.0), as §27.3 says.
 
 ### 27.9 Measurement of record
 
@@ -2919,4 +2994,8 @@ Reserved for the pull request's run.
 
 ### 27.10 Open
 
-- §27.4 to §27.9, in their commits.
+- **§27.9**, from the pull request's run, with README's numbers and the matrix's run references moved to it in the same commit.
+- **Derek's:** the five Mac hashes of Entry 22 §22.4 on this branch's head (§27.6); the campaign's duration, "about 2.5 minutes" in the old README against "about two minutes" in FTS-DD-001 §14 (§27.8).
+- **CLAUDE.md:** its Project Structure does not list `docs/command_reference.md`, and its Build and Test block says 180 pytest tests where the branch has 182; both outside the one rule this topic was allowed to add.
+- **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run (the task asked for ctest).
+- **Entry 26's open items stand:** the topics' Pi steps, the first release's tag and the four places that name 0.1.0; the five branches on `origin`. The actions' runtime notice and `simulated_data.cpp:118` are closed by this entry.
