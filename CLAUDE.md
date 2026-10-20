@@ -46,7 +46,7 @@ python3 -m pipeline.receiver --udp 127.0.0.1:5556                      # the sam
 ./build/telemetry --udp 127.0.0.1:5556 --cycles 500                   # one datagram per frame; --zmq and --udp may be combined
 .venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555   # frames and session statuses to browser clients over ws://127.0.0.1:8765 (loopback; --listen to widen)
 cd dashboard && npm ci && npm run dev                                   # the page at http://127.0.0.1:5173 (Vite); npm test -- --run and npm run build for its 89 tests and the bundle
-.venv/bin/python -m pytest                                              # 180 tests in about 133 s: the ADS-B overflight above the ceiling, the bridge's values that are not finite numbers, the lane fault and its replay, the campaign's statistics and report generator, and before them one simulated session, the transport runs, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in for the service, the voter
+.venv/bin/python -m pytest                                              # 182 tests in about 134 s: a replay of any log under --config, the ADS-B overflight above the ceiling, the bridge's values that are not finite numbers, the lane fault and its replay, the campaign's statistics and report generator, and before them one simulated session, the transport runs, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in for the service, the voter
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # the noise profile
 ./build/telemetry --motion demo --cycles 7500 --lane-fault 2@60  # the demo with lane 2 upset from 60 s, recorded; its replay re-applies the fault (REQ-RED-007)
@@ -122,6 +122,7 @@ docs/                     requirements, design, traceability_matrix, fault_model
                           test_plan, verification_results, noise_profile              built
                           display_spec (FTS-DS-001)                                    built
                           fault_injection_report (FTS-FI-001), img/ (its figures)     built
+                          command_reference (the command reference, not a controlled document)
 scripts/                  coverage_check.sh, fault_campaign.sh (the campaign on demand) built
 pipeline/                 frame_format (byte layout shared by log and wire, the session status with the identity),
                           receiver (ZeroMQ SUB or UDP; keeps the latest status, ends on ENDED),

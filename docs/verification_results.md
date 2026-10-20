@@ -2837,7 +2837,7 @@ What changes:
 - **Code:** `src/main.cpp` (the replay's `--config`), `src/drivers/aircraft_selector.cpp` and `src/drivers/simulated_data.cpp` (one call each off a decision line), `CMakeLists.txt` (`ENABLE_SANITIZERS`).
 - **Tests:** `test_aircraft_selector.cpp` (one table-driven test), `test_config.py` (two tests), `test_udp_publisher.cpp` (one test skipping itself under the sanitized build, §27.8).
 - **CI:** a third job, `sanitize`; the four actions on their first Node.js 24 majors; `ubuntu-24.04` kept on every job.
-- **Documents:** FTS-DD-001 §2 (the crosswalk) and §9 (one sentence); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md.
+- **Documents:** FTS-DD-001 §2 (the crosswalk), §9 (one sentence) and, with commit 10, §14 (the campaign's measured duration); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md and, with commit 10, its Project Structure and pytest count.
 - **Unchanged:** the frame, the log format, every key, the five default hashes (§27.6).
 
 The commits are 1 to 10 on `claude/inspiring-galileo-632i0k`:
@@ -2850,7 +2850,7 @@ The commits are 1 to 10 on `claude/inspiring-galileo-632i0k`:
 7. The crosswalk (item 5).
 8. The README, the command reference, the CLAUDE.md rule (item 6).
 9. §27.4 to §27.8: what was built, the preview, the byte checks, the README's mapping, the decisions; then the push and the pull request.
-10. §27.9 from the pull request's run; README's numbers and the matrix's run references on it.
+10. §27.9 from the pull request's run, 39370957221; README's numbers and the matrix's run references on it; FTS-DD-001 §14's duration; CLAUDE.md's two lines.
 
 The preview this time is not a Mac's. The commits were built and measured in an Ubuntu 24.04 container with the runner's own packages (GCC 13.3.0, lcov 2.0, cppcheck 2.13.0, Python 3.13.16), so the local figures are expected to equal the record, with one known exception (§27.2).
 
@@ -2985,17 +2985,66 @@ Nothing was cut whose home is not a document. Paragraph by paragraph of the READ
 - **The Linux hashes beside the Mac's.** CI computes no hash and the Mac's bytes are not reproducible here, so the check this entry can make is a Linux build against itself, before and after; the Mac check is Derek's.
 - **The baseline corrected one prediction before the code.** The plan predicted `simulated_data.cpp` at 81 of 81 lines from Entry 17 §17.7's 79; the baseline measurement read 82 of 82, so §27.1 says 84 of 84. Written before commit 4, not after.
 - **The tests as an ordinary user.** The container runs as root, under which `ConfigTest.UnreadableFileIsReported` skips itself; the head's measurement runs ctest and pytest as a user named `runner` so that the local figures can equal the record exactly.
-- **A disagreement flagged, not resolved.** The README at `7d01520` said the full campaign takes "about 2.5 minutes on one core"; FTS-DD-001 §14 says "about two minutes". The new README states no duration; which figure is right is Derek's call (§27.10).
+- **A disagreement flagged, then resolved with commit 10.** The README at `7d01520` said the full campaign takes "about 2.5 minutes on one core"; FTS-DD-001 §14 said "about two minutes". The new README states no duration, and §14 now states the preview's own record, 143 s on one core on the platform FTS-FI-001 Section 3 names (Derek's choice, 2026-10-20).
 - **The actions' years.** The release pages print day and month only; the years are the release feeds' timestamps where the feed still lists the release (`setup-python` v6.0.0, `upload-artifact` v6.0.0 and v5.0.0) and follow from the sequence for the two the feeds have aged out (`checkout` v5.0.0, `setup-node` v5.0.0), as §27.3 says.
 
 ### 27.9 Measurement of record
 
-Reserved for the pull request's run.
+CI run 39370957221 on `93034c9`, the branch's head (commit 9), on draft pull request 7, 2026-10-20 04:42:06 to 04:46:17 UTC, from the one push that carried commits 1 to 9 (`7d01520..93034c9`): the branch's first run, and the first with three jobs. All three passed, and the repository's GitGuardian check with them.
+
+| Check | Result |
+|---|---|
+| Runner | `ubuntu-24.04` on all three jobs (Ubuntu 24.04, image 20261012.334.1 on the C++ job, §26.8's); GitHub's Node.js 20 notice of §26.8 is gone |
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 581 of 581 in 21.6 s, none skipped; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 182 of 182 in 134.0 s, TC-016's steps 22 and 23 among them |
+| lcov over `src/`, 62 files | lines 98.4% (3,205 of 3,256), functions 97.3% (355 of 365), branches 94.9% (1,522 of 1,604) |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
+| `sanitize` job (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_SANITIZERS=ON`) | built clean; ctest 581 of 581 in 48.8 s, one skipped by name, `UdpPublisherTest.SocketFailureIsReportedNotThrown` (§27.8); no `AddressSanitizer`, `LeakSanitizer` or `runtime error:` line |
+| `page` job (`checkout@v5`, `setup-node@v5`, Node 22) | 89 of 89 in 13 files in 9.25 s; statements 99.17%, branches 99.04%, functions 97.84%, lines 99.71%; `tsc --noEmit && vite build` clean in 131 ms. The action's post step prints Node's `punycode` deprecation (DEP0040), the action's own under Node 24, not the page's |
+| Wall time | the C++ job 4 min 8 s; `sanitize` 2 min 21 s; `page` 25 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh`: processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 91.3%, overall 94.9%.
+
+The two files, from the job's coverage step, which prints every file's filtered lines, functions and branches (this container's proxy refuses the `coverage-html` artifact's host, so the per-line counts below are this container's run of the same tests, §27.5):
+
+| File | Lines | Branches | Functions | §27.1 predicted |
+|---|---|---|---|---|
+| `drivers/aircraft_selector.cpp` | 88 of 88 | 64 of 64 | 15 of 15 | 88 of 88, 64 of 64, 15 of 15: met |
+| `drivers/simulated_data.cpp` | 84 of 84 | 13 of 14 | 3 of 3 | 84 of 84, 13 of 14, 3 of 3: met |
+
+The expectations §27.1 set before the code:
+
+| Expectation | Measured |
+|---|---|
+| `aircraft_selector.cpp` 64 of 64 and 88 lines; `simulated_data.cpp` 13 of 14 and 84 lines | as stated: met |
+| Branches 1,522 of 1,604 (94.9%); lines 3,205 of 3,256; functions 355 of 365 | as stated: met |
+| Drivers 757 of 829 (91.3%); the other scopes unchanged | 91.3%; processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%: met |
+| Google Test 581, pytest 182, the page 89 | 581, 182 and 89: met |
+| cppcheck 0 findings in 43 files | 0 in 43: met |
+| The `sanitize` job green, 581 passing, no report | green, 581 of 581, no report; the one skip is §27.8's, documented after the expectation was written and reported by ctest as not failed: met |
+| The `page` job on `checkout@v5` and `setup-node@v5` | 89 of 89, the build clean: met |
+| The five Linux hashes at the head equal to the baseline's | equal, all five (§27.6): met |
+| The five Mac hashes unchanged | Derek's check, not a CI measurement: open (§27.10) |
+| If line 125 or line 118 still carried a pair, §27.2's reading was wrong | neither does: 64 of 64 and 13 of 14 are the counts without a pair, which would have moved each by two |
+
+Every expectation the run can measure was met. The run tests the tree `main` will carry after the merge: `main` has not moved from `7d01520`, the pull request's base and §27.2's baseline.
+
+**The leg left at `simulated_data.cpp:61`.** The line is `if (positioned_ && timestamp_ms > last_timestamp_ms_)`, the guard that integrates the scripted velocity over the interval since the previous frame. Its four edges, from the container's run of the same tests (§27.2's raw record, which the topic did not change): `positioned_` true 15,496 times and false 6 (the first scripted frame of each of the six generators the two suites build with a profile), and `timestamp_ms > last_timestamp_ms_` true 15,496 times and false 0. The untaken leg is a scripted frame whose timestamp is not later than its predecessor's, under `positioned_` true. No source produces one: `SimulatedSource` stamps n × period and never repeats or retreats, so the leg is the generator's own rule for a caller the sources are not. A direct test of `generate()` could take it, since `generate()` is public and a generator built with a `MotionProfile` can be asked for one timestamp twice: the second frame must leave the integrated position where the first left it (a fix at the same fix index is the held one, so the frame's latitude and longitude equal the first frame's bit for bit) while the per-frame noise is drawn as usual. Legitimate, since the rule is the generator's and not an artefact of GCC's counting; not done here, because §27.1's expectations are frozen; a candidate step for the next topic that touches the simulator (TC-026), with a prediction of 14 of 14.
 
 ### 27.10 Open
 
-- **§27.9**, from the pull request's run, with README's numbers and the matrix's run references moved to it in the same commit.
-- **Derek's:** the five Mac hashes of Entry 22 §22.4 on this branch's head (§27.6); the campaign's duration, "about 2.5 minutes" in the old README against "about two minutes" in FTS-DD-001 §14 (§27.8).
-- **CLAUDE.md:** its Project Structure does not list `docs/command_reference.md`, and its Build and Test block says 180 pytest tests where the branch has 182; both outside the one rule this topic was allowed to add.
-- **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run (the task asked for ctest).
-- **Entry 26's open items stand:** the topics' Pi steps, the first release's tag and the four places that name 0.1.0; the five branches on `origin`. The actions' runtime notice and `simulated_data.cpp:118` are closed by this entry.
+- **Derek's: the five Mac hashes of Entry 22 §22.4 on this branch's head** (§27.6). From the repository's root on the Mac, with the previews' configure, in a scratch directory so that `logs/` and its ADS-B recordings are never touched:
+  ```bash
+  git fetch origin claude/inspiring-galileo-632i0k && git checkout claude/inspiring-galileo-632i0k
+  cmake -S . -B build -DWARNINGS_AS_ERRORS=ON && cmake --build build --parallel
+  R=$PWD; C=$R/config/telemetry_config.yaml; H=$(mktemp -d /tmp/fts-hash.XXXXXX); mkdir -p $H/session $H/demo $H/demofault
+  (cd $H/session && $R/build/telemetry --config $C --cycles 500 >/dev/null && $R/build/telemetry --config $C --replay logs/telemetry_000.bin >/dev/null)
+  (cd $H/demo && $R/build/telemetry --config $C --motion demo --cycles 7500 >/dev/null)
+  (cd $H/demofault && $R/build/telemetry --config $C --motion demo --cycles 7500 --lane-fault 2@60 >/dev/null && $R/build/telemetry --config $C --replay logs/telemetry_000.bin >/dev/null)
+  shasum -a 256 $H/session/logs/telemetry_000.bin $H/session/logs/replay_000.bin $H/demo/logs/telemetry_000.bin $H/demofault/logs/telemetry_000.bin $H/demofault/logs/replay_000.bin
+  ```
+  Expected, in that order: `f1dc959a…`, `189eb162…`, `6f877d1d…`, `a2d1d891…`, `33b34f60…`; about six minutes, the two demos paced. A difference is first compared with the build recipe Entry 22 §22.4's hashes were taken with, and then a finding.
+- **The leg at `simulated_data.cpp:61`:** the direct test of `generate()` above, with the next simulator topic.
+- **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run.
+- **CLAUDE.md:** its CI paragraph still describes two jobs and the actions of §26.8, and its Build and Test block says the campaign takes "about 2.5 min" (143 s since FTS-DD-001 §14 states the preview's record); both outside what this topic was allowed to touch there.
+- **Entry 26's open items stand:** the topics' Pi steps, the first release's tag and the four places that name 0.1.0, the five branches on `origin`. Closed by this entry: the actions' runtime notice, `simulated_data.cpp:118`, and Entry 24 §24.8's other untaken legs.

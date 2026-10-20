@@ -31,23 +31,24 @@ DataSource ──raw──▶ FaultDetector ──status──▶ 3 × Telemetry
 
 ## Verification at a glance
 
-Measurement of record: run [39353550801](https://github.com/DerekZ-113/flight_telemetry/actions/runs/39353550801) on `80cd4ca`, Ubuntu 24.04, GCC 13.3 ([Entry 26 §26.4](docs/verification_results.md#264-measurement-of-record)).
+Measurement of record: run [39370957221](https://github.com/DerekZ-113/flight_telemetry/actions/runs/39370957221) on `93034c9`, Ubuntu 24.04, GCC 13.3 ([Entry 27 §27.9](docs/verification_results.md#279-measurement-of-record)).
 
 | Item | Value |
 |---|---|
-| Unit tests (Google Test) | 580 of 580 (490 unit, 90 fault-injection) |
-| Integration tests (pytest) | 180 of 180 in 136.4 s |
+| Unit tests (Google Test) | 581 of 581 (491 unit, 90 fault-injection) |
+| Integration tests (pytest) | 182 of 182 in 134.0 s |
 | Page tests (Vitest) | 89 of 89 |
-| Branch coverage (gcov/lcov) | 94.4% (1,518 of 1,608), every scope above its threshold |
-| Line coverage | 98.4% (3,202 of 3,253) |
+| Sanitized build (ASan, UBSan) | 581 of 581, no report |
+| Branch coverage (gcov/lcov) | 94.9% (1,522 of 1,604), every scope above its threshold |
+| Line coverage | 98.4% (3,205 of 3,256) |
 | Warnings under `-Werror` | 0 |
 | cppcheck findings | 0 (43 files) |
 
-Branch coverage is the gate: 90% processing and config, 80% timing, logging, transport and replay, 70% drivers, 80% overall; every exclusion is justified in [FTS-VR-001 §1.3](docs/verification_results.md#13-excluded-from-coverage).
+The gate is branch coverage, 70% to 90% by scope, 80% overall; every exclusion is justified in [FTS-VR-001 §1.3](docs/verification_results.md#13-excluded-from-coverage).
 
 ## DO-178C-aligned practices
 
-- **The loop:** requirement, matrix row, code, test, matrix update, coverage and static analysis, one commit naming the requirement IDs.
+- **The loop:** requirement, matrix row, code, test, matrix update, coverage and static analysis, one commit naming the IDs.
 - **Nine controlled documents:** requirements (FTS-SRD-001), design (FTS-DD-001), traceability matrix (FTS-TM-001), fault model (FTS-FM-001), test plan (FTS-TP-001), verification results (FTS-VR-001), noise profile (FTS-NP-001), fault-injection report (FTS-FI-001), display specification (FTS-DS-001).
 - **Structural coverage** gated per scope on every push; cppcheck; the same tests again under AddressSanitizer and UndefinedBehaviorSanitizer.
 - **A fault model,** a detection and a test per failure mode, and a campaign whose predictions were committed before its code.
@@ -86,7 +87,7 @@ pipeline/   the Python receiver, log reader and bridge
 dashboard/  the React page and the PFD
 analysis/   the noise profile and the campaign's report
 tests/      unit (Google Test), integration (pytest), fault_injection
-docs/       the nine controlled documents, the command reference, img/
+docs/       the nine controlled documents, the command reference
 scripts/    the coverage gate, the campaign on demand
 ```
 
