@@ -54,9 +54,17 @@ public:
     // frame was not sent; stats() says how often that has happened.
     bool publish(const TelemetryFrame& frame) override;
 
+    // The eight-byte session status (REQ-TRANS-004) as one datagram,
+    // counted apart from frames.
+    bool publish_status(RunMode mode, StreamState state) override;
+
     const PublishStats& stats() const override { return stats_; }
 
 private:
+    // One datagram of `size` bytes, sent without waiting; false when the
+    // kernel refused, with the errno kept.
+    bool send_bytes(const uint8_t* data, size_t size);
+
     int fd_ = -1;
     bool ok_ = false;
     std::string error_;

@@ -1,13 +1,18 @@
-"""Byte layout of the telemetry log and of every ZeroMQ message (REQ-LOG-001, REQ-TRANS-001).
+"""Byte layout of the telemetry log and of every message on the wire (REQ-LOG-001, REQ-TRANS-001,
+REQ-TRANS-004).
 
-This module is the Python side of three C++ definitions and must change with them:
+This module is the Python side of four C++ definitions and must change with them:
 
     src/telemetry_frame.h            TelemetryFrame  ->  FRAME, FRAME_FIELDS
     src/processing/fault_detector.h  FaultEvent      ->  EVENT, EVENT_FIELDS
     src/logging/log_format.h         LogFileHeader   ->  HEADER, LOG_FORMAT_VERSION
+    src/transport/session_message.h  session_message ->  SESSION, MODE_NAMES, STATE_NAMES
 
-A log file is HEADER followed by {tag byte, record} pairs; a ZeroMQ message is
-HEADER followed by exactly one such pair (FTS-DD-001 section 9). The C++ side
+A log file is HEADER followed by {tag byte, record} pairs; a frame message on either
+transport is HEADER followed by exactly one such pair (FTS-DD-001 section 9). The one
+message that is not a log record is the session status, eight bytes under its own magic
+(SESSION below): the run mode and whether the stream has ended, which the frames cannot say.
+A reader tells the two apart by the first four bytes and never finds a status in a file. The C++ side
 writes the structs' in-memory bytes verbatim, so the formats here use '@':
 native byte order and native alignment. Format version 2 names every byte, so
 there is no padding to reproduce: reserved_a sits where version 1 had four
@@ -73,6 +78,13 @@ COMPUTED_VALIDITY = {
 }
 VALIDITY_FIELDS = tuple(COMPUTED_VALIDITY.values())
 CHANNEL_NAMES = {0: "BARO", 1: "IMU", 2: "GPS"}                                 # Channel
+
+# The session status message (REQ-TRANS-004): src/transport/session_message.h.
+SESSION_MAGIC = b"FTSS"
+SESSION_MESSAGE_VERSION = 1                                     # kSessionMessageVersion
+SESSION = struct.Struct("@4sBBBB")                              # 8 bytes: magic, version, mode, state, reserved
+MODE_NAMES = {1: "LIVE", 2: "SIMULATED", 3: "REPLAY"}           # RunMode
+STATE_NAMES = {1: "RUNNING", 2: "ENDED"}                        # StreamState
 FAULT_TYPE_NAMES = {0: "COMM_TIMEOUT", 1: "STUCK", 2: "OUT_OF_RANGE", 3: "RECOVERY"}   # FaultType
 
 assert len(FRAME_FIELDS) == len(FRAME.unpack(bytes(FRAME.size)))
@@ -89,6 +101,12 @@ class Header(NamedTuple):
     event_size: int
     reserved: int
     endian_marker: int
+
+
+class SessionStatus(NamedTuple):
+    """One status message, by name: the run mode and the stream's state."""
+    mode: str    # LIVE, SIMULATED or REPLAY
+    state: str   # RUNNING or ENDED
 
 
 class FormatError(ValueError):
@@ -142,8 +160,26 @@ def iter_records(buf: bytes) -> Iterator[Frame | FaultEvent]:
         yield record
 
 
-def parse_message(buf: bytes) -> Frame | FaultEvent:
-    """A ZeroMQ message: a header and exactly one record, nothing after it."""
+def parse_session(buf: bytes) -> SessionStatus:
+    """The status in `buf`, by name; a length, version, mode or state this module does not
+    know is refused, as a header it cannot read is."""
+    if len(buf) != SESSION.size:
+        raise FormatError(f"session status of {len(buf)} bytes, expected {SESSION.size}")
+    _magic, version, mode, state, _reserved = SESSION.unpack(buf)
+    if version != SESSION_MESSAGE_VERSION:
+        raise FormatError(f"session status version {version}; this module reads {SESSION_MESSAGE_VERSION}")
+    if mode not in MODE_NAMES:
+        raise FormatError(f"session status mode {mode} is not one this module names")
+    if state not in STATE_NAMES:
+        raise FormatError(f"session status state {state} is not one this module names")
+    return SessionStatus(MODE_NAMES[mode], STATE_NAMES[state])
+
+
+def parse_message(buf: bytes) -> Frame | FaultEvent | SessionStatus:
+    """A message from either transport: a header and exactly one record, nothing after it; or
+    a session status, told apart by its first four bytes (REQ-TRANS-004)."""
+    if buf[:4] == SESSION_MAGIC:
+        return parse_session(buf)
     check_header(parse_header(buf))
     record, end = parse_record(buf, HEADER.size)
     if end != len(buf):

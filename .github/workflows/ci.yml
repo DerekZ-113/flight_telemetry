@@ -1,13 +1,14 @@
 # Continuous integration (REQ-TEST-003, REQ-TEST-004).
 #
-# One job, one clean Ubuntu machine, every push. The steps are the pass/fail
-# criteria in docs/test_plan.md section 4, in order: the build must be
-# warning-free, every Google Test must pass, every pytest must pass
+# Two jobs, each on a clean Ubuntu machine, every push. The first is the
+# pass/fail criteria in docs/test_plan.md section 4, in order: the build
+# must be warning-free, every Google Test must pass, every pytest must pass
 # (REQ-TEST-002; the suite drives the instrumented binary, so its runs
 # count toward the coverage captured next, test_plan.md 6.1), branch
 # coverage must meet the section 6.3 thresholds, and cppcheck must report
 # zero findings on a release tag (it reports without blocking on ordinary
-# pushes).
+# pushes). The second runs the dashboard page's tests and its build
+# (test_plan.md 2.5) in parallel, so the C++ job's wall time is unchanged.
 #
 # GCC + libstdc++ here, clang + libc++ on the development Mac. Tests pass
 # on both because each compares a run to itself or to physics with a
@@ -60,13 +61,16 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install the Python side
+        # pyzmq, numpy, matplotlib, pytest, and websockets for the bridge
+        # (REQ-DISP-005), all pinned.
         run: pip install -r requirements.txt
 
       - name: Integration tests
-        # Section 4 criterion 2. pytest runs build/telemetry about a dozen
-        # times (one simulated session, the transport runs); the binary is
-        # the instrumented telemetry_core, so these runs add their counts
-        # to the .gcda files the unit tests wrote (test_plan.md 6.1).
+        # Section 4 criterion 2. pytest runs build/telemetry about twenty
+        # times (one simulated session, the transport runs, the replay's end
+        # and its pacing, the session status, the bridge end to end); the
+        # binary is the instrumented telemetry_core, so these runs add their
+        # counts to the .gcda files the unit tests wrote (test_plan.md 6.1).
         # -rA: the summary carries each passing test's captured prints
         # (the transport tests' join index and stall counts), which the
         # verification record quotes from this log.
@@ -135,3 +139,39 @@ jobs:
         with:
           name: cppcheck
           path: static_analysis/cppcheck.txt
+
+  page:
+    # The dashboard (REQ-DISP-003, REQ-DISP-004): Vitest with jsdom, then
+    # the TypeScript check and the production build. Reported coverage,
+    # not gated (test_plan.md 6.3): the gate of record is gcov/lcov over
+    # src/. Node 22 is the LTS the development Mac runs; the lockfile pins
+    # every package, so npm ci installs exactly what was tested.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install the page's packages
+        run: npm ci --no-audit --no-fund
+
+      - name: Page tests (with coverage)
+        run: npm test -- --run --coverage
+
+      - name: Type check and build
+        run: npm run build
+
+      - name: Upload page coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-coverage
+          path: dashboard/coverage/coverage-summary.json

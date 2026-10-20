@@ -55,6 +55,18 @@ UdpPublisher::~UdpPublisher() {
     }
 }
 
+bool UdpPublisher::send_bytes(const uint8_t* data, size_t size) {
+    // MSG_DONTWAIT is the kernel's dontwait: a full send buffer is EAGAIN,
+    // not a wait. A datagram send never returns a short count: it is the
+    // whole message, or -1 with the reason in errno.
+    const ssize_t sent = ::send(fd_, data, size, MSG_DONTWAIT);
+    if (sent < 0) {
+        stats_.last_errno = errno;
+        return false;
+    }
+    return true;
+}
+
 bool UdpPublisher::publish(const TelemetryFrame& frame) {
     if (!ok_) {
         stats_.send_failures++;
@@ -62,16 +74,27 @@ bool UdpPublisher::publish(const TelemetryFrame& frame) {
     }
 
     const std::array<uint8_t, kFrameMessageBytes> bytes = frame_message(frame);
-
-    // MSG_DONTWAIT is the kernel's dontwait: a full send buffer is EAGAIN,
-    // not a wait. A datagram send never returns a short count: it is the
-    // whole message, or -1 with the reason in errno.
-    const ssize_t sent = ::send(fd_, bytes.data(), bytes.size(), MSG_DONTWAIT);
-    if (sent < 0) {
-        stats_.last_errno = errno;
+    if (!send_bytes(bytes.data(), bytes.size())) {
         stats_.send_failures++;
         return false;
     }
     stats_.published++;
+    return true;
+}
+
+bool UdpPublisher::publish_status(RunMode mode, StreamState state) {
+    if (!ok_) {
+        stats_.send_failures++;
+        return false;
+    }
+
+    // Eight bytes under their own magic (session_message.h), one datagram
+    // like a frame, never a log record.
+    const std::array<uint8_t, kSessionMessageBytes> bytes = session_message(mode, state);
+    if (!send_bytes(bytes.data(), bytes.size())) {
+        stats_.send_failures++;
+        return false;
+    }
+    stats_.status_published++;
     return true;
 }

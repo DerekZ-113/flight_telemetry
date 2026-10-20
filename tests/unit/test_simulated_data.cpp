@@ -13,8 +13,11 @@
 #include <cstring>
 #include <vector>
 
+#include "drivers/motion_profile.h"
 #include "drivers/simulated_data.h"
 #include "drivers/simulated_source.h"
+#include "processing/altitude.h"
+#include "processing/complementary_filter.h"
 #include "telemetry_frame.h"
 
 namespace {
@@ -33,6 +36,22 @@ double sample_sigma(const std::vector<float>& v) {
     for (float x : v) s += (x - m) * (x - m);
     return std::sqrt(s / static_cast<double>(v.size()));
 }
+
+// Every sigma 1e-6: zero is outside std::normal_distribution's precondition,
+// and a millionth leaves the script alone to within float rounding.
+SimulationNoise quiet_noise() {
+    SimulationNoise quiet;
+    quiet.pressure_sigma_hpa = 1e-6f;
+    quiet.temperature_sigma_c = 1e-6f;
+    quiet.accel_sigma_mps2 = 1e-6f;
+    quiet.gyro_sigma_dps = 1e-6f;
+    quiet.latitude_sigma_deg = 1e-6;
+    quiet.longitude_sigma_deg = 1e-6;
+    quiet.gps_altitude_sigma_m = 1e-6f;
+    return quiet;
+}
+
+const double kPi = std::acos(-1.0);
 
 }  // namespace
 
@@ -197,6 +216,98 @@ TEST(SimulatedSourceTest, SourceMatchesGeneratorWithSameSeed) {
         const TelemetryFrame fg = generator.generate(static_cast<uint64_t>(i) * kIntervalMs);
         EXPECT_EQ(std::memcmp(&fs, &fg, sizeof(TelemetryFrame)), 0) << "frame " << i;
     }
+}
+
+// TC-026 step 3 (REQ-SENS-007). The profile's readings are the pipeline's
+// inverse: the complementary filter fed the scripted accelerometer and
+// gyroscope recovers the scripted attitude, the hypsometric relation
+// recovers the scripted altitude from the pressure, the GPS fields carry
+// the script's altitude, speed and course, and the fixes integrate the
+// scripted velocity (150 m of takeoff roll and 45 s at 30 m/s put the
+// 60 s fix 1,500 m east of the first). The filter runs exactly as the
+// processor runs it: every frame, dt one period, the first call seeding.
+TEST(SimulatedDataTest, ProfileReadingsInvertThroughTheFilter) {
+    const std::optional<MotionProfile> profile = MotionProfile::named("demo");
+    ASSERT_TRUE(profile.has_value());
+    SimulatedDataGenerator generator(42, 1000, quiet_noise(), &*profile);
+    ComplementaryFilter filter;
+    TelemetryFrame first{};
+    for (uint64_t ts = 0; ts <= 80000; ts += kIntervalMs) {
+        const TelemetryFrame f = generator.generate(ts);
+        filter.update(f.accel_x, f.accel_y, f.accel_z, f.gyro_x, f.gyro_y, f.gyro_z,
+                      static_cast<float>(kIntervalMs) / 1000.0f);
+        if (ts == 0) {
+            first = f;
+        }
+        if (ts == 30000 || ts == 80000) {
+            const MotionState s = profile->state_at(ts);
+            EXPECT_NEAR(filter.pitch_deg(), s.pitch_deg, 0.2f) << "t=" << ts;
+            EXPECT_NEAR(filter.roll_deg(), s.roll_deg, 0.2f) << "t=" << ts;
+            EXPECT_NEAR(pressure_to_altitude(f.pressure_hpa), s.altitude_m, 0.05f) << "t=" << ts;
+            EXPECT_NEAR(f.gps_altitude_m, s.altitude_m, 1e-3f) << "t=" << ts;
+            EXPECT_NEAR(f.ground_speed_mps, s.ground_speed_mps, 1e-3f) << "t=" << ts;
+            EXPECT_NEAR(f.heading_deg, s.track_deg, 1e-3f) << "t=" << ts;
+        }
+        if (ts == 60000) {
+            EXPECT_TRUE(f.gps_read_ok);
+            const double east = (f.longitude - first.longitude) * kMetersPerDegreeLatitude *
+                                std::cos(first.latitude * kPi / 180.0);
+            const double north = (f.latitude - first.latitude) * kMetersPerDegreeLatitude;
+            EXPECT_NEAR(east, 1500.0, 2.0);
+            EXPECT_NEAR(north, 0.0, 2.0);
+        }
+    }
+}
+
+// TC-026 step 4 (REQ-SENS-007). A profile run is as deterministic as the
+// scenario: two generators with one seed and one profile agree byte for
+// byte over the whole climb, position integration included.
+TEST(SimulatedDataTest, ProfileSameSeedSameSequence) {
+    const std::optional<MotionProfile> profile = MotionProfile::named("demo");
+    ASSERT_TRUE(profile.has_value());
+    SimulatedDataGenerator a(42, 1000, SimulationNoise{}, &*profile);
+    SimulatedDataGenerator b(42, 1000, SimulationNoise{}, &*profile);
+    for (int i = 0; i < 1500; i++) {
+        const uint64_t ts = static_cast<uint64_t>(i) * kIntervalMs;
+        const TelemetryFrame fa = a.generate(ts);
+        const TelemetryFrame fb = b.generate(ts);
+        EXPECT_EQ(std::memcmp(&fa, &fb, sizeof(TelemetryFrame)), 0) << "frame " << i;
+    }
+}
+
+// TC-026 step 4 (REQ-SENS-007). Without a profile the generator is the
+// stationary scenario of NoiseIsConfigurable, speed and course zero; with
+// the demo profile, parked, the first frame carries the script's own
+// values and nothing else: the pressure of exactly 2 m, gravity alone on
+// z, no rotation, the course 090 at zero speed, the same position, the
+// GPS altitude the script's. The stationary bytes themselves are guarded
+// by the seed-42 session's hash (TC-026 step 8).
+TEST(SimulatedDataTest, ParkedProfileDiffersFromTheScenarioOnlyByTheScript) {
+    SimulatedDataGenerator plain(42, 1000, quiet_noise());
+    const TelemetryFrame p = plain.generate(0);
+    EXPECT_EQ(p.ground_speed_mps, 0.0f);
+    EXPECT_EQ(p.heading_deg, 0.0f);
+    EXPECT_NEAR(p.pressure_hpa, 1013.0f, 1e-4f);
+    EXPECT_NEAR(p.gps_altitude_m, 3.0f, 1e-4f);
+
+    const std::optional<MotionProfile> profile = MotionProfile::named("demo");
+    ASSERT_TRUE(profile.has_value());
+    SimulatedDataGenerator scripted(42, 1000, quiet_noise(), &*profile);
+    const TelemetryFrame s = scripted.generate(0);
+    EXPECT_NEAR(s.pressure_hpa, altitude_to_pressure(2.0f), 1e-4f);
+    EXPECT_NEAR(s.temperature_c, 21.0f, 1e-4f);
+    EXPECT_NEAR(s.accel_x, 0.0f, 1e-4f);
+    EXPECT_NEAR(s.accel_y, 0.0f, 1e-4f);
+    EXPECT_NEAR(s.accel_z, 9.81f, 1e-4f);
+    EXPECT_NEAR(s.gyro_x, 0.0f, 1e-4f);
+    EXPECT_NEAR(s.gyro_y, 0.0f, 1e-4f);
+    EXPECT_NEAR(s.gyro_z, 0.0f, 1e-4f);
+    EXPECT_NEAR(s.latitude, 37.5585, 1e-5);
+    EXPECT_NEAR(s.longitude, -122.2711, 1e-5);
+    EXPECT_NEAR(s.gps_altitude_m, 2.0f, 1e-4f);
+    EXPECT_EQ(s.ground_speed_mps, 0.0f);
+    EXPECT_EQ(s.heading_deg, 90.0f);
+    EXPECT_TRUE(s.gps_read_ok);
 }
 
 // TC-016 step 10. The sigmas reach the distributions. Same seed, the

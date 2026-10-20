@@ -26,6 +26,13 @@ by one period; a larger step means frames were missed, a step of zero or
 less means a frame arrived out of order (a datagram can), and both counts
 are reported at exit. The UDP mode is standard library only, so it runs on
 the Pi without pyzmq.
+
+The session status (REQ-TRANS-004) rides the same socket: the binary says which
+mode its frames are in (LIVE, SIMULATED, REPLAY) before the first frame and
+about once a second after it, and says ENDED after the last. The receiver
+reads it like any record, keeps the latest in `session`, prints it, and ends
+on ENDED at once instead of waiting a quiet timeout, so a finished publisher
+no longer looks like a lost link.
 """
 from __future__ import annotations
 
@@ -35,7 +42,7 @@ import sys
 from typing import Iterator, Protocol
 
 from pipeline import frame_format
-from pipeline.frame_format import FaultEvent, Frame
+from pipeline.frame_format import FaultEvent, Frame, SessionStatus
 
 DEFAULT_ENDPOINT = "tcp://127.0.0.1:5555"
 
@@ -142,6 +149,7 @@ class FrameReceiver:
     def __init__(self, source: ByteSource, period_ms: int = 20) -> None:
         self.source = source
         self.accounting = FrameAccounting(period_ms)
+        self.session: SessionStatus | None = None   # the latest status, None until one arrives
 
     @property
     def received(self) -> int:
@@ -164,7 +172,7 @@ class FrameReceiver:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def recv(self) -> Frame | FaultEvent | None:
+    def recv(self) -> Frame | FaultEvent | SessionStatus | None:
         """The next record, or None when nothing arrived within the timeout.
 
         Raises frame_format.FormatError if a message does not match this
@@ -176,15 +184,24 @@ class FrameReceiver:
         record = frame_format.parse_message(raw)
         if isinstance(record, Frame):
             self.accounting.account(record.timestamp_ms)
+        elif isinstance(record, SessionStatus):
+            self.session = record
         return record
 
-    def __iter__(self) -> Iterator[Frame | FaultEvent]:
-        """Records until the stream goes quiet for one timeout."""
+    @property
+    def ended(self) -> bool:
+        """Whether the publisher has said ENDED (REQ-TRANS-004)."""
+        return self.session is not None and self.session.state == "ENDED"
+
+    def __iter__(self) -> Iterator[Frame | FaultEvent | SessionStatus]:
+        """Records until the publisher says ENDED or the stream goes quiet for one timeout."""
         while True:
             record = self.recv()
             if record is None:
                 return
             yield record
+            if self.ended:
+                return
 
 
 def format_frame(frame: Frame) -> str:
@@ -201,6 +218,10 @@ def format_frame(frame: Frame) -> str:
             f"pitch {frame.pitch_deg:6.2f}  roll {frame.roll_deg:6.2f} deg "
             f"[{validity.get(frame.pitch_validity, frame.pitch_validity)}/{validity.get(frame.roll_validity, frame.roll_validity)}]  "
             f"{status}")
+
+
+def format_session(status: SessionStatus) -> str:
+    return f"session: mode={status.mode} state={status.state}"
 
 
 def format_event(event: FaultEvent) -> str:
@@ -247,13 +268,22 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
                 if record is None:
                     if receiver.received > 0:
-                        break          # the stream went quiet: the publisher is done
+                        break          # the stream went quiet: the publisher is gone
                     continue           # nothing yet: keep waiting for the publisher to start
-                print(format_frame(record) if isinstance(record, Frame) else format_event(record), flush=True)
+                if isinstance(record, Frame):
+                    print(format_frame(record), flush=True)
+                elif isinstance(record, SessionStatus):
+                    print(format_session(record), flush=True)
+                    if receiver.ended:
+                        break          # the publisher said so: no quiet timeout to wait out
+                else:
+                    print(format_event(record), flush=True)
         except KeyboardInterrupt:
             pass
+        session = (f"session {receiver.session.mode} {receiver.session.state.lower()}"
+                   if receiver.session is not None else "no session status received")
         print(f"received {receiver.received} frames, gaps {receiver.gaps} frames, "
-              f"out of order {receiver.out_of_order}", flush=True)
+              f"out of order {receiver.out_of_order}; {session}", flush=True)
     return 0
 
 

@@ -18,7 +18,7 @@ from typing import Callable, NamedTuple
 
 import pytest
 
-from pipeline.frame_format import FaultEvent, Frame
+from pipeline.frame_format import FaultEvent, Frame, SessionStatus
 from pipeline.receiver import FrameReceiver
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -73,13 +73,15 @@ def sim_session(telemetry_bin: Path, tmp_path_factory: pytest.TempPathFactory) -
 
 # The binary's exit lines, one per transport and one for timing (main.cpp).
 TRANSPORT_LINE = re.compile(r"^Transport: (?P<published>\d+) frames published (?:on|to) (?P<where>\S+) "
-                            r"\((?P<name>ZeroMQ|UDP)\), send failures = (?P<failures>\d+)", re.M)
+                            r"\((?P<name>ZeroMQ|UDP)\), send failures = (?P<failures>\d+)"
+                            r"(?: \(last errno \d+\))?, status messages = (?P<status>\d+)", re.M)
 TIMING_LINE = re.compile(r"^Timing:\s+(?P<cycles>\d+) cycles .*missed cycles = (?P<missed>\d+)", re.M)
 
 
 class PublishedRun(NamedTuple):
     frames: list[Frame]          # in arrival order
     events: list[FaultEvent]
+    statuses: list[tuple[int, SessionStatus]]   # each with the number of frames received before it
     stdout: str
     returncode: int
     log: Path                    # logs/telemetry_000.bin of this run
@@ -103,28 +105,35 @@ def run_published(binary: Path, args: list[str], cwd: Path, receiver: FrameRecei
     stdout_path = cwd / "stdout.txt"
     frames: list[Frame] = []
     events: list[FaultEvent] = []
+    statuses: list[tuple[int, SessionStatus]] = []
     start = time.perf_counter()
-    with open(stdout_path, "w") as out:
-        process = subprocess.Popen([str(binary), *CONFIG_ARGS, *args], cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
-        try:
-            while True:
-                record = receiver.recv()
-                if record is None:
-                    if process.poll() is not None:
-                        break
-                    if time.perf_counter() - start > timeout_s:
-                        process.kill()
-                        raise TimeoutError(f"telemetry {args} ran past {timeout_s} s")
-                    continue
-                if isinstance(record, Frame):
-                    frames.append(record)
-                    if on_frame is not None:
-                        on_frame(len(frames))
-                else:
-                    events.append(record)
-        finally:
-            process.wait(timeout=timeout_s)
+    try:
+        with open(stdout_path, "w") as out:
+            process = subprocess.Popen([str(binary), *CONFIG_ARGS, *args], cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
+            try:
+                while True:
+                    record = receiver.recv()
+                    if record is None:
+                        if process.poll() is not None:
+                            break
+                        if time.perf_counter() - start > timeout_s:
+                            process.kill()
+                            raise TimeoutError(f"telemetry {args} ran past {timeout_s} s")
+                        continue
+                    if isinstance(record, Frame):
+                        frames.append(record)
+                        if on_frame is not None:
+                            on_frame(len(frames))
+                    elif isinstance(record, SessionStatus):
+                        statuses.append((len(frames), record))
+                    else:
+                        events.append(record)
+            finally:
+                process.wait(timeout=timeout_s)
+    finally:
+        # On every path, the failed ones included: a receiver left open holds a
+        # ZeroMQ context whose termination blocks the interpreter's exit forever.
+        receiver.close()
     elapsed = time.perf_counter() - start
-    receiver.close()
-    return PublishedRun(frames, events, stdout_path.read_text(), process.returncode,
+    return PublishedRun(frames, events, statuses, stdout_path.read_text(), process.returncode,
                         cwd / "logs" / "telemetry_000.bin", elapsed)

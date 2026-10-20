@@ -183,11 +183,15 @@ def test_no_receiver_counts_and_continues(telemetry_bin, tmp_path, transport):
                                capture_output=True, text=True, timeout=60)
     assert completed.returncode == 0, completed.stderr
     assert len(read_log(tmp_path / "logs" / "telemetry_000.bin").frames) == 50
-    published, failures = transport_summary(completed.stdout, "ZeroMQ" if transport == "zmq" else "UDP")
-    assert published + failures == 50
+    name = "ZeroMQ" if transport == "zmq" else "UDP"
+    published, failures = transport_summary(completed.stdout, name)
+    statuses = next(int(m.group("status")) for m in TRANSPORT_LINE.finditer(completed.stdout) if m.group("name") == name)
+    # Every send is a frame or a status (REQ-TRANS-004 shares the socket), and the kernel's
+    # refusal can land on either: 50 frames, the RUNNING status before frame 0, ENDED three times.
+    assert published + statuses + failures == 50 + 1 + 3
     if transport == "zmq":
         assert failures == 0   # a PUB socket with nobody to send to refuses nothing
-    print(f"[{transport}] no receiver: published {published}, refused by the kernel {failures}")
+    print(f"[{transport}] no receiver: published {published}, statuses {statuses}, refused by the kernel {failures}")
 
 
 # --- startup refusals (REQ-TRANS-003: refused at startup, never inside the loop) -------------
@@ -218,7 +222,7 @@ def test_both_transports_at_once(telemetry_bin, tmp_path):
     run = run_published(telemetry_bin, [*zmq_flag, "--udp", f"127.0.0.1:{udp_source.port}", "--cycles", "100"],
                         tmp_path, zmq_receiver)
     udp_receiver = FrameReceiver(udp_source)
-    udp_frames = list(udp_receiver)
+    udp_frames = [record for record in udp_receiver if isinstance(record, Frame)]   # the statuses of TC-021 ride the same socket
     udp_receiver.close()
 
     assert run.returncode == 0, run.stdout[-400:]

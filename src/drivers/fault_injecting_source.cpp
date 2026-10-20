@@ -5,6 +5,10 @@ FaultInjectingSource::FaultInjectingSource(std::unique_ptr<DataSource> inner)
 {
 }
 
+bool FaultInjectingSource::has_next() {
+    return inner_->has_next();
+}
+
 void FaultInjectingSource::copy_channel(Channel channel, const TelemetryFrame& from,
                                         TelemetryFrame& to) {
     switch (channel) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable
