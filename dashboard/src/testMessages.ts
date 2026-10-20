@@ -51,9 +51,10 @@ export function session(
   return { type: "session", mode, state, identity, source_mode: sourceMode, received_at_ms: 0 };
 }
 
-// The two synthetic aircraft the tests show (nothing from the service).
-export const TEST001: Identity = { icao24: "a1b2c3", callsign: "TEST001" };
-export const TEST002: Identity = { icao24: "b2c3d4", callsign: "TEST002" };
+// The two synthetic aircraft the tests show (nothing from the service), from
+// tests/unit/opensky_examples.h: unallocated addresses, callsigns no airline uses.
+export const TEST001: Identity = { icao24: "000001", callsign: "TEST001" };
+export const TEST002: Identity = { icao24: "000002", callsign: "TEST002" };
 
 // A processed frame on the 20 ms grid: every validity NORMAL and every
 // channel NOMINAL and fresh unless overridden, no coordinates anywhere.

@@ -52,6 +52,16 @@ def telemetry_bin() -> Path:
     return path
 
 
+@pytest.fixture(scope="session")
+def campaign_bin() -> Path:
+    """build/fault_campaign, the fault-injection campaign's command (REQ-TEST-005), or
+    $FAULT_CAMPAIGN_BIN. Missing is a failure, as for the telemetry binary."""
+    path = Path(os.environ.get("FAULT_CAMPAIGN_BIN", REPO_ROOT / "build" / "fault_campaign")).resolve()
+    if not (path.is_file() and os.access(path, os.X_OK)):
+        pytest.fail(f"fault_campaign not found at {path}; build it (cmake --build build) or set FAULT_CAMPAIGN_BIN")
+    return path
+
+
 def _run(binary: Path, args: list[str], cwd: Path) -> str:
     completed = subprocess.run([str(binary), *CONFIG_ARGS, *args], cwd=cwd, capture_output=True, text=True,
                                timeout=120, check=True)

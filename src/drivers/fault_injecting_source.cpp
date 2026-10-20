@@ -10,6 +10,20 @@ constexpr uint8_t kGpsPresenceBits = static_cast<uint8_t>(
     static_cast<uint8_t>(FrameFlag::VERTICAL_RATE) | static_cast<uint8_t>(FrameFlag::PRESSURE_ALTITUDE) |
     static_cast<uint8_t>(FrameFlag::FIX_QUALITY));
 
+// Each RawField's member of the frame, in the enumeration's order: one
+// table instead of a switch per mode. A pointer to member names a field
+// of the type, and `frame.*member` is that field of one frame.
+constexpr std::array<float TelemetryFrame::*, kRawFieldCount> kFieldMember{
+    &TelemetryFrame::pressure_hpa, &TelemetryFrame::temperature_c,
+    &TelemetryFrame::accel_x, &TelemetryFrame::accel_y, &TelemetryFrame::accel_z,
+    &TelemetryFrame::gyro_x, &TelemetryFrame::gyro_y, &TelemetryFrame::gyro_z,
+    &TelemetryFrame::gps_altitude_m,
+};
+
+std::size_t index_of(RawField field) {
+    return static_cast<std::size_t>(field);
+}
+
 }  // namespace
 
 FaultInjectingSource::FaultInjectingSource(std::unique_ptr<DataSource> inner)
@@ -92,11 +106,39 @@ TelemetryFrame FaultInjectingSource::read_frame() {
         copy_channel(Channel::GPS, frame, last_good_);
     }
 
-    if (pressure_override_.has_value()) {
-        frame.pressure_hpa = *pressure_override_;
-    }
-
+    apply_field_modes(frame);
+    previous_ = frame;
+    have_previous_ = true;
     return frame;
+}
+
+void FaultInjectingSource::apply_field_modes(TelemetryFrame& frame) {
+    for (std::size_t i = 0; i < kRawFieldCount; i++) {
+        float& value = frame.*kFieldMember[i];
+        FieldHold& hold = holds_[i];
+        if (hold.enabled) {
+            if (!hold.captured) {
+                // The frame before the hold, or with none before it this
+                // frame's own value: a reading that freezes keeps the last
+                // value it showed.
+                hold.value = have_previous_ ? previous_.*kFieldMember[i] : value;
+                hold.captured = true;
+            }
+            value = hold.value;
+        }
+        FieldBias& bias = biases_[i];
+        if (bias.enabled) {
+            if (!bias.started) {
+                bias.start_ms = frame.timestamp_ms;
+                bias.started = true;
+            }
+            const double elapsed_s = static_cast<double>(frame.timestamp_ms - bias.start_ms) / 1000.0;
+            value = static_cast<float>(static_cast<double>(value) + bias.offset + bias.rate_per_s * elapsed_s);
+        }
+        if (overrides_[i].has_value()) {
+            value = *overrides_[i];
+        }
+    }
 }
 
 void FaultInjectingSource::fail_reads(Channel channel, bool enable) {
@@ -118,9 +160,37 @@ void FaultInjectingSource::hold_values(Channel channel, bool enable) {
 }
 
 void FaultInjectingSource::override_pressure(float hpa) {
-    pressure_override_ = hpa;
+    override_field(RawField::PRESSURE, hpa);
 }
 
 void FaultInjectingSource::clear_pressure_override() {
-    pressure_override_.reset();
+    clear_override(RawField::PRESSURE);
+}
+
+void FaultInjectingSource::hold_field(RawField field, bool enable) {
+    FieldHold& hold = holds_[index_of(field)];
+    if (enable && !hold.enabled) {
+        hold.captured = false;
+    }
+    hold.enabled = enable;
+}
+
+void FaultInjectingSource::override_field(RawField field, float value) {
+    overrides_[index_of(field)] = value;
+}
+
+void FaultInjectingSource::clear_override(RawField field) {
+    overrides_[index_of(field)].reset();
+}
+
+void FaultInjectingSource::bias_field(RawField field, float offset, float rate_per_s) {
+    FieldBias& bias = biases_[index_of(field)];
+    bias.enabled = true;
+    bias.started = false;
+    bias.offset = offset;
+    bias.rate_per_s = rate_per_s;
+}
+
+void FaultInjectingSource::clear_bias(RawField field) {
+    biases_[index_of(field)] = FieldBias{};
 }

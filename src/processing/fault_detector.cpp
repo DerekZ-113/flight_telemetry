@@ -1,8 +1,29 @@
 #include "processing/fault_detector.h"
 
 #include <algorithm>
+#include <cmath>
+#include <initializer_list>
+#include <optional>
 
 #include "drivers/mpu6050.h"
+
+namespace {
+
+// FAULT-024 (REQ-FAULT-003): the first of a reading's values that is not a
+// finite number, NaN or an infinity. Each channel tests it ahead of every
+// other check: a range test lets a NaN through, because every comparison
+// with NaN is false, and the rotation rates and the GPS fields have no
+// range test at all.
+std::optional<double> first_non_finite(std::initializer_list<double> values) {
+    const auto finite = [](double v) { return std::isfinite(v); };
+    const auto bad = std::find_if_not(values.begin(), values.end(), finite);
+    if (bad == values.end()) {
+        return std::nullopt;
+    }
+    return *bad;
+}
+
+}  // namespace
 
 FaultDetector::FaultDetector(const FaultDetectorConfig& config)
     : config_(config)
@@ -63,6 +84,15 @@ FaultDetector::Observation FaultDetector::observe_baro(const TelemetryFrame& raw
         return obs;  // stale fields: nothing else to judge this frame
     }
 
+    // FAULT-024, ahead of the range tests below, which a NaN passes.
+    const std::optional<double> non_finite = first_non_finite({raw.pressure_hpa, raw.temperature_c});
+    if (non_finite.has_value()) {
+        obs.faulted = true;
+        obs.type = FaultType::OUT_OF_RANGE;
+        obs.value = static_cast<float>(*non_finite);
+        return obs;
+    }
+
     // FAULT-008, FAULT-009. Temperature out of range degrades the whole
     // channel because the BMP280's pressure compensation uses it.
     if (raw.pressure_hpa < config_.pressure_min_hpa || raw.pressure_hpa > config_.pressure_max_hpa) {
@@ -104,6 +134,17 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
         return obs;
     }
 
+    // FAULT-024, ahead of the rails, which a NaN passes, and covering the
+    // rotation rates, which have no range test.
+    const std::optional<double> non_finite =
+        first_non_finite({raw.accel_x, raw.accel_y, raw.accel_z, raw.gyro_x, raw.gyro_y, raw.gyro_z});
+    if (non_finite.has_value()) {
+        obs.faulted = true;
+        obs.type = FaultType::OUT_OF_RANGE;
+        obs.value = static_cast<float>(*non_finite);
+        return obs;
+    }
+
     // FAULT-010. An axis at either rail is a clipped reading. The rails are
     // the driver's: the two extreme 16-bit codes through its own scaling
     // (mpu6050.h), so the threshold is what the sensor can produce, never
@@ -111,13 +152,15 @@ FaultDetector::Observation FaultDetector::observe_imu(const TelemetryFrame& raw,
     // asymmetric, the positive rail one count short of 2 g and the count
     // one inside the negative rail equal to minus the positive rail, so a
     // fabs() against either rail misses one case or flags a valid reading.
-    // std::find_if names the intent: locate the first saturated axis.
+    // std::find_if names the intent: locate the first saturated axis. The
+    // predicate is named so that the call fits on a line of its own, where
+    // lcov's filter drops its unwind edge (FTS-VR-001 Entry 23 §23.4).
     const float accel[3] = {raw.accel_x, raw.accel_y, raw.accel_z};
-    const float* saturated = std::find_if(std::begin(accel), std::end(accel),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
-                                          [](float a) {
-                                              return a >= Mpu6050::kAccelPositiveRailMps2 ||
-                                                     a <= Mpu6050::kAccelNegativeRailMps2;
-                                          });
+    const auto at_a_rail = [](float a) {
+        return a >= Mpu6050::kAccelPositiveRailMps2 ||
+               a <= Mpu6050::kAccelNegativeRailMps2;
+    };
+    const float* saturated = std::find_if(std::begin(accel), std::end(accel), at_a_rail);
     if (saturated != std::end(accel)) {
         obs.faulted = true;
         obs.type = FaultType::OUT_OF_RANGE;
@@ -160,6 +203,22 @@ FaultDetector::Observation FaultDetector::observe_gps(const TelemetryFrame& raw,
         obs.faulted = true;
         obs.type = FaultType::COMM_TIMEOUT;
         obs.value = elapsed;
+        return obs;
+    }
+    if (!obs.read_ok) {
+        return obs;  // between fixes the frame carries the held fix, judged when it arrived
+    }
+
+    // FAULT-024: a fix with a field that is not a number. The GPS has no
+    // range test, and the filter, the bridge and the page read all five.
+    // The ADS-B vertical rate and pressure altitude are not judged: nothing
+    // consumes them until Phase B (design.md section 12).
+    const std::optional<double> non_finite =
+        first_non_finite({raw.latitude, raw.longitude, raw.gps_altitude_m, raw.ground_speed_mps, raw.course_deg});
+    if (non_finite.has_value()) {
+        obs.faulted = true;
+        obs.type = FaultType::OUT_OF_RANGE;
+        obs.value = static_cast<float>(*non_finite);
     }
     return obs;
 }
@@ -281,6 +340,7 @@ const char* fault_type_name(FaultType type) {
         case FaultType::LANE_FAULTED:      return "LANE_FAULTED";
         case FaultType::NO_MAJORITY:       return "NO_MAJORITY";
         case FaultType::LANE_OVERRUN:      return "LANE_OVERRUN";
+        case FaultType::LANE_FAULT_INJECTED: return "LANE_FAULT_INJECTED";
     }
     return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable, see channel_name)
 }

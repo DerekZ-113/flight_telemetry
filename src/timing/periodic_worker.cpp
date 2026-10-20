@@ -51,7 +51,7 @@ void PeriodicWorker::run(std::chrono::milliseconds delay) {
     // wait_for with a predicate returns false when the delay elapsed with
     // no stop requested (run the step) and true the moment stop() set the
     // flag; a spurious wakeup re-checks the predicate and keeps waiting.
-    while (!wake_.wait_for(lock, delay, [this] { return stop_requested_; })) {  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
+    while (!wake_.wait_for(lock, delay, [this] { return stop_requested_; })) {  // LCOV_EXCL_EXCEPTION_BR_LINE: wait_for is the loop's condition; its decision is tested, not measured (FTS-VR-001 §1.3)
         lock.unlock();
         delay = step_();
         lock.lock();

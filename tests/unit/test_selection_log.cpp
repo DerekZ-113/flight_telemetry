@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "drivers/selection_log.h"
+#include "scratch_dir.h"
 
 namespace fs = std::filesystem;
 
@@ -42,7 +43,8 @@ SwitchRecord record(uint64_t timestamp_ms, size_t poll, std::optional<AircraftId
 // replaced by an aircraft without a callsign, and a drop with nothing in
 // its place; the distance to one decimal.
 TEST(SelectionLogTest, WritesTheHeaderAndOneRowPerChange) {
-    const fs::path path = fs::temp_directory_path() / "ftlg_selection_log_test.csv";
+    const ScratchDir scratch("selection_log");
+    const fs::path path = scratch.path() / "telemetry_adsb.csv";
     {
         SelectionLog log(path);
         ASSERT_TRUE(log.ok());
@@ -56,7 +58,6 @@ TEST(SelectionLogTest, WritesTheHeaderAndOneRowPerChange) {
               "100,1,,,000001,TEST001,initial,5123.4\n"
               "5000,3,000001,TEST001,000002,,landed,8900.0\n"
               "9000,5,000002,,,,left,0.0\n");
-    fs::remove(path);
 }
 
 TEST(SelectionLogTest, UnwritablePathReportsNotOk) {

@@ -20,6 +20,7 @@
 
 #include "config/telemetry_config.h"
 #include "logging/log_format.h"
+#include "scratch_dir.h"
 
 namespace {
 
@@ -179,7 +180,8 @@ TEST(ConfigTest, UnreadableFileIsReported) {
     if (::geteuid() == 0) {
         GTEST_SKIP() << "root can read a file with no permission bits; the branch needs an ordinary user";
     }
-    const fs::path path = fs::temp_directory_path() / "ftlg_config_unreadable.yaml";
+    const ScratchDir scratch("config");
+    const fs::path path = scratch.path() / "unreadable.yaml";
     {
         std::ofstream out(path);
         out << shipped_text();

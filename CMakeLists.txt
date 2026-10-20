@@ -40,6 +40,7 @@ add_library(telemetry_core STATIC
     src/processing/fault_detector.cpp
     src/processing/voter.cpp
     src/processing/redundant_processor.cpp
+    src/processing/lane_fault_injector.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
     src/drivers/motion_profile.cpp
@@ -62,6 +63,7 @@ add_library(telemetry_core STATIC
     src/logging/binary_logger.cpp
     src/logging/log_reader.cpp
     src/replay/log_replay_source.cpp
+    src/replay/recorded_injections.cpp
     src/timing/clock.cpp
     src/timing/fixed_rate_scheduler.cpp
     src/timing/timestamp_pacer.cpp
@@ -210,6 +212,33 @@ target_link_libraries(unit_tests PRIVATE telemetry_core GTest::gtest_main)
 # individually rather than as one opaque binary.
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
+
+# The fault-injection campaign (REQ-TEST-005, REQ-TEST-006; FTS-TP-001
+# Section 2.3, FTS-DD-001 Section 14): verification tooling outside src/,
+# built against telemetry_core so it runs the real pipeline unpaced.
+# Neither the coverage gate nor cppcheck's scan of src/ measures it; its
+# own known-answer tests are its evidence (TC-035), and its CI subset runs
+# here, under ctest, on every build.
+add_library(fault_campaign_core STATIC
+    tests/fault_injection/schedule_rng.cpp
+    tests/fault_injection/run_schedule.cpp
+    tests/fault_injection/fault_catalogue.cpp
+    tests/fault_injection/campaign_run.cpp
+    tests/fault_injection/run_outcome.cpp
+    tests/fault_injection/prediction.cpp
+    tests/fault_injection/campaign_record.cpp
+)
+target_include_directories(fault_campaign_core PUBLIC ${CMAKE_SOURCE_DIR}/tests/fault_injection)
+target_link_libraries(fault_campaign_core PUBLIC telemetry_core PRIVATE nlohmann_json::nlohmann_json)
+
+# The full campaign on demand (TC-036): scripts/fault_campaign.sh runs it.
+add_executable(fault_campaign tests/fault_injection/campaign_main.cpp)
+target_link_libraries(fault_campaign PRIVATE fault_campaign_core)
+
+file(GLOB FAULT_INJECTION_TEST_SOURCES CONFIGURE_DEPENDS tests/fault_injection/test_*.cpp)
+add_executable(fault_injection_tests ${FAULT_INJECTION_TEST_SOURCES})
+target_link_libraries(fault_injection_tests PRIVATE fault_campaign_core GTest::gtest_main)
+gtest_discover_tests(fault_injection_tests)
 
 # Coverage flags go on our two targets only, not globally: instrumenting
 # gtest itself would put thousands of library branches into the report

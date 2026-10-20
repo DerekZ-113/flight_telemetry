@@ -2,7 +2,9 @@
 // value, dashes, or a flag naming the instrument, decided by one function
 // that every instrument calls. The feed's state comes first, because a
 // stale, lagging, ended or disconnected feed withdraws every value whatever
-// the fields say; then the most severe verdict among the instrument's
+// the fields say; then a value that arrived as null (REQ-DISP-005), which is
+// the failure flag whatever its verdict, since a page never draws a number
+// it was not sent; then the most severe verdict among the instrument's
 // fields: a failure warning (or a DEGRADED channel) is a flag, "not judged"
 // is dashes under the PIPELINE annunciator, a channel the source does not
 // provide (NOT_AVAILABLE, REQ-FAULT-007) is the no-source flag, "no data" is
@@ -11,7 +13,7 @@
 // a pilot can read, so the number goes and a flag takes its place.
 import { badgeFor } from "../badge";
 import { VOTER_BITS } from "../feed";
-import type { StatusName, ValidityName } from "../feed";
+import type { StatusName, ValidityName, WireNumber } from "../feed";
 import type { FeedState } from "../useTelemetryFeed";
 
 export type FieldVerdict = ValidityName | StatusName;
@@ -63,13 +65,16 @@ const SEVERITY: Record<FieldVerdict, number> = {
   NOMINAL: 0,
 };
 
-export function instrumentState(verdicts: FieldVerdict[], feed: FeedState): InstrumentState {
+export function instrumentState(verdicts: FieldVerdict[], feed: FeedState, values: WireNumber[] = []): InstrumentState {
   if (feed.lastFrame === null || verdicts.length === 0) {
     return { show: "dashes" };
   }
   const cause = feedCause(feed);
   if (cause !== null) {
     return { show: "flag", cause };
+  }
+  if (values.includes(null)) {
+    return { show: "flag", cause: "fail" };
   }
   const worst = verdicts.reduce((a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a));
   switch (worst) {
@@ -93,10 +98,14 @@ export function instrumentState(verdicts: FieldVerdict[], feed: FeedState): Inst
 // speed is at or above the threshold hello named (REQ-DISP-002): a
 // stationary receiver's course is noise, so below the threshold the track
 // indicator reads dashes and draws no rose, with no flag, since nothing
-// failed.
+// failed. A speed that arrived as null shows no track at any threshold.
 export function trackShown(feed: FeedState): boolean {
   const frame = feed.lastFrame;
-  return frame !== null && frame.status.gps === "NOMINAL" && frame.frame.ground_speed_mps >= feed.trackMinSpeedMps;
+  if (frame === null || frame.status.gps !== "NOMINAL") {
+    return false;
+  }
+  const speed = frame.frame.ground_speed_mps;
+  return speed !== null && speed >= feed.trackMinSpeedMps;
 }
 
 // Which of the three lanes are in the vote, from the voter's status

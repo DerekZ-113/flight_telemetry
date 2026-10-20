@@ -31,10 +31,10 @@ TEST(SessionMessageTest, BytesAreMagicVersionModeStateSourceAndIdentity) {
     EXPECT_EQ(bytes, expected);
 
     const std::array<uint8_t, kSessionMessageBytes> with_identity = session_message(
-        SessionStatus{RunMode::ADSB, RunMode::ADSB, StreamState::RUNNING, session_identity("a1b2c3", "TEST001")});
+        SessionStatus{RunMode::ADSB, RunMode::ADSB, StreamState::RUNNING, session_identity("000001", "TEST001")});
     const std::array<uint8_t, kSessionMessageBytes> expected_identity = {
         0x46, 0x54, 0x53, 0x53, 0x03, 0x04, 0x01, 0x04,
-        0xa1, 0xb2, 0xc3,
+        0x00, 0x00, 0x01,
         'T', 'E', 'S', 'T', '0', '0', '1', ' ',   // space-padded to eight
     };
     EXPECT_EQ(with_identity, expected_identity);
@@ -69,12 +69,14 @@ TEST(SessionMessageTest, EveryModeAndStateEncodes) {
 // truncated to eight, space-padded, non-printable bytes replaced; an
 // aircraft without a callsign is eight spaces, which is not "none".
 TEST(SessionMessageTest, IdentityEncodesAddressAndCallsign) {
-    const SessionIdentity lower = session_identity("a1b2c3", "UAL1234");
-    EXPECT_EQ(lower.icao24, (std::array<uint8_t, 3>{0xa1, 0xb2, 0xc3}));
-    EXPECT_EQ(std::string(lower.callsign.begin(), lower.callsign.end()), "UAL1234 ");
-    EXPECT_EQ(session_identity("A1B2C3", "UAL1234"), lower);
-    EXPECT_EQ(session_identity("a1b2cz", "X").icao24, (std::array<uint8_t, 3>{0, 0, 0}));
-    EXPECT_EQ(session_identity("a1b2c", "X").icao24, (std::array<uint8_t, 3>{0, 0, 0}));
+    // Synthetic identities only (tests/unit/opensky_examples.h): an address from the unallocated
+    // block, with a hex letter for the case test, and a callsign no airline uses.
+    const SessionIdentity lower = session_identity("00000a", "TEST001");
+    EXPECT_EQ(lower.icao24, (std::array<uint8_t, 3>{0x00, 0x00, 0x0a}));
+    EXPECT_EQ(std::string(lower.callsign.begin(), lower.callsign.end()), "TEST001 ");
+    EXPECT_EQ(session_identity("00000A", "TEST001"), lower);
+    EXPECT_EQ(session_identity("00000z", "X").icao24, (std::array<uint8_t, 3>{0, 0, 0}));
+    EXPECT_EQ(session_identity("00000", "X").icao24, (std::array<uint8_t, 3>{0, 0, 0}));
     const SessionIdentity long_callsign = session_identity("000001", "TOOLONGCALLSIGN");
     EXPECT_EQ(std::string(long_callsign.callsign.begin(), long_callsign.callsign.end()), "TOOLONGC");
     const SessionIdentity odd = session_identity("000001", std::string("AB\x01\xff") + "C");

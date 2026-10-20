@@ -14,6 +14,7 @@
 #include "logging/binary_logger.h"
 #include "logging/log_format.h"
 #include "logging/log_reader.h"
+#include "scratch_dir.h"
 
 namespace fs = std::filesystem;
 
@@ -24,15 +25,9 @@ constexpr uint64_t kHeader = sizeof(LogFileHeader);
 
 class LoggingTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        static int counter = 0;
-        dir_ = fs::temp_directory_path() / ("ftlg_test_" + std::to_string(counter++));
-        fs::remove_all(dir_);
-        fs::create_directories(dir_);
-    }
-    void TearDown() override { fs::remove_all(dir_); }
-
-    fs::path dir_;
+    // A directory of this test's own, removed after it (scratch_dir.h).
+    ScratchDir scratch_{"test"};
+    fs::path dir_ = scratch_.path();
 };
 
 bool frames_equal(const TelemetryFrame& a, const TelemetryFrame& b) {
@@ -327,7 +322,7 @@ TEST_F(LoggingTest, RotationIntoRemovedDirectoryReportsNotOk) {
     logger.log_frame(TelemetryFrame{});       // forces open_next_file, which fails
     EXPECT_FALSE(logger.ok());
     logger.log_frame(TelemetryFrame{});       // early return on !ok_
-    fs::create_directories(dir_);             // so TearDown has something to remove
+    fs::create_directories(dir_);             // put back what the test removed
 }
 
 TEST_F(LoggingTest, CurrentPathTracksRotation) {

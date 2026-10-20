@@ -5,6 +5,7 @@
 //   pipeline/frame_format.py  VALIDITY_NAMES, STATUS_NAMES, MODE_NAMES, STATE_NAMES  ->  the name unions
 //   pipeline/frame_format.py  VOTER_STATUS_NAMES                         ->  VOTER_BITS
 //   pipeline/bridge.py        frame_message, session_message, hello     ->  the message types
+//   pipeline/bridge.py        wire_text: null for a non-finite value     ->  WireNumber, WirePosition
 //
 // A typed record is the cheapest check that the page and the bridge agree
 // on the names: a field the bridge renames fails here at build time, not in
@@ -42,28 +43,36 @@ export const VOTER_BITS = {
 export const CHANNELS = ["baro", "imu", "gps"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
+// A number as the bridge sends one. JSON has no NaN and no infinity, so a
+// value that is not a finite number arrives as null (REQ-DISP-005), with the
+// channel status or the validity beside it saying why. Every float of the
+// frame and of the position is typed with it, so the compiler finds each
+// place a null must be handled; the counters, statuses, bits and flags are
+// integers and never null.
+export type WireNumber = number | null;
+
 // Every field of the 120-byte frame (format version 3) but the two the bridge withholds
 // (REQ-DISP-005): no latitude, no longitude, so the page has no slot that
 // could ever show one.
 export interface FrameFields {
   timestamp_ms: number;
-  pressure_hpa: number;
-  temperature_c: number;
-  baro_altitude_m: number;
-  accel_x: number;
-  accel_y: number;
-  accel_z: number;
-  gyro_x: number;
-  gyro_y: number;
-  gyro_z: number;
-  pitch_deg: number;
-  roll_deg: number;
+  pressure_hpa: WireNumber;
+  temperature_c: WireNumber;
+  baro_altitude_m: WireNumber;
+  accel_x: WireNumber;
+  accel_y: WireNumber;
+  accel_z: WireNumber;
+  gyro_x: WireNumber;
+  gyro_y: WireNumber;
+  gyro_z: WireNumber;
+  pitch_deg: WireNumber;
+  roll_deg: WireNumber;
   sequence: number; // the source's count of its frames, from 0 (REQ-LOG-008)
-  gps_altitude_m: number;
-  ground_speed_mps: number;
-  course_deg: number; // the course over ground, degrees true (heading_deg until format version 3)
-  fused_altitude_m: number;
-  vertical_speed_mps: number;
+  gps_altitude_m: WireNumber;
+  ground_speed_mps: WireNumber;
+  course_deg: WireNumber; // the course over ground, degrees true (heading_deg until format version 3)
+  fused_altitude_m: WireNumber;
+  vertical_speed_mps: WireNumber;
   baro_status: number;
   imu_status: number;
   gps_status: number;
@@ -76,8 +85,8 @@ export interface FrameFields {
   fused_altitude_validity: number;
   vertical_speed_validity: number;
   flags: number; // FrameFlag bits: NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY
-  gps_vertical_rate_mps: number; // present only under the VERTICAL_RATE bit (REQ-SENS-008)
-  gps_pressure_altitude_m: number; // present only under the PRESSURE_ALTITUDE bit (REQ-SENS-008)
+  gps_vertical_rate_mps: WireNumber; // present only under the VERTICAL_RATE bit (REQ-SENS-008)
+  gps_pressure_altitude_m: WireNumber; // present only under the PRESSURE_ALTITUDE bit (REQ-SENS-008)
   gps_fix_quality: number; // present only under the FIX_QUALITY bit (REQ-SENS-005)
   gps_satellites: number;
   voter_status: number; // VoterStatus bits (VOTER_BITS); zero: no voter ran
@@ -85,11 +94,25 @@ export interface FrameFields {
 }
 
 // A position relative to the first fix the bridge saw, in metres
-// (REQ-DISP-005): a displacement reveals a shape, not a place. Null before
-// the bridge has an origin.
+// (REQ-DISP-005): a displacement reveals a shape, not a place.
 export interface Position {
   east_m: number;
   north_m: number;
+}
+
+// The position as it arrives: null before the bridge has an origin, and a
+// coordinate null when the fix it was computed from was not a number.
+export interface WirePosition {
+  east_m: WireNumber;
+  north_m: WireNumber;
+}
+
+// The position, when both of its coordinates are numbers; null otherwise.
+export function finitePosition(position: WirePosition | null): Position | null {
+  if (position === null || position.east_m === null || position.north_m === null) {
+    return null;
+  }
+  return { east_m: position.east_m, north_m: position.north_m };
 }
 
 export interface FrameMessage {
@@ -98,7 +121,7 @@ export interface FrameMessage {
   frame: FrameFields;
   validity: Record<ComputedField, ValidityName>;
   status: Record<Channel, StatusName>;
-  position: Position | null;
+  position: WirePosition | null;
 }
 
 // The aircraft an ADS-B run presents (REQ-DISP-007): its ICAO address as

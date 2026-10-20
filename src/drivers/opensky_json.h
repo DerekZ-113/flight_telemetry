@@ -14,7 +14,9 @@
 // here throws: the parser is told not to, and every field is type-checked
 // before it is read, so a malformed document is a value naming the problem
 // (FTS-FM-001 FAULT-016, FAULT-017), and no exception edge reaches the
-// coverage record. No message ever carries a value from the credentials
+// coverage record: the one loop whose iterator calls GCC still gives an
+// unwind edge, the loop over the states, carries the marker (FTS-VR-001
+// §1.3). No message ever carries a value from the credentials
 // file or a token: a problem names a key or a path.
 namespace opensky_json {
 

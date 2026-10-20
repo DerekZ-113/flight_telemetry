@@ -168,8 +168,8 @@ TelemetryFrame Voter::vote(const TelemetryFrame& checked, const std::array<Telem
         degrade(out);
         if (!in_no_majority_) {
             in_no_majority_ = true;
-            const auto lanes_in = std::count_if(lanes_.begin(), lanes_.end(),  // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the line makes no decision
-                                                [](const LaneState& lane) { return !lane.faulted; });
+            const auto in_vote = [](const LaneState& lane) { return !lane.faulted; };
+            const auto lanes_in = std::count_if(lanes_.begin(), lanes_.end(), in_vote);
             record_event(checked.timestamp_ms, FaultType::NO_MAJORITY, static_cast<float>(lanes_in));
         }
     }

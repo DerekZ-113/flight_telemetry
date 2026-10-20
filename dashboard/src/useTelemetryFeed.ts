@@ -26,6 +26,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  finitePosition,
   parseMessage,
   sameIdentity,
   type BridgeMessage,
@@ -144,8 +145,9 @@ function applyFrame(state: FeedInternal, message: FrameMessage, nowMs: number): 
   const lagMs = nowMs - origin.arrivalMs - frameElapsedMs;
   const bridgeLagMs = message.received_at_ms - origin.receivedAtMs - frameElapsedMs;
   const previous = newSession ? [] : state.trail;
-  const trail =
-    message.frame.gps_read_ok && message.position !== null ? appendCapped(previous, message.position) : previous;
+  // A fix whose position arrived as null (REQ-DISP-005) adds no point.
+  const point = finitePosition(message.position);
+  const trail = message.frame.gps_read_ok && point !== null ? appendCapped(previous, point) : previous;
   return {
     ...state,
     lastFrame: message,

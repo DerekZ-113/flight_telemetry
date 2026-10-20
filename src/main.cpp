@@ -21,6 +21,7 @@
 #include "processing/altitude.h"
 #include "processing/processor.h"
 #include "processing/fault_detector.h"
+#include "processing/lane_fault_injector.h"
 #include "processing/redundant_processor.h"
 #include "processing/voter.h"
 #include "timing/clock.h"
@@ -44,6 +45,7 @@
 #include "drivers/serial_port.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
+#include "replay/recorded_injections.h"
 
 // The processor's default re-seed bound and the detector's default I2C
 // timeout are one number, "the IMU communication timeout" of REQ-PROC-002
@@ -272,7 +274,10 @@ void print_event(const FaultEvent& event) {
 // is a choice of run, not a key); --adsb swaps the source for the ADS-B
 // source (REQ-SENS-008), --adsb-credentials <file> names its credentials
 // file (REQ-CFG-004: a path is not a tunable and must never be a key) and
-// --adsb-origin <url> points the service's two endpoints at a test server.
+// --adsb-origin <url> points the service's two endpoints at a test server;
+// --lane-fault <lane>@<seconds> puts the demonstration's one lane fault into
+// the run (REQ-RED-007), recorded in the log, and is refused with a replay,
+// which re-applies what its log records.
 // Nothing else on the command line overrides a key.
 struct Options {
     bool live = false;
@@ -288,11 +293,12 @@ struct Options {
     std::string udp_host;                         // the two halves, split here
     int udp_port = 0;
     std::optional<int> cycles;                    // absent: kDefaultCycles, or a replay's whole log
+    std::optional<LaneFault> lane_fault;          // the demonstration's lane fault (REQ-RED-007)
     std::string error;   // non-empty: a usage error; main prints it and exits
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name> | --adsb [--adsb-credentials <file>] [--adsb-origin <url>]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name> | --adsb [--adsb-credentials <file>] [--adsb-origin <url>]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--lane-fault <lane>@<seconds>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
@@ -308,6 +314,9 @@ void print_usage() {
               << "  --adsb-origin <url>  with --adsb: a server in place of the service's origin, e.g. http://127.0.0.1:8080 (the end-to-end test)\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
+              << "  --lane-fault <lane>@<seconds>\n"
+              << "                       flip bit 22 of that lane's fused altitude on every cycle from that time, e.g. 2@60, recorded\n"
+              << "                       in the log (REQ-RED-007, the demonstration of lane isolation); a replay re-applies it\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles
               << "; a replay runs to the end of its log, and --cycles caps it)" << std::endl;
 }
@@ -365,6 +374,15 @@ Options parse_args(int argc, const char* const argv[]) {
             options.adsb_credentials = argv[++i];
         } else if (flag == "--adsb-origin" && has_value) {
             options.adsb_origin = argv[++i];
+        } else if (flag == "--lane-fault" && has_value) {
+            // The value's form and range are the injector's to judge
+            // (parse_lane_fault, tested); this carries its message.
+            std::string error;
+            options.lane_fault = parse_lane_fault(argv[++i], error);
+            if (!options.lane_fault.has_value()) {
+                options.error = error;
+                return options;
+            }
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
@@ -387,6 +405,9 @@ Options parse_args(int argc, const char* const argv[]) {
     } else if (options.motion.has_value() && !MotionProfile::named(*options.motion).has_value()) {
         options.error = "--motion: no profile is named '" + *options.motion + "' (known: " +
                         MotionProfile::known_names() + ")";
+    } else if (options.lane_fault.has_value() && options.replay_file.has_value()) {
+        options.error = "--lane-fault puts a lane fault into a run; a replay re-applies the lane faults its log records, "
+                        "so pass one of them";
     }
     return options;
 }
@@ -512,8 +533,10 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // source through them alike: the loop hands it the checked frame and logs
 // what the voter chose.
 //
-// The scheduler, the pacer and the jitter log are pointers, not references,
-// because each may be absent: a reference cannot be null, a pointer can. A
+// The scheduler, the pacer, the jitter log and the lane-fault injector are
+// pointers, not references, because each may be absent: a reference cannot
+// be null, a pointer can. The injector is there only for the demonstration's
+// lane fault (REQ-RED-007). A
 // live or simulated run has the scheduler; a paced replay has the pacer
 // (REQ-TIME-004), which waits after the read because its deadline is the
 // frame's own timestamp; an unpaced replay has neither, since its frames
@@ -539,7 +562,7 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // nothing in every other mode. It is called once per frame, after the
 // read, and the ADS-B composition reports the switches on the way.
 RunTallies run(DataSource& source, FaultDetector& detector, RedundantProcessor& processor,
-                  BinaryLogger& logger, const std::vector<Publisher*>& publishers,
+                  LaneFaultInjector* lane_faults, BinaryLogger& logger, const std::vector<Publisher*>& publishers,
                   FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
                   std::optional<int> frame_count, RunMode mode, RunMode source_mode, int status_every_cycles,
                   const std::function<SessionIdentity()>& identity) {
@@ -615,6 +638,15 @@ RunTallies run(DataSource& source, FaultDetector& detector, RedundantProcessor& 
         for (const FaultEvent& event : detector.take_events()) {
             logger.log_event(event);
             print_event(event);
+        }
+        // The demonstration's lane fault (REQ-RED-007), between the two: it
+        // happened in the lanes, before the vote that answered it, and it is
+        // not a voter event, so the tally does not count it.
+        if (lane_faults != nullptr) {
+            for (const FaultEvent& event : lane_faults->take_events()) {
+                logger.log_event(event);
+                print_event(event);
+            }
         }
         const std::vector<FaultEvent> voter_events = processor.take_events();
         tally.voter.account_events(voter_events.size());
@@ -740,6 +772,7 @@ int main(int argc, char* argv[]) {
                          : options.live ? RunMode::LIVE
                          : replaying ? RunMode::REPLAY : RunMode::SIMULATED;
     RunMode source_mode = mode;
+    std::vector<LaneFault> lane_faults;   // REQ-RED-007: the option's, or what a replay's input records
     if (replaying) {
         const std::filesystem::path input(*options.replay_file);
         std::filesystem::path input_directory = input.parent_path();
@@ -790,6 +823,19 @@ int main(int argc, char* argv[]) {
             std::cout << "; an ADS-B recording by its header, so the GPS channel's timeout is adsb.timeout_ms";
         }
         std::cout << ")" << std::endl;
+
+        // The lane faults the recording put in (REQ-RED-007), re-applied so
+        // the replay reproduces the run. Read now, before anything is built,
+        // with a reader of their own: the replay source skips events.
+        std::string scan_error;
+        lane_faults = recorded_lane_faults({input}, scan_error);
+        if (!scan_error.empty()) {
+            std::cerr << "error: cannot replay " << input.string() << ": " << scan_error << std::endl;
+            return 1;
+        }
+    }
+    if (options.lane_fault.has_value()) {
+        lane_faults.push_back(*options.lane_fault);
     }
 
     // One monotonic clock paces the loop (below) and stamps live frames, so
@@ -844,8 +890,10 @@ int main(int argc, char* argv[]) {
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
     // It is three lanes and a voter (REQ-RED-001), every lane built from
-    // the same tuning; no lane-fault hook, which only a test builds
-    // (REQ-RED-005). One configured value feeds both: the IMU timeout is
+    // the same tuning; the lane-fault injector only for the demonstration's
+    // fault, from --lane-fault or recorded in a replay's input (REQ-RED-007),
+    // and otherwise no hook at all (REQ-RED-005). The injector is declared
+    // first: the processor keeps a pointer to it. One configured value feeds both: the IMU timeout is
     // the detector's fault bound and the lanes' re-seed bound
     // (REQ-PROC-002), and they must be the same number.
     // The GPS channel's timeout (REQ-FAULT-001): the receiver's in a live
@@ -865,7 +913,15 @@ int main(int argc, char* argv[]) {
         fault.uart_timeout_ms = cfg.adsb->timeout_ms;
     }
     FaultDetector detector(fault);
-    RedundantProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
+    std::optional<LaneFaultInjector> lane_injector;
+    if (!lane_faults.empty()) {
+        lane_injector.emplace(lane_faults);
+        for (const LaneFault& lane_fault : lane_faults) {
+            std::cout << "Lane fault:    " << describe_lane_fault(lane_fault, replaying) << std::endl;
+        }
+    }
+    RedundantProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms, Voter::kLanePersistence,
+                                 lane_injector.has_value() ? &lane_injector.value() : nullptr);
 
     // The header every record and every frame message carries
     // (REQ-LOG-007): built once, from the run's mode and the source mode,
@@ -1009,7 +1065,8 @@ int main(int argc, char* argv[]) {
         return selected.has_value() ? session_identity(selected->icao24, selected->callsign) : SessionIdentity{};
     };
 
-    const RunTallies tally = run(*source, detector, processor, logger, publishers,
+    const RunTallies tally = run(*source, detector, processor,
+                                    lane_injector.has_value() ? &lane_injector.value() : nullptr, logger, publishers,
                                     replaying ? nullptr : &scheduler,
                                     options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,

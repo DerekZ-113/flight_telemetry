@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "fake_clock.h"
+#include "scratch_dir.h"
 #include "timing/clock.h"
 #include "timing/fixed_rate_scheduler.h"
 #include "timing/jitter_log.h"
@@ -166,8 +167,8 @@ TEST(TimingTest, JitterStatsAggregate) {
 
 // One CSV line per cycle, fields in the documented order. (REQ-TIME-002)
 TEST(TimingTest, JitterLogWritesCsv) {
-    const std::filesystem::path file =
-        std::filesystem::temp_directory_path() / "ftlg_jitter_test.csv";
+    const ScratchDir scratch("jitter");
+    const std::filesystem::path file = scratch.path() / "telemetry_jitter.csv";
     {
         JitterLog log(file);
         ASSERT_TRUE(log.ok());
@@ -183,7 +184,6 @@ TEST(TimingTest, JitterLogWritesCsv) {
     for (std::string line; std::getline(in, line);) {
         lines.push_back(line);
     }
-    std::filesystem::remove(file);
 
     ASSERT_EQ(lines.size(), 4u);
     EXPECT_EQ(lines[0], "cycle,scheduled_ns,actual_ns,jitter_ns,missed_cycles");

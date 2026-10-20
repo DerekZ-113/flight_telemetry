@@ -3,7 +3,7 @@
 // the feed's state, with the precedence FTS-DS-001 §2.1 and §5 state.
 import { describe, expect, it } from "vitest";
 
-import { feedCause, instrumentState, lanesIn, voterState } from "./instrumentState";
+import { feedCause, instrumentState, lanesIn, trackShown, voterState } from "./instrumentState";
 import { frame, runningFeed } from "../testMessages";
 
 describe("instrumentState", () => {
@@ -72,6 +72,20 @@ describe("instrumentState", () => {
       expect(instrumentState(["NORMAL"], feed)).toEqual({ show: "dashes" });
     }
     expect(instrumentState([], runningFeed())).toEqual({ show: "dashes" });
+  });
+
+  it("flags a value that arrived as null whatever its verdict, after the feed's own cause (step 8)", () => {
+    const feed = runningFeed();
+    for (const verdict of ["NORMAL", "NOMINAL", "DEGRADED"] as const) {
+      expect(instrumentState([verdict], feed, [null])).toEqual({ show: "flag", cause: "fail" });
+    }
+    expect(instrumentState(["NORMAL", "NORMAL"], feed, [1.5, null])).toEqual({ show: "flag", cause: "fail" });
+    expect(instrumentState(["NORMAL"], feed, [0])).toEqual({ show: "value" }); // zero is a number
+    expect(instrumentState(["NORMAL"], runningFeed({ stale: true }), [null])).toEqual({ show: "flag", cause: "stale" });
+    expect(instrumentState(["NORMAL"], runningFeed({ lastFrame: null }), [null])).toEqual({ show: "dashes" });
+    // A speed that arrived as null shows no track, at any threshold.
+    const lastFrame = frame(0, {}, { ground_speed_mps: null });
+    expect(trackShown(runningFeed({ lastFrame, trackMinSpeedMps: 0 }))).toBe(false);
   });
 });
 

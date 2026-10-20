@@ -156,7 +156,7 @@ public:
         // yaml-cpp keeps a repeated key as two entries and returns the
         // first on lookup, so iteration sees the repeat and reports it
         // once; the first value is the one read below.
-        for (const auto& entry : node_) {   // LCOV_EXCL_EXCEPTION_BR_LINE: exception-unwind edges only; the decision itself is still counted
+        for (const auto& entry : node_) {   // LCOV_EXCL_EXCEPTION_BR_LINE: a range-for over yaml-cpp's iterators, which can throw; its decision is tested, not measured (FTS-VR-001 §1.3)
             const YAML::Node key = entry.first;
             const bool scalar_key = key.IsScalar();
             std::string name = "(a non-scalar key)";

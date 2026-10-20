@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-18
+> **Last Updated:** 2026-10-19
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -44,12 +44,12 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.3 Fault Injection Tests
 
-- **Scope:** System behavior under the failure modes in FTS-FM-001. Each FAULT entry maps to at least one injected scenario.
-- **Framework:** Parameterized Google Test harness for single faults; pytest scenarios for multi-fault and recovery sequences.
-- **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scripted or seeded fault schedule: dropped reads, repeated values, out-of-range values, and recovery after a configurable interval. Lane faults (FTS-FM-001 FAULT-019 to FAULT-022) are the exception: every lane sees the same frame, so they are injected through the redundant processor's lane-fault interface (REQ-RED-005), which alters one lane's input before it runs or its output before the vote; such a run does not replay its verdict, since the alteration is not in the raw frames (REQ-LOG-003).
-- **Randomization:** Randomized schedules use a logged seed so any failing run can be reproduced exactly. A randomized test that cannot be replayed is not evidence.
-- **Location:** `tests/fault_injection/`.
-- **Executed:** Every commit for the deterministic scenarios. Randomized sweeps run nightly.
+- **Scope:** System behavior under the failure modes in FTS-FM-001, measured as a campaign (REQ-TEST-005, REQ-TEST-006; FTS-FI-001). Each FAULT entry that names a detection (FAULT-001 to FAULT-011, FAULT-019 to FAULT-022) maps to at least one injected cell, and so do the two uncovered entries (FAULT-023, FAULT-024); the ADS-B entries (FAULT-012 to FAULT-017) and FAULT-018 keep their unit tests, the campaign's source being the simulator.
+- **Framework:** An in-process C++ engine in `tests/fault_injection/` (the catalogue of cells, one seed per run, the runner, the classifier) built against `telemetry_core`, so it runs the real pipeline unpaced; Google Test for its known answers and for the CI subset, one parameterized case per cell; a command-line program, `fault_campaign`, for the full campaign; pytest for the statistics and the report generator (`analysis/campaign_stats.py`, `analysis/fault_campaign.py`). It is verification tooling outside `src/`, so neither the coverage gate nor cppcheck's scan measures it; its evidence is its own known-answer tests (TC-035).
+- **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scheduled fault: dropped reads, repeated values (a whole channel or one field), out-of-range and non-finite values, a bias step or a drift, and the fault's removal at a scheduled frame. Lane faults (FTS-FM-001 FAULT-019 to FAULT-022) are the exception: every lane sees the same frame, so they are injected through the redundant processor's lane-fault interface (REQ-RED-005) by `LaneFaultInjector`, which alters one lane's input before it runs or its output before the vote; such a run does not replay its verdict, since the alteration is not in the raw frames (REQ-LOG-003), except the one fault of REQ-RED-007's option, which the log records and the replay re-applies.
+- **Randomization:** Every run is defined by one seed, its run id, which fixes its cell, its schedule and the simulator's noise. The schedule's draws use the harness's own arithmetic over `std::mt19937` and `std::seed_seq`, both fixed by the C++ standard, so a schedule is the same on every platform; the simulator's noise follows the platform's standard library (FTS-DD-001 Section 8), so a measured distribution belongs to the platform its report names. A randomized test that cannot be replayed is not evidence.
+- **Location:** `tests/fault_injection/`; the report generator in `analysis/`; the on-demand script in `scripts/`.
+- **Executed:** The fixed-seed subset, ten seeds per cell, on every commit, as part of ctest. The full campaign on demand (`scripts/fault_campaign.sh`), its report the record (TC-036); there is no nightly job.
 
 ### 2.4 Hardware Tests
 
@@ -730,7 +730,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 - **Objective:** Verify that the status message is nineteen bytes under its own magic and version that no frame reader accepts, carrying the mode, the state, since version 3 the source mode of REQ-LOG-007, and, in ADS-B mode, the aircraft's identity, that both transports send it through the same seam and count it apart from frames, that a run announces its mode before the first frame, repeats it about once a second and reports the end after the last frame, that the receiver reads it and ends on it, and that the status messages change no byte of the log.
 - **Preconditions:** The in-process subscriber of TC-005 over `inproc://`; a datagram socket bound on the loopback; the receiver harness of TC-005 for the integration steps.
 - **Steps:**
-  1. Build the status for REPLAY RUNNING with no identity and for ADSB RUNNING with the address `a1b2c3` and the callsign `TEST001` (`session_message(mode, state, identity)` until status version 3; since it, a `SessionStatus` carrying the source mode as well, the replay's ADSB, TC-031 step 10); copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
+  1. Build the status for REPLAY RUNNING with no identity and for ADSB RUNNING with the address `000001` and the callsign `TEST001` (`session_message(mode, state, identity)` until status version 3; since it, a `SessionStatus` carrying the source mode as well, the replay's ADSB, TC-031 step 10); copy the nineteen bytes over a zeroed `LogFileHeader` and run `header_problem`; name every mode and state.
   2. Publish a status over `inproc://` to a settled subscriber; read the publisher's counters.
   3. Publish a status to a bound datagram socket; read it.
   4. Publish a status through a publisher that is not ok.
@@ -749,7 +749,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 3 | one datagram of nineteen bytes |
   | 4 | false, `send_failures` 1 |
   | 5 | a RUNNING SIMULATED status before frame 0 (UDP: before any frame; ZeroMQ: before the first frame received, within the join), another before frames 50 and 100, ENDED after frame 119 (three copies over UDP, at least one over ZeroMQ); the receiver exits on ENDED well inside its 1 s quiet timeout, printing `session: mode=SIMULATED state=ENDED`; `status messages = 6` on the transport line |
-  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)` (with `source_mode="SIMULATED"` since status version 3); `FormatError` naming the length; `FormatError` naming version 1, and version 2; `FormatError` naming mode 9; `identity=("a1b2c3", "TEST001")`; `source_mode="ADSB"` under mode REPLAY |
+  | 6 | `SessionStatus(mode="SIMULATED", state="RUNNING", identity=None)` (with `source_mode="SIMULATED"` since status version 3); `FormatError` naming the length; `FormatError` naming version 1, and version 2; `FormatError` naming mode 9; `identity=("000001", "TEST001")`; `source_mode="ADSB"` under mode REPLAY |
   | 7 | mode REPLAY on every status, since status version 3 with the source mode the input's header records (REQ-LOG-007), ENDED last |
   | 8 | byte-identical |
   | 9 | mode LIVE before the first frame and ENDED at exit, shown by the receiver and by the page |
@@ -760,9 +760,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
 ### TC-022: The Bridge and the Page
 
 - **Requirement:** REQ-DISP-003, REQ-DISP-004, REQ-DISP-005, REQ-DISP-007 (also exercises REQ-PROC-007 and REQ-TRANS-004)
-- **Level:** Integration (steps 1 through 7: `tests/integration/test_bridge.py`, in-process but for step 7, which runs the binary), Page (steps 8 through 14: `dashboard/src/useTelemetryFeed.test.ts` and `dashboard/src/App.test.tsx`, Vitest with jsdom, a fake socket and fake timers); steps 15 and 16 (added 2026-10-15): `test_bridge.py` and `dashboard/src/pfd/Pfd.test.tsx`
-- **Objective:** Verify that the bridge listens on the loopback unless told otherwise, greets each client with the threshold and the last session status, forwards every frame and status as JSON by name without absolute coordinates, serves several clients, and carries a paced replay end to end; and that the page shows no mode until a status arrives and never shows SIM or REPLAY as LIVE, renders each validity value by name, marks the feed stale from its own arrival clock and recovers, shows an ended stream as ended, and reports a lost bridge.
-- **Preconditions:** A `ByteSource` fed from a list, as TC-005 step 6's; a `websockets` client; for step 7 the session fixture's log and a free ZeroMQ port; the page tests inject a fake `WebSocket` and a fake clock through the hook's options.
+- **Level:** Integration (steps 1 through 7: `tests/integration/test_bridge.py`, in-process but for step 7, which runs the binary), Page (steps 8 through 14: `dashboard/src/useTelemetryFeed.test.ts` and `dashboard/src/App.test.tsx`, Vitest with jsdom, a fake socket and fake timers); steps 15 and 16 (added 2026-10-15): `test_bridge.py` and `dashboard/src/pfd/Pfd.test.tsx`; steps 17 and 18 (added 2026-10-19): `test_bridge.py`, and `useTelemetryFeed.test.ts` with `App.test.tsx`
+- **Objective:** Verify that the bridge listens on the loopback unless told otherwise, greets each client with the threshold and the last session status, forwards every frame and status as JSON by name without absolute coordinates, serves several clients, and carries a paced replay end to end; and that the page shows no mode until a status arrives and never shows SIM or REPLAY as LIVE, renders each validity value by name, marks the feed stale from its own arrival clock and recovers, shows an ended stream as ended, and reports a lost bridge. Since 2026-10-19: that a value that is not a finite number crosses as null beside the status that says why, so its frame reaches the page, which shows the channel's flags instead of going stale.
+- **Preconditions:** A `ByteSource` fed from a list, as TC-005 step 6's; a `websockets` client; for step 7 the session fixture's log and a free ZeroMQ port; the page tests inject a fake `WebSocket` and a fake clock through the hook's options. Every message the bridge's tests read is parsed as `JSON.parse` parses it, refusing `NaN` and `Infinity`, which Python's `json.loads` accepts by default.
 - **Steps:**
   1. Start the bridge with no `--listen`; read the bound address. Start it with `--listen 0.0.0.0:0`; read the bound address.
   2. Connect a client; read its first message.
@@ -780,6 +780,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
   14. Search the rendered DOM for "latitude", "longitude" and any decimal degree.
   15. Feed an ADSB RUNNING status with an identity, then frames with fresh fixes, then a status with another identity, then a frame with a fresh fix; connect a client and read its `hello`; start a bridge with `--hide-identity` and feed the same.
   16. Deliver an ADSB status with an identity and read the strip; with no identity; a REPLAY status (since status version 3, with the source mode ADSB; TC-031 step 16 has the other source modes); a LIVE status.
+  17. Feed, after a NOMINAL fresh fix, a frame with a NaN pressure under BARO DEGRADED, one with gyro x +∞ and gyro y −∞ under IMU DEGRADED, a fresh fix whose five fields are NaN under GPS DEGRADED held across 49 frames, and the next good fix; read every message. Then replay the session fixture's log with three readings replaced (a NaN pressure, a +∞ gyro x, a GPS fix's five fields NaN through the frames that hold it) through the binary, and feed the replay's frames to the bridge. Run the bridge with `--track-min-speed` set to `nan`, `inf` and `-inf`.
+  18. Deliver a frame whose pressure arrived as null under BARO DEGRADED, and the same text with a bare `NaN`; deliver fresh fixes whose position arrived as null; deliver, every 20 ms for 2 s, a fix that arrived as null held on every frame under GPS DEGRADED, then the same frames with bare `NaN` tokens.
 - **Expected result:**
 
   | Step | Expected |
@@ -800,12 +802,14 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 14 | nothing found |
   | 15 | `session` and `hello` carry `identity: {"icao24": …, "callsign": …}`; the first fix after the second identity reads `east_m` 0 and `north_m` 0 (the origin re-taken); with `--hide-identity`, `identity` null in every message and the start line says so |
   | 16 | `ADS-B · TEST001` plain, not boxed, "LIVE" absent; `ADS-B · ---`; `REPLAY · ID UNAVAILABLE` boxed; `LIVE` plain with nothing after it |
+  | 17 | every message parses; each value that is not a finite number is null and every other field holds its value, with the status by name; the position's coordinates null on the 50 frames of the held fix and numbers again on the next, the origin kept; every frame forwarded. Through the binary: BARO, IMU and GPS DEGRADED on those frames with the detector's OUT_OF_RANGE event for each, every computed field a number and every frame VOTED. The bridge refuses each threshold and exits with status 2 |
+  | 18 | the frame kept with the pressure null, and the bare `NaN` refused; no trail point for a fix that arrived as null; RUNNING throughout, never STALE, GPS DEGRADED, the GS, TRK and POS flags, no `NaN` or `null` text; with bare tokens every frame refused and STALE past the threshold |
 
-- **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, or an ended stream shown as stale fails.
+- **Pass/fail:** Exact as listed. A coordinate on the wire or in the DOM, a mode shown before a status, SIM or REPLAY rendered as LIVE, a value left unmarked past the threshold, an ended stream shown as stale, a bare `NaN` or `Infinity` on the wire, or a frame lost for carrying one fails.
 
 ### TC-023: The Instruments Under Each Validity, Status and Feed State
 
-- **Requirement:** REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-007 (also exercises REQ-DISP-003, REQ-DISP-006 and REQ-FAULT-007)
+- **Requirement:** REQ-DISP-001, REQ-DISP-002, REQ-DISP-004, REQ-DISP-007 (also exercises REQ-DISP-003, REQ-DISP-005, REQ-DISP-006 and REQ-FAULT-007)
 - **Level:** Page (`dashboard/src/pfd/instrumentState.test.ts`, the six instrument test files under `dashboard/src/pfd/`, `dashboard/src/pfd/Pfd.test.tsx`; Vitest with jsdom)
 - **Objective:** Verify that one rule decides what every instrument shows (the value, dashes, or a flag naming the instrument); that the rule follows each computed field's validity and each raw instrument's channel status with the precedence FTS-DS-001 §2.1 states; that the feed's state overrides every field; that no instrument ever shows a removed value struck through or dimmed; that the strip names the mode and the cause; and that the instruments are labelled TRK and GS, never heading or airspeed.
 - **Preconditions:** Frames built by `testMessages.frame()` with any value and validity; the feed's state built directly for `instrumentState`, and through the hook with the fake socket and fake clock for the rendered panel.
@@ -817,6 +821,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Render each of the six instruments under steps 1, 2 and 4; read its text, its geometry element and its flag.
   6. Render the panel with no status; with SIM; with REPLAY (since status version 3, with the source mode ADSB and then SIMULATED); with LIVE; with ADS-B and an identity; with ADS-B and none; then under each feed state of step 4; then with a NOT_JUDGED field; then in ADS-B mode read the altitude tape's unit label, in SIM mode again and, since status version 3, in REPLAY under each source mode (TC-031 step 16).
   7. Search the panel's text for "HDG", "heading", "airspeed" and "IAS".
+  8. *(added 2026-10-19)* Call `instrumentState` with a value that arrived as null under NORMAL, NOMINAL and DEGRADED, beside a number, with the feed stale and with no frame yet; call `trackShown` with a speed that arrived as null and a threshold of zero. Render the panel with a GPS fix whose fields arrived as null, under DEGRADED and then under NOMINAL (a frame between fixes, which the detector does not judge), and with a pitch that arrived as null under NORMAL.
 - **Expected result:**
 
   | Step | Expected |
@@ -828,8 +833,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 5 | `value`: the number's text and the geometry element present and no flag; `dashes`: `---` and no geometry; `flag`: a box with the instrument's name (ATT, ALT, VS, GS, TRK, POS), no number, red for every cause but `ended` and `unavailable`, grey for `ended`, a white outline on no fill for `unavailable`; no element inside the panel carries a line-through or the `stale` class |
   | 6 | MODE UNKNOWN in amber; SIM and REPLAY each in an amber box with "LIVE" absent from the panel, REPLAY followed by ` · ID UNAVAILABLE` (since status version 3, only under the source mode ADSB, and by nothing under SIMULATED); LIVE plain; ADS-B plain with ` · TEST001` after it and "LIVE" absent, ` · ---` with none; `ft HAE` above the tape whenever the source mode is ADSB, live or replayed, and `ft` otherwise; the state text WAITING, RUNNING, STALE with the age, ENDED, LAG with the lag, BRIDGE DISCONNECTED as FTS-DS-001 §5 lists; PIPELINE shown only with the NOT_JUDGED field |
   | 7 | nothing found |
+  | 8 | `flag` with the cause `fail` whatever the verdict, and `value` for a zero; the feed's cause first (`stale`); dashes before any frame; no track; GS and TRK flagged `fail` under both statuses, then ATT, with no readout, no `NaN` or `null` text and the strip RUNNING |
 
-- **Pass/fail:** Exact as listed. A value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
+- **Pass/fail:** Exact as listed. A value that arrived as null drawn as a number, a value shown under FAILURE_WARNING, DEGRADED or any feed-level cause, a struck-through or dimmed value anywhere in the panel, a flag that does not name its instrument, a mode shown before a status, SIM or REPLAY rendered as LIVE, or a heading or airspeed label fails.
 
 ### TC-024: The Attitude Indicator's Signs, the Tapes and the Display Units
 
@@ -1091,7 +1097,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   7. The ADS-B source after a poll with the example's row (vertical rate and pressure altitude present), then 100 cycles without a poll; after a poll whose row has a null vertical rate.
   8. The ADS-B source's frame on the first poll, on the next cycle, after a poll that keeps the aircraft, and after a poll that selects another.
   9. Through a processor: twenty fresh frames of one aircraft at one altitude, then a frame flagged NEW_VEHICLE with a fresh GPS reading 500 m lower; then a flagged frame with no fresh reading, followed by a fresh one; then a flagged frame after the attitude filter was seeded and the barometer read.
-  10. Build `session_message` for a `SessionStatus` of mode REPLAY, source mode ADSB, RUNNING, no identity, and for ADSB, ADSB, RUNNING with the address `a1b2c3` and the callsign `TEST001`; copy the bytes over a zeroed `LogFileHeader` and run `header_problem`; publish a status on each transport and read it.
+  10. Build `session_message` for a `SessionStatus` of mode REPLAY, source mode ADSB, RUNNING, no identity, and for ADSB, ADSB, RUNNING with the address `000001` and the callsign `TEST001`; copy the bytes over a zeroed `LogFileHeader` and run `header_problem`; publish a status on each transport and read it.
   11. *(pytest)* The Python reader: the dtype's size and every offset of step 1; a hand-written version-2 file read as frames; `frames_array` on it; `summary()` on a version-3 log.
   12. *(pytest)* The session fixture's log: the header's version and modes, every frame's sequence, flags, fix quality, satellites and tail.
   13. *(pytest)* A synthetic version-2 log of 50 raw frames replayed with `--replay`: exit code, the notice, the replay log's header, its raw fields against the input's, its sequence and tail; a synthetic version-4 log replayed.
@@ -1225,6 +1231,116 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Steps 1 through 8 exact as listed. Any lane disagreement in a run without an injected fault, any byte other than the voter status that differs from the single lane, a sensor event reported more than once, or a voter event in a healthy run fails. Steps 9 through 11 are recorded in FTS-VR-001 Entry 20; any difference beyond those listed fails.
 
+### TC-035: The Fault-Injection Harness: Its Known Answers and the CI Subset
+
+- **Requirement:** REQ-TEST-005, REQ-TEST-006 (also exercises REQ-FAULT-001 to REQ-FAULT-005, REQ-RED-002 to REQ-RED-004, REQ-RED-006, REQ-TEST-001)
+- **Level:** Unit (steps 1 through 6: `tests/fault_injection/`), Integration (steps 7 and 8: `tests/integration/test_fault_campaign.py`)
+- **Objective:** Verify that the harness measures what it claims to: that a seed reproduces its run, that every prediction of FTS-FI-001 Section 5 follows from the shipped configuration, that the classifier sorts every declaration into the right bucket, that runs with known answers give them, that every cell's fixed seeds behave as predicted, and that the statistics equal hand-computed values. A verification tool that is not itself verified proves nothing; known answers are how this one is.
+- **Preconditions:** The struct defaults, equal to `config/telemetry_config.yaml` by `ConfigTest.ShippedFileEqualsDefaults`; the seeds fixed in the tests.
+- **Steps:**
+  1. Evaluate every cell's prediction formulas on the shipped configuration.
+  2. Encode and decode run ids; draw one seed's schedule twice and two other seeds' once each; draw 1,000 schedules per cell and check every value against its stated range; check the draw arithmetic against `std::mt19937`'s output, which the standard fixes.
+  3. Classify hand-built timelines: a detection inside the window and its latency; a repeat; a miss; a declaration before onset; one on another channel during the fault; a recovery and its absence; a declaration on a clean run; a lane excluded; a healthy lane excluded; a no-majority episode against the rising edges of its bit; each invariant broken once.
+  4. Run the fixed-seed known answers: D01; D03 with its onset on a fix frame and one frame after one; D05, and a hold whose reading before onset repeated its predecessor; D08; the recoveries; a clean run; V01 at persistence 3; V06 at persistence 1 and 2; V11 and V12 with the gap on each side of the persistence count; U06; U07 (since the non-finite check, under FTS-FI-001 Section 5.6's predictions).
+  5. *(The CI subset)* Every cell, ten seeds each, the voter's cells at persistence 1 and 3: each run against its per-run prediction and the invariants.
+  6. The twin of an uncovered run against the injected run on every frame before onset.
+  7. *(pytest)* The statistics on hand-computed cases.
+  8. *(pytest)* `fault_campaign` on a small seed range, then the report generator on its output and on a report holding prose around its blocks.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | every number equal to FTS-FI-001 Section 5's |
+  | 2 | the id round-trips; one seed gives the same schedule field for field, different seeds different ones; every draw inside its range; the arithmetic's values as hand-computed |
+  | 3 | each timeline in its one bucket, with the latency, the recovery time and the counts as built |
+  | 4 | D01 500 ms; D03 1,020 and 2,000 ms on the operator's clock and 1,020 ms on the fix clock; D05 160 ms, and 140 ms for the repeated reading; D08 0 ms; recoveries of 80 ms and of 4,000 to 4,980 ms; no declaration on the clean run; V01 excluded 40 ms after onset; V06 excluded at onset at persistence 1, never at 2; V11 no majority from the second fault at either gap; V12 safe at g ≥ P and a wrong majority at g < P; U06 OUT_OF_RANGE on the barometer at onset and recovered 80 ms after removal, no voter event; U07 the same on the IMU, the roll never infinite (before the check: U06 one episode to the end; U07 roll infinite, VOTED and NORMAL) |
+  | 5 | every run as predicted; no invariant broken |
+  | 6 | bit-identical |
+  | 7 | Wilson (0, 10) = [0, 0.2775]; (5, 10) = [0.2366, 0.7634]; (0, 1000) = [0, 0.0038]; (1, 100) = [0.0018, 0.0545]; the rule of three 3/n beside the exact 1 − 0.05^(1/n); nearest rank over 1,020, 1,040, …, 2,000: median 1,500, 95th percentile 1,960, maximum 2,000 |
+  | 8 | one CSV row per run with every column; the manifest naming the commit, the platform, the cells and the seed ranges; the blocks replaced and the prose byte for byte unchanged |
+
+- **Pass/fail:** Every step exact as listed. A run that departs from its prediction in step 5 fails the build (REQ-TEST-006). A prediction is never changed to make a run pass: a departure is a finding, recorded in FTS-FI-001.
+
+### TC-036: The Fault-Injection Campaign of Record
+
+- **Requirement:** REQ-TEST-005, REQ-TEST-006 (also exercises REQ-FAULT-001 to REQ-FAULT-005, REQ-RED-002 to REQ-RED-004, REQ-RED-006, and the persistence count of REQ-RED-003)
+- **Level:** Recorded (FTS-FI-001; summarized in FTS-VR-001)
+- **Objective:** Run the full campaign on a clean tree and record, against the predictions stated before it ran, each check's detection latency as a distribution, its missed detections, its false alarms against their exposure, its declarations on the wrong channel and its recovery time; the voter's isolation latency, lanes excluded that were never altered and no-majority episodes at every persistence count; and the consequence of each failure mode no check covers.
+- **Preconditions:** A clean tree at the commit recorded; the configuration of record; the build at the project's own flags.
+- **Steps:**
+  1. `scripts/fault_campaign.sh`: the full catalogue at its stated counts, one seed per run.
+  2. The report generator on the run's CSV and manifest: FTS-FI-001's generated blocks and figures.
+  3. Every cell's measured statistics against its prediction; each gap written up as a finding with its explanation.
+  4. The blind spots named: the uncovered cells' consequences, the common-mode cells, the faults below the thresholds.
+  5. The summary in FTS-VR-001: the headline numbers against the predictions, the commit, the platform, the seed ranges.
+- **Expected result:** FTS-FI-001 complete for the commit recorded: every rate with its 95% Wilson interval, every zero count with its rule-of-three bound, every latency's median, 95th percentile and maximum beside its prediction, every gap listed, every blind spot named.
+- **Pass/fail:** Recorded, not a gate. A gap is a finding to resolve, never a prediction to edit. A campaign run before the bench session is a preview against the simulator's noise model and says so; the campaign of record reruns after the measured constants land, at the commit that holds them.
+
+### TC-037: The Demonstration Lane Fault and Its Replay
+
+- **Requirement:** REQ-RED-007 (also exercises REQ-RED-005, REQ-RED-003, REQ-LOG-003, REQ-DISP-008)
+- **Level:** Unit (steps 1 through 4: `tests/unit/test_lane_fault_injector.cpp`, `test_recorded_injections.cpp`), Integration (steps 5 through 8: `tests/integration/test_lane_fault.py`), recorded (step 9, FTS-VR-001 Entry 21)
+- **Objective:** Verify that `--lane-fault <lane>@<seconds>` alters only the named lane, from the first frame at or after the time, on every cycle; that the voter outvotes it at once and excludes it at the persistence count; that the log records the injection; that a replay re-applies it, so the replay reproduces the run record for record; and that without the option nothing changes.
+- **Preconditions:** The simulator with the shipped configuration, seed 42; the session fixture's log (TC-034 step 6) as the unaltered reference.
+- **Steps:**
+  1. Parse valid and invalid values: `2@60`, `1@0.5`, `1@.5`, `3@0`; a lane of 0 or 4, a missing, negative or non-finite time, text where a number belongs.
+  2. The demonstration fault through `RedundantProcessor`, lane 2 from 1,000 ms, against an unaltered processor over the same frames.
+  3. The injector's event for a recorded fault and for one that is not.
+  4. `recorded_lane_faults` on a log holding the event, on one holding none, and on an unreadable file.
+  5. *(pytest)* `--lane-fault 2@1 --cycles 200`: the log's events and frames, and the exit lines.
+  6. *(pytest)* Its replay.
+  7. *(pytest)* `--lane-fault` with `--replay`, and the malformed values of step 1.
+  8. *(pytest)* The session fixture, recorded without the option.
+  9. *(Recorded)* The demo flight recorded with `--lane-fault 2@60` and replayed paced to the page.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | lane 2 from 60,000 ms; lane 1 from 500 ms, by either spelling; lane 3 from 0 ms; each invalid value refused with a message naming the option and its form |
+  | 2 | LANE_FAULT_INJECTED and LANE_DISAGREEMENT (lane 2) at 1,000 ms and LANE_FAULTED (lane 2) at 1,040 ms; `voter_status` 0x0005 from 1,060 ms; every computed field equal to the unaltered processor's on every frame |
+  | 3 | one event at the onset frame, channel VOTER, value the lane; none for the unrecorded fault |
+  | 4 | the demonstration fault with the event's lane and timestamp; none; the reader's error |
+  | 5 | after the frame at 1,000 ms the injection's event, then the voter's onset; after the frame at 1,040 ms the exclusion; every frame equal to the session fixture's first 200 in every byte but `voter_status`, which reads 0x0005 from 1,060 ms; the `Lane fault:` line; `Voter:` with lanes 1 3 in the vote |
+  | 6 | every record identical to the recording's, the header differing in the run mode alone; the `Lane fault:` line saying the fault was re-applied |
+  | 7 | exit 1 before anything is built, the message naming `--lane-fault` |
+  | 8 | no LANE_FAULT_INJECTED event and no `Lane fault:` line |
+  | 9 | lane 2's cell amber from 60.06 s, in the recording and in the paced replay alike |
+
+- **Pass/fail:** Steps 1 through 8 exact as listed. Any byte of a run without the option that changes, any record of the replay that differs from the recording's, or an injection the log does not record, fails. Step 9 is recorded in FTS-VR-001 Entry 21.
+
+### TC-038: Non-Finite Readings at the Detector
+
+- **Requirement:** REQ-FAULT-003 (the non-finite clause, SRD 0.16.0); also exercises REQ-FAULT-004, REQ-FAULT-005, REQ-PROC-006, REQ-PROC-007, REQ-RED-002, REQ-TEST-005
+- **Level:** Unit (steps 1 through 5: `tests/unit/test_fault_detection.cpp`), the campaign's CI subset (step 6: `tests/fault_injection/`), recorded (step 7: FTS-VR-001 Entry 22, FTS-FI-001 Section 7)
+- **Objective:** Verify three things:
+  - a reading that is not a finite number is declared OUT_OF_RANGE on its channel's frame, before any range or stuck test sees it;
+  - it never reaches a filter or a computed field, so the three lanes still agree;
+  - the channel recovers by the usual rule.
+
+  Then record, with the campaign's cells U06 and U07 run before and after the check, what that changes downstream.
+- **Preconditions:** `FaultDetector` with the struct defaults, equal to `config/telemetry_config.yaml`; for step 5, the detector ahead of a `RedundantProcessor` over the simulator's frames.
+- **Steps:**
+  1. A NaN pressure, a NaN temperature, and a pressure of +∞ and of −∞, each on a frame whose other values are valid.
+  2. A NaN in each acceleration axis; +∞, −∞ and NaN in each rotation rate.
+  3. A NaN, then an infinity, in each of a GPS fix's five fields (latitude, longitude, altitude, ground speed, course); a NaN altitude on a frame that is not a fix.
+  4. After a non-finite pressure, five valid frames.
+  5. Through the detector and the three lanes: one frame with a NaN pressure, then, later, one with an infinite x rotation rate.
+  6. The CI subset's cells U06 and U07, ten seeds each.
+  7. *(Recorded)* Cells U06 and U07, 300 runs each, at the commit before the check and at the check's commit.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | OUT_OF_RANGE on BARO on that frame, the event's value the non-finite one; the channel DEGRADED |
+  | 2 | OUT_OF_RANGE on IMU each time, a NaN acceleration included though no rail comparison is true for it |
+  | 3 | OUT_OF_RANGE on GPS for each field of a fix; nothing on the frame that is not a fix |
+  | 4 | NOMINAL again on the fifth valid frame, with one RECOVERY event |
+  | 5 | every computed field finite and VOTED on every frame, no NO_MAJORITY; the barometric altitude, then pitch and roll, FAILURE_WARNING while their channel is DEGRADED and NORMAL after recovery; the fused altitude NORMAL throughout |
+  | 6 | every run as predicted by FTS-FI-001 Section 5.6 |
+  | 7 | Before: no declaration; U06 without a majority from the NaN to the end, every field FAILURE_WARNING; U07 roll +∞, VOTED and NORMAL from onset. After: OUT_OF_RANGE at 0 ms and recovery 80 ms after removal in every run; no voter event; no frame holding every field under FAILURE_WARNING; every field NORMAL at the end; no value voted that is not finite |
+
+- **Pass/fail:** Steps 1 through 6 exact as listed; step 7 recorded, its departures from FTS-FI-001 Section 5.3 being the check's purpose.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -1271,7 +1387,7 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 
 ## 7. Open Items
 
-- Nine requirements are Partial in FTS-TM-001, the four I2C sensor requirements and the GPS (REQ-SENS-005) among them (on-target evidence pending). The Notes column there states what each is missing.
+- Ten requirements are Partial in FTS-TM-001: the four I2C sensor requirements and the GPS (REQ-SENS-005), on-target evidence pending; the ADS-B source (REQ-SENS-008); REQ-PROC-004, REQ-FAULT-003, REQ-TIME-003 and REQ-TEST-004. The Notes column there states what each is missing.
 - TC-015's Hardware and manual steps (9 through 12) wait for the stationary capture of 2026-10-13. REQ-PROC-004 stays Partial until then, and after it with the GPS variance as its one named gap (a capture with the receiver fixing, now that REQ-SENS-005 delivers one).
 - The Hardware steps of TC-002 (step 8), TC-012 (step 8), and TC-014 (steps 11 through 15) wait for the Raspberry Pi; TC-012's step 8 needs the real chip's register dump. Results go to FTS-VR-001 Entry 8 §8.6. The addresses the live source starts from (`sensors.barometer.address` 0x76 and `sensors.imu.address` 0x68 in `config/telemetry_config.yaml`, the driver named for the BMP280) are provisional until step 11 reads the real values (FTS-DD-001 Section 12); a change lands in the file and the struct defaults together.
 - Both transports are implemented; TC-005 and TC-010 steps 6 and 7 are `tests/integration/test_transport.py`, over both, and the UDP destination comes from the configuration file (TC-016 step 20). TC-004's Python comparison step is `tests/integration/test_replay_identity.py`.
@@ -1281,4 +1397,5 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - The display's instruments (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; TC-023 to TC-026) are built on the display's branch (2026-10-15). TC-025 step 8, a Chrome background tab, is a manual record and not a gate; TC-026 step 9 is the demo's hand measurement; both go to FTS-VR-001 Entry 17.
 - The ADS-B source (REQ-SENS-008 to REQ-SENS-011, REQ-FAULT-007, REQ-CFG-004, REQ-DISP-007; TC-027 to TC-030) is built on its branch (2026-10-15). TC-029 step 19, the live run against the service, is a manual record in FTS-VR-001 Entry 18 and never a gate: CI never calls the service, and the data license forbids committing what it returns.
 - Format version 3 (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 and the amended REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004 and REQ-DISP-007; TC-031) is specified here, built on the ADS-B branch (2026-10-15 and 16) and recorded in FTS-VR-001 Entry 19. TC-031 step 17, the seed-42 log against the kept version-2 reference, is a recorded hand check in Entry 19 §19.4, not a gate; the detector judges neither the fix quality nor the satellite count yet (FAULT-003b stays parked with its bytes in place), nothing consumes the ADS-B vertical rate or pressure altitude until Phase B; the voter's status field, zero at format version 3's landing, is the voter's since 2026-10-18.
-- The redundancy voter (REQ-RED-001 to REQ-RED-006, REQ-DISP-008; TC-032 to TC-034) is specified here and recorded in FTS-VR-001 Entry 20. TC-034's recorded steps (9 to 11), the voted logs against the single-lane references, are hand checks in Entry 20 §20.4, not gates; TC-009 step 8, the three lanes' cost on the Raspberry Pi, waits for hardware. The fault-injection harness of Section 2.3, which will drive the lane-fault interface and sweep the persistence count, is the next topic.
+- The redundancy voter (REQ-RED-001 to REQ-RED-006, REQ-DISP-008; TC-032 to TC-034) is specified here and recorded in FTS-VR-001 Entry 20. TC-034's recorded steps (9 to 11), the voted logs against the single-lane references, are hand checks in Entry 20 §20.4, not gates; TC-009 step 8, the three lanes' cost on the Raspberry Pi, waits for hardware. The fault-injection harness of Section 2.3 drives the lane-fault interface and sweeps the persistence count.
+- The fault-injection campaign (REQ-TEST-005, REQ-TEST-006, REQ-RED-007; TC-035 to TC-037) is specified here, built, and its preview of 2026-10-19 recorded in FTS-FI-001 and FTS-VR-001 Entry 21. The non-finite check its evidence brought (REQ-FAULT-003's clause, TC-038) is built and recorded in FTS-VR-001 Entry 22, U06 and U07 measured before and after. A campaign run before the bench session is a preview against the simulator's noise model; the campaign of record reruns after the stationary capture's constants land (TC-036). TC-037 step 9, the demo recorded with a lane fault and replayed paced, is a hand record.

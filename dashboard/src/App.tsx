@@ -5,8 +5,10 @@
 // by name beside the number (REQ-PROC-007: a display tells a value from its
 // absence by the flag, never by the number). The diagnostic view keeps a
 // flagged or stale value on screen, struck through; the instruments remove
-// it under a flag (FTS-DS-001 §8). No coordinate anywhere, by construction:
-// the bridge sends a position relative to the first fix and nothing else.
+// it under a flag (FTS-DS-001 §8). A value that arrived as null (REQ-DISP-005)
+// reads as dashes in the table and as its instrument's flag above it. No
+// coordinate anywhere, by construction: the bridge sends a position relative
+// to the first fix and nothing else.
 // Whenever the frames came from the ADS-B source, live or replayed, the view
 // ends with the attribution the data license requires (REQ-DISP-007,
 // FTS-DS-001 §8): a replayed recording shows the network's data as much as a
@@ -14,7 +16,16 @@
 import type { JSX } from "react";
 
 import { badgeFor } from "./badge";
-import { CHANNELS, COMPUTED_FIELDS, adsbSource, stripLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
+import {
+  CHANNELS,
+  COMPUTED_FIELDS,
+  adsbSource,
+  finitePosition,
+  stripLabel,
+  type Channel,
+  type ComputedField,
+  type ValidityName,
+} from "./feed";
 import { GroundTrackPlot } from "./pfd/GroundTrackPlot";
 import { instrumentState, trackShown } from "./pfd/instrumentState";
 import { Pfd } from "./pfd/Pfd";
@@ -50,6 +61,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
   const feed = useTelemetryFeed(url, options);
   const badge = badgeFor(feed);
   const stale = feed.stale ? " stale" : "";
+  const position = feed.lastFrame?.position ?? null;
 
   return (
     <main className="pfd">
@@ -69,10 +81,14 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
         <Pfd feed={feed} />
         <GroundTrackPlot
           trail={feed.trail}
-          position={feed.lastFrame?.position ?? null}
+          position={finitePosition(position)}
           trackDeg={feed.lastFrame?.frame.course_deg ?? 0}
           trackShown={trackShown(feed)}
-          state={instrumentState(feed.lastFrame === null ? [] : [feed.lastFrame.status.gps], feed)}
+          state={instrumentState(
+            feed.lastFrame === null ? [] : [feed.lastFrame.status.gps],
+            feed,
+            position === null ? [] : [position.east_m, position.north_m],
+          )}
         />
       </section>
 

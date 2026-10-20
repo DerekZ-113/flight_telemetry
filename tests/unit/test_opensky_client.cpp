@@ -266,6 +266,7 @@ TEST(OpenSkyClientTest, ServerAndClientErrorsAreCountedAndTheTokenKept) {
         const FetchResult result = rig.client.fetch_states();
         EXPECT_EQ(result.status, FetchStatus::HTTP_ERROR) << status;
         EXPECT_EQ(result.http_status, status);
+        EXPECT_EQ(result.detail, "") << status;   // libcurl's text belongs to a failed transport only
     }
     EXPECT_EQ(rig.client.counters().http_errors, 5u);
     EXPECT_EQ(rig.client.counters().last_http_status, 404);
