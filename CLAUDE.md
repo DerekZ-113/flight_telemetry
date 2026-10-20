@@ -183,6 +183,7 @@ This project is built incrementally, topic by topic. When editing files:
 - **Flag issues, don't silently fix them.** If you spot a discrepancy between documents, say so and let the author decide. Don't quietly align them.
 - **Cross-document consistency matters.** Requirement IDs, fault IDs, test card numbers, terminology, and technical details should match across all docs. When reviewing, check that references between documents are consistent.
 - **Treat existing files as intentional.** They were discussed and decided on; a change needs a reason, not a preference.
+- **Keep the README short.** Status is 80 words or fewer; Architecture is one line per component, each linking to its design.md section; a topic updates the README's numbers and links, never its prose; depth lives in `docs/`.
 
 ## What NOT to Do
 
