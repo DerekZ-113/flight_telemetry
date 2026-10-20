@@ -2515,7 +2515,7 @@ Two expectations missed in this entry, both in counts and neither in coverage: e
 - **The live run (TC-029 step 19), optional and Derek's:** every `NEW_VEHICLE` frame's `gps_altitude_m` at or below 1,650 m (a kept aircraft is dropped at the poll after it crosses, so a frame may carry one poll's climb above it); no `nearer` row to an aircraft at an arrival altitude and an `above` row only for a climb-out; the exit line's census against §18.4's 46 aircraft and 5 candidates; the vertical speed on final with no excursion like §18.5's; the hand check that every aircraft the strip names is an arrival; and the schema consequence in practice, Entry 18's first live file replayed without `--config` (refused by name) and with the shipped file (byte-identical to §18.4's `2971db60…`). Recorded as §24.9 when run.
 - **A watch item:** no band at the ceiling (§24.4); a live run's selection record would show a flap.
 - **Phase B keeps** the vertical rate as the filter's third measurement, the pressure altitude, and FAULT-024's finiteness check for the two ADS-B fields (Entry 22 §22.8).
-- **Line 93's unwind pair (§24.7):** the fix is `under_ceiling` defined above `candidate` (or declared `noexcept`, or the call put into a local), with its own record; Derek's to decide, in this pull request or after the merge. (Decided 2026-10-19: the order, under a comment that guards it, in commit 6; Entry 25.)
+- **Line 93's unwind pair (§24.7):** the fix is `under_ceiling` defined above `candidate` (or declared `noexcept`, or the call put into a local), with its own record; Derek's to decide, in this pull request or after the merge. (Decided 2026-10-19: the order, under a comment that guards it, in commit 6; confirmed on the record, Entry 25 §25.4.)
 - `aircraft_selector.cpp`'s other untaken legs on the record (§24.7, correcting §24.5 and the plan, which named them from Entry 18 §18.7): the five absences in `usable` would take one table-driven test, and a kept aircraft with no candidate at all one case; `take`'s unwind leg on line 124 no input reaches. Outside this topic.
 - Entry 23's open items stand (the campaign of record after the bench session, TC-037 step 9, TC-009 step 8).
 
@@ -2558,7 +2558,30 @@ Written before the push, from run 39342447232 (Entry 24 §24.7):
 
 ### 25.4 Measurement of record
 
-Reserved for the CI run on draft pull request 5.
+CI run 39346811798 on `14a30fa`, the branch's head, on draft pull request 5, 2026-10-20 00:18:02 to 00:22:40 UTC. It ran on the push that carried commit 6 alone (`045af0a..14a30fa`). Both jobs passed. The run on `045af0a`, commit 5 alone (39345414050), passed too.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580 in 22.6 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 138.7 s |
+| lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.4% (1,518 of 1,608) |
+| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| `page` job | 89 of 89 in 13 files, the TypeScript build clean |
+| Wall time | the C++ job 4 min 34 s; the page job 20 s |
+
+Per-scope branch coverage on GCC: drivers 90.4% (753 of 833), where run 39342447232 on `8fbdf03` read 90.3% (754 of 835), and overall 94.4%, where it read 94.3%. Processing, config, timing and logging stay at 100.0%, transport at 88.8% and replay at 97.8%. `drivers/aircraft_selector.cpp` reads 87 of 87 lines, 59 of 66 branches and 15 of 15 functions, against 87 of 87, 60 of 68 and 15 of 15 on `8fbdf03`. The other 61 files of the report equal that record.
+
+The five expectations §25.3 set before the push:
+
+| Expectation | Measured |
+|---|---|
+| The pair gone: line 94 two branches, both taken; `aircraft_selector.cpp` 59 of 66 | line 94 carries two branches, taken 243 and 180 times, the counts of the decision's two branches on the previous record, and no unwind pair; 59 of 66: met |
+| Nothing else in the file moves: the chain at eight branches over lines 54 and 55, the `above` test at two on line 127, the seven untaken legs on lines 43, 44, 125 and 139 | all as stated: met |
+| The totals: 1,518 of 1,608 (94.4%); drivers 753 of 833 (90.4%); every other scope unchanged; lines and functions unchanged | all as stated: met |
+| The suites: Google Test 580, pytest 180, the page 89 | 580, 180 and 89: met |
+| If line 94 still carries the pair, §24.7's reading is wrong | it does not, so the reading stands |
+
+Every expectation was met. This was the experiment Entry 24 §24.7 proposed: the order of two definitions, with no statement changed, decided whether GCC gave a third function's call an exception edge.
 
 ### 25.5 Decisions taken
 
