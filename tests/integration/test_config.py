@@ -1,4 +1,4 @@
-"""TC-016 at the integration level, steps 11 through 20 (REQ-CFG-001, REQ-CFG-002, REQ-CFG-003;
+"""TC-016 at the integration level, steps 11 through 23 (REQ-CFG-001, REQ-CFG-002, REQ-CFG-003;
 also REQ-TRANS-002, REQ-SENS-006, REQ-LOG-003).
 
 The binary reads one file, refuses a bad one naming every problem, records the file beside its
@@ -147,6 +147,44 @@ def test_replay_with_another_config_is_loud(telemetry_bin, tmp_path, sim_session
     replayed = read_log(tmp_path / "logs" / "replay_000.bin").frames
     assert_raw_equal_computed_differ(replayed, read_log(sim_session.log).frames)
     assert (tmp_path / "logs" / "replay_config.yaml").read_bytes() == copy.read_bytes()
+
+
+def test_replay_of_a_log_not_named_by_prefix_needs_config(telemetry_bin, tmp_path, sim_session):
+    # TC-016 step 22. A record exists by name only beside <prefix>_NNN.bin, so a log of another
+    # name is refused without --config, naming the rule; with --config it replays, the line says
+    # that no record was found, and the records equal the session's, since the shipped file is
+    # what the session recorded.
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    shutil.copy(sim_session.log, alone / "flight.bin")
+    refused = run(telemetry_bin, tmp_path, "--replay", "alone/flight.bin", "--cycles", "5")
+    assert refused.returncode == 1
+    assert "alone/flight.bin" in refused.stderr, refused.stderr
+    assert "<prefix>_NNN.bin" in refused.stderr, refused.stderr
+    assert "--config" in refused.stderr, refused.stderr
+    assert not (tmp_path / "logs").exists(), "nothing may be built before the configuration passes"
+
+    completed = run(telemetry_bin, tmp_path, "--config", str(SHIPPED_CONFIG), "--replay", "alone/flight.bin",
+                    timeout=120)
+    assert completed.returncode == 0, completed.stderr
+    notice = (f"Configuration: {SHIPPED_CONFIG} (no configuration recorded beside alone/flight.bin, "
+              "which is not named <prefix>_NNN.bin; replay identity is not claimed)")
+    assert notice in completed.stdout, completed.stdout[:600]
+    assert_replay_identical(tmp_path / "logs" / "replay_000.bin", sim_session.log)
+    assert (tmp_path / "logs" / "replay_config.yaml").read_bytes() == SHIPPED_CONFIG.read_bytes()
+
+
+def test_replay_with_config_and_no_record_says_so(telemetry_bin, tmp_path, sim_session):
+    # TC-016 step 23: the log of step 16 under its own name, no record beside it, with --config.
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    shutil.copy(sim_session.log, alone / "telemetry_000.bin")
+    completed = run(telemetry_bin, tmp_path, "--config", str(SHIPPED_CONFIG), "--replay",
+                    "alone/telemetry_000.bin", timeout=120)
+    assert completed.returncode == 0, completed.stderr
+    notice = "(no configuration recorded with alone/telemetry_000.bin; replay identity is not claimed)"
+    assert notice in completed.stdout, completed.stdout[:600]
+    assert_replay_identical(tmp_path / "logs" / "replay_000.bin", sim_session.log)
 
 
 def test_replay_refuses_to_overwrite_its_input(telemetry_bin, sim_session):
