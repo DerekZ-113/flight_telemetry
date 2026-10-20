@@ -1371,11 +1371,47 @@ The new and changed files: `motion_profile.cpp` 40 of 40 lines, 7 of 8 branches 
 
 ### 17.7 Measurement of record
 
-Reserved for the CI run on the branch's head: the C++ job's per-scope table on GCC (the profile's eight branches and `simulated_data.cpp`'s twelve on the runner's gcov), the pytest line (115, the scripted flight's 20 s run on the runner), the `page` job's Vitest table (66) and build, and the cppcheck step's report with the suppression in place.
+CI run 38802982922 on `dc989d6`, the branch's head, on the draft pull request (number 1), 2026-10-15 20:34 to 20:37 UTC. It was the fifth run on the branch, from the one push that carried §16.7's record and this entry's seven commits (`aab6772..dc989d6`). Both jobs were green, and the repository's GitGuardian check with them.
+
+The run went unread when it landed and is recorded here on 2026-10-19, after the stack merged into `main` (Entry 26). The run on the first merge commit, 39353187063 on `9d2d3dd`, built this tree on `main` and reproduced the C++ job's figures below and the page's 66 tests.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 323 of 323 in 4.1 s; no warning in the build |
+| pytest (Python 3.13.16, pytest 9.1.1, against the instrumented binary) | 115 of 115 in 113.8 s, `test_motion_profile.py`'s four among them; the log gives no time per test, so the scripted flight's share is not separated |
+| lcov 2.0 over `src/` | lines 98.7% (1,954 of 1,980), functions 96.3% (210 of 218), branches 95.4% (843 of 884) |
+| cppcheck 2.13.0 (the runner's Ubuntu 24.04 package), 30 files | 0 findings. §16.7's `uselessOverride` report is gone under the inline suppression at `fault_injecting_source.h:36`, and 2.13.0 raises no unmatched-suppression report at the workflow's level, which answers §17.6's open point |
+| `page` job (Node 22, Vitest with coverage, `npm run build`) | 66 of 66 in 12 files; statements 99.02%, branches 98.44%, functions 97.59%, lines 99.65%, the Mac's figures (§17.2); `tsc --noEmit && vite build` clean in 140 ms |
+| Wall time | the C++ job 3 min 11 s; the page job 21 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside the Mac preview of §17.3:
+
+| Scope | Record (GCC) | Preview (clang) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 86.1% | 80% |
+| transport | 88.6% | 92.1% | 80% |
+| replay | 100.0% | 100.0% | 80% |
+| drivers | 91.6% | 95.8% | 70% |
+| overall | 95.4% | 96.1% | 80% |
+
+The files this entry added or changed, from the run's `coverage-html` artifact (read 2026-10-19):
+
+- **`motion_profile.cpp`:** 37 of 37 lines, 7 of 8 branches, 5 of 5 functions. These are clang's eight branches, and the untaken one is the same: `wrap_degrees`' negative side, line 37, since the demo's track never crosses north.
+- **`simulated_data.cpp`:** 79 of 79 lines, 14 of 16 branches, 3 of 3 functions. §17.3 counted 11 of 12 on clang, and this section's reservation expected twelve. GCC counts four edges on each of two lines where clang counts two:
+  - Line 61 (`positioned_ && timestamp_ms > last_timestamp_ms_`): the untaken edge is §17.3's, a timestamp that does not advance.
+  - Line 118 (the `?:` that calls `scripted_readings`): one of its four edges is never taken, and no entry has yet said which. The line is unchanged on `main`, every record from Entry 19 §19.7 on carries the same 14 of 16, and Entry 26 §26.9 keeps it open.
+- **`simulated_source.cpp`:** 11 of 11 lines, 3 of 4 branches.
+- **`fault_injecting_source.cpp`:** 67 of 67 lines, 16 of 16 branches, unchanged by the suppression.
+- **`altitude.cpp`:** 4 of 4 lines, no branch.
+
+The record agrees with the preview wherever the two measure the same thing. Every test passed on both toolchains, and the scopes differ by the edges the two compilers count differently, as in §16.7.
 
 ### 17.8 Open
 
-- §17.7.
+- §17.7. (Closed 2026-10-19: recorded from run 38802982922 after the stack merged, Entry 26.)
 - TC-025 step 8: the demo replaying to a Chrome tab, the tab in the background for two minutes, the lag on return and whether LAG flagged and cleared, the bridge's share; Derek's hand step, into §17.5.
 - On the Pi: TC-021 step 9 and a paced replay's lateness on `clock_nanosleep` (Entry 16 §16.8); the bench's TC-014 step 13, which decides the roll sign's mapping in the driver.
 - Parked in FTS-DD-001 §12 with this entry: the `heading_deg` rename (with the fix-quality byte and the sequence number); the track threshold until a fix capture; the receiver's out-of-order counter across runs; the rotated replay, decided for this demo and parked for a longer one.
