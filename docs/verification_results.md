@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-19
+> **Last Updated:** 2026-10-20
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -2827,3 +2827,96 @@ Per-scope branch coverage on GCC: processing, config, timing and logging 100.0%,
 - **The branches.** The five pull requests' branches stay on `origin` until Derek deletes them.
 - **The topics' open items.** Each topic's open items stand (Entries 16 to 25). On the Pi that means TC-009 steps 7 and 8, TC-021 step 9 and TC-014 step 13.
 - **The first release:** its tag's name, and the four places that name 0.1.0 (§26.6).
+
+## Entry 27 — 2026-10-20, Pre-release hardening: the sanitized build in CI, the actions on Node.js 24, a replay of any log under `--config`, two coverage items, the ISO 26262 crosswalk, the README restructured
+
+Six items before the first release, on one branch from `main` at `7d01520` (Entry 26's merge), one draft pull request, this entry. Entry 26 §26.9 left two of them open (the actions' runtime notice and `simulated_data.cpp:118`), Entry 24 §24.8 one (the selector's other untaken legs), and Entry 26's review flagged the replay's naming refusal (`src/main.cpp:705` to `709`) for running ahead of `--config` while its message asked for it.
+
+What changes:
+- **A requirement:** REQ-TEST-007, the sanitized build (SRD 0.19.0), with TC-039; TC-016 steps 22 and 23 and TC-028 step 16 for the two code changes that need a test of their own.
+- **Code:** `src/main.cpp` (the replay's `--config`), `src/drivers/aircraft_selector.cpp` and `src/drivers/simulated_data.cpp` (one call each off a decision line), `CMakeLists.txt` (`ENABLE_SANITIZERS`).
+- **CI:** a third job, `sanitize`; the four actions on their first Node.js 24 majors; `ubuntu-24.04` kept on every job.
+- **Documents:** FTS-DD-001 §2 (the crosswalk) and §9 (one sentence); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md.
+- **Unchanged:** the frame, the log format, every key, the five default hashes (§27.6).
+
+The commits are 1 to 10 on `claude/inspiring-galileo-632i0k`:
+1. The documents and this entry's expectations, before the code (§27.1 to §27.3).
+2. The replay's `--config` (item 3 of the topic).
+3. The selector's table-driven test and `take`'s call off its decision line (item 4).
+4. The simulator's scripted-readings call off its decision line (item 4).
+5. The `sanitize` job (item 1).
+6. The actions (item 2).
+7. The crosswalk (item 5).
+8. The README, the command reference, the CLAUDE.md rule (item 6).
+9. §27.4 to §27.8: what was built, the preview, the byte checks, the README's mapping, the decisions; then the push and the pull request.
+10. §27.9 from the pull request's run; README's numbers and the matrix's run references on it.
+
+The preview this time is not a Mac's. The commits were built and measured in an Ubuntu 24.04 container with the runner's own packages (GCC 13.3.0, lcov 2.0, cppcheck 2.13.0, Python 3.13.16), so the local figures are expected to equal the record, with one known exception (§27.2).
+
+### 27.1 The expectations for the record
+
+Written before any code was changed, from Entry 25 §25.4 and Entry 26 §26.4 (the record on `main`'s tree) and from the baseline measurement of §27.2:
+
+- **The files changed under lcov's scope:**
+  - `drivers/aircraft_selector.cpp`: **64 of 64 branches** (59 of 66 on the record), 88 of 88 lines (87 of 87), 15 of 15 functions. The table-driven test takes the five absences in `usable` (lines 43 and 44) and `nearest == nullptr` under a kept aircraft (line 139); the unwind pair of `take`'s call on the landed-or-incomplete line (125) leaves the measure when the reason goes into a local and the call onto a line with no decision (CLAUDE.md's rule), −2 branches and −1 taken, so 59 − 1 + 6 = 64; the local is the one new line.
+  - `drivers/simulated_data.cpp`: **13 of 14 branches** (14 of 16 on the record), 84 of 84 lines (82 of 82), 3 of 3 functions. Line 118's unwind pair leaves the measure the same way, −2 and −1; line 61's non-advancing timestamp stays the one untaken leg, as on every record since Entry 17 §17.7; the `if` and its body are the two new lines.
+  - `src/main.cpp` is changed and outside the measure (§1.3).
+- **The totals:** branches **1,522 of 1,604 (94.9%)**, from 1,518 of 1,608; lines 3,205 of 3,256, from 3,202 of 3,253; functions 355 of 365, unchanged.
+- **By scope:** drivers **757 of 829 (91.3%)**, from 753 of 833 (90.4%); processing, config, timing and logging 100.0%, transport 88.8% (71 of 80), replay 97.8% (45 of 46), unchanged.
+- **The suites:** Google Test 581 (580 and the table-driven test), pytest 182 (180 and TC-016's steps 22 and 23), the page 89.
+- **cppcheck:** 0 findings in 43 files.
+- **The `sanitize` job:** green, all 581 tests passing under both sanitizers, no `AddressSanitizer`, `LeakSanitizer` or `runtime error:` line in its log.
+- **The `page` job:** 89 of 89 and the build clean, on `checkout@v5` and `setup-node@v5`.
+- **The byte checks:** the five hashes of Entry 22 §22.4 unchanged on the Mac (the seed-42 session `f1dc959a…`, its replay `189eb162…`, the demo `6f877d1d…`, the demo with `--lane-fault 2@60` `a2d1d891…`, its replay `33b34f60…`), Derek's check, since CI computes none and a Linux build's bytes are its own (FTS-DD-001 §8); and on this container the five hashes at the head equal to the five measured at `7d01520` before any edit (§27.6).
+- **If line 125 or line 118 still carries a pair,** §27.2's reading is wrong and §27.9 says so; if the table-driven test leaves a leg on lines 43, 44 or 139, the test missed it.
+
+### 27.2 The baseline, the classification of `simulated_data.cpp:118`, and the selector's seven legs
+
+Measured on this container at `7d01520` before any edit, with the workflow's exact commands (the coverage configure, `ctest`, `pytest`, the two `lcov` calls, `coverage_check.sh`):
+
+| Check | This container | The record (Entry 26 §26.4) |
+|---|---|---|
+| Google Test | 580 of 580 in 31.9 s, one of them skipped: `ConfigTest.UnreadableFileIsReported` skips itself under root (`geteuid() == 0`), and this container runs as root | 580 of 580 |
+| pytest | 180 of 180 in 139.9 s | 180 of 180 in 136.4 s |
+| lcov over `src/` | lines 3,198 of 3,253, functions 355 of 365, branches 1,517 of 1,608 (94.3%) | 3,202 of 3,253; 355 of 365; 1,518 of 1,608 (94.4%) |
+| By scope | config 241 of 242 (99.6%); processing 300 of 300, timing 26 of 26, logging 54 of 54, transport 71 of 80, replay 45 of 46, drivers 753 of 833 | config 100.0%; the rest the same figures |
+
+The one difference is the skipped test: the unreadable-file branch of `telemetry_config.cpp` and that branch's four lines are the record's missing 1 branch and 4 lines, so the container reproduces the record once that test runs as an ordinary user, which the head's measurement does (§27.5). Both files under study equal the record exactly: `aircraft_selector.cpp` 87 of 87 lines, 59 of 66 branches, 15 of 15 functions (Entry 25 §25.4); `simulated_data.cpp` 82 of 82, 14 of 16, 3 of 3.
+
+**Line 118.** lcov's raw record before the branch filter, which tags an exception branch `e`:
+
+| Edge | Count | What it is |
+|---|---|---|
+| `BRDA:118,0,0` | 15,502 | the `?:`'s first outcome, `profile_ != nullptr`: the scripted frames |
+| `BRDA:118,0,1` | 560,162 | its second, the stationary frames |
+| `BRDA:118,0,2` | 15,502 | `scripted_readings(timestamp_ms)` returning, once per scripted frame |
+| `BRDA:118,e0,3` | 0 | the same call unwinding: never |
+
+So the never-taken edge Entry 17 §17.7 counted and Entry 26 §26.9 left open is the exception-unwind edge of `scripted_readings`, kept by `--filter branch` because the `?:` makes the line a decision: CLAUDE.md's case exactly, and the remedy is the rule's, the call on a complete line of its own inside an `if` whose decision keeps its two branches. Line 61's four edges read 15,496, 6, 15,496 and 0, two decisions of the `&&` with `timestamp_ms > last_timestamp_ms_` false the untaken one, the leg §17.3 named, and no exception edge.
+
+**The selector's seven.** The untaken edges of `aircraft_selector.cpp` after the filter, by line and GCC's branch index: 43:1 and 43:3 (latitude and longitude absent, `has_value()` false 0 times against 565), 44:3, 44:5 and 44:7 (ground speed, track and position time absent, 0 against 458), 125:`e0`:3 (`take`'s call unwinding, 0 against 4 returns, beside the `?:`'s 3 landed and 1 incomplete) and 139:1 (`nearest != nullptr` false under a kept aircraft, 0 against 32). Entry 24 §24.7's list, confirmed edge by edge; the geometric altitude's leg (44:1) is taken 112 times by TEST006 and the ground's (43:5) 107 times by TEST005.
+
+### 27.3 The actions
+
+Entry 26 §26.8's notice: `checkout@v4`, `setup-python@v5`, `setup-node@v4` and `upload-artifact@v4` target Node.js 20. Each moves to the first major that runs on Node.js 24, read from the action's own release notes on 2026-10-20 (the release pages print day and month without a year; the years are the release feeds' timestamps where the feed still lists the release, and otherwise follow from the sequence):
+
+| Action | From | To | The release note | Released | Later majors, not taken |
+|---|---|---|---|---|---|
+| `actions/checkout` | v4 | **v5** | v5.0.0: "Update actions checkout to use node 24"; minimum compatible runner v2.327.1 | 11 Aug 2025 (the year by sequence: `setup-python` v6.0.0 and `setup-node` v5.0.0, both 2025-09-04, moved their own checkout from v4 to v5) | v6.0.0 (20 Nov 2025), v7.0.1 (2026-07-20) |
+| `actions/setup-python` | v5 | **v6** | v6.0.0, under breaking changes: "Upgrade to node 24"; runner v2.327.1 or later | 2025-09-04 | v7.0.0 (2026-07-20) |
+| `actions/setup-node` | v4 | **v5** | v5.0.0, under breaking changes: "Upgrade action to use node24"; runner v2.327.1 or later. Its second breaking change, automatic caching when `package.json` carries a `packageManager` field, does not apply: `dashboard/package.json` has none and the step keeps `cache: npm` | 04 Sep 2025 (the year by sequence: v6.0.0 is 2025-10-14) | v6.0.0 (2025-10-14), v7.1.0 (2026-10-08) |
+| `actions/upload-artifact` | v4 | **v6** | v6.0.0: "actions/upload-artifact@v6 now runs on Node.js 24 (`runs.using: node24`)"; minimum runner 2.327.1. v5.0.0 (2025-10-24) "had preliminary support for Node.js 24, however this action was by default still running on Node.js 20", in v6's own words, so v5 is not the first | 2025-12-12 | v7.0.2 (2026-10-07) |
+
+GitHub-hosted runners are past v2.327.1. The pin to `ubuntu-24.04` stays (§26.6).
+
+### 27.4 to 27.8
+
+Written with commit 9, after the code: what was built, the preview on this container, the byte checks, the README's mapping, the decisions.
+
+### 27.9 Measurement of record
+
+Reserved for the pull request's run.
+
+### 27.10 Open
+
+- §27.4 to §27.9, in their commits.

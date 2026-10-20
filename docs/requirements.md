@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.18.0
+> **Version:** 0.19.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-19
+> **Last Updated:** 2026-10-20
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile), FTS-FI-001 (fault-injection report)
 
 ## Conventions
@@ -279,3 +279,7 @@ REQ-TEST-005: The fault detection of REQ-FAULT-001 to REQ-FAULT-005 and the voti
 REQ-TEST-006: A fixed set of the campaign's seeds shall run on every CI build and fail it when any run departs from its prediction. The full campaign shall run on demand, and its report (FTS-FI-001) shall record the commit, the platform and the seed ranges; compare each measured latency's median, 95th percentile and maximum with the latency predicted before the campaign ran; state each rate with its 95% Wilson interval and each zero count with its rule-of-three bound; and name the failure modes no check detects, with the reason.
 
 > **Rationale:** a prediction written after the data can always be made to fit it; written first, a gap between the two is a finding. CI runs a subset because the full campaign's minutes are not worth spending on every push, and the subset still catches a regression in any rule it exercises; its assertions are the per-run predictions themselves, none of which depends on the simulator's noise, so they hold on both standard libraries (FTS-DD-001 Section 8). Zero events in N runs bounds a rate at 3/N with 95% confidence; it does not show that the rate is zero, and a report that said so would claim what it never measured.
+
+REQ-TEST-007: Every CI build shall also compile the system, its unit tests and the fault-injection harness with AddressSanitizer and UndefinedBehaviorSanitizer, undefined behaviour being an error from which the program does not recover, and shall run every Google Test, the campaign's CI subset of REQ-TEST-006 included, under them. A sanitizer report shall fail the build and be recorded in FTS-VR-001; it shall never be suppressed.
+
+> **Rationale:** a test's assertion sees a value; a sanitizer sees how the value was made. An out-of-bounds read that happens to return the expected bytes, a signed overflow the optimizer folds away, a load through a misaligned pointer, a use after free whose memory still holds the old contents, a data race on the one thread's handoff: each passes every assertion in this suite and shows only under instrumentation, and this codebase writes its records as raw bytes, reads them back from files and sockets, compares floats through `memcpy` and scales 16-bit codes, the kinds of code those checks were built for. The instrumentation is the compiler's own, so the evidence costs no new test: the same tests run once more. The job is separate from the coverage build (REQ-TEST-003) because the two instrumentations slow each other and measure different things, and it gates every push, unlike cppcheck's tag gate (REQ-TEST-004), because a sanitizer report is a defect observed at the moment it happened, not a finding to review at a release. Undefined behaviour does not recover so that the first report ends the test that produced it, with its stack, instead of a later symptom. A report is never suppressed to get the job green: a suppression hides the one thing the job exists to show, and a report inside a fetched library is recorded the same way, with the decision about it (FTS-TP-001 TC-039). The project's own targets are instrumented and the fetched libraries are not, so a defect inside yaml-cpp or Google Test is outside what this requirement claims.
