@@ -1,6 +1,6 @@
 # Continuous integration (REQ-TEST-003, REQ-TEST-004).
 #
-# Two jobs, each on a clean Ubuntu machine, every push. The first is the
+# Three jobs, each on a clean Ubuntu machine, every push. The first is the
 # pass/fail criteria in docs/test_plan.md section 4, in order: the build
 # must be warning-free, every Google Test must pass, every pytest must pass
 # (REQ-TEST-002; the suite drives the instrumented binary, so its runs
@@ -9,11 +9,20 @@
 # zero findings on a release tag (it reports without blocking on ordinary
 # pushes). The second runs the dashboard page's tests and its build
 # (test_plan.md 2.5) in parallel, so the C++ job's wall time is unchanged.
+# The third builds the same Google Tests and the fault-injection subset
+# with AddressSanitizer and UndefinedBehaviorSanitizer and runs ctest
+# (criterion 7, REQ-TEST-007, test_plan.md TC-039), also in parallel.
 #
 # GCC + libstdc++ here, clang + libc++ on the development Mac. Tests pass
 # on both because each compares a run to itself or to physics with a
 # tolerance; the floating-point decimals differ, as design.md section 8
 # says they will.
+#
+# The actions are pinned to the first major of each that runs on Node.js
+# 24 (checkout v5, setup-python v6, setup-node v5, upload-artifact v6),
+# read from their release notes on 2026-10-20 (verification_results.md
+# Entry 27 §27.3); GitHub ran the Node.js 20 majors with a notice
+# (Entry 26 §26.8).
 name: ci
 
 on:
@@ -33,7 +42,7 @@ jobs:
     timeout-minutes: 20   # the whole job runs in about three; a hung receiver must not run for six hours
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install tools
         # libzmq3-dev is the ZeroMQ C library the transport links
@@ -60,7 +69,7 @@ jobs:
       - name: Set up Python
         # The pins in requirements.txt were resolved against 3.13, the
         # development venv; the runner gets the same interpreter.
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: pip
@@ -136,13 +145,13 @@ jobs:
           --suppress=missingIncludeSystem --inline-suppr --error-exitcode=1 -I src src
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-html
           path: coverage/html
 
       - name: Upload cppcheck report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cppcheck
           path: static_analysis/cppcheck.txt
@@ -160,9 +169,9 @@ jobs:
         working-directory: dashboard
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -178,7 +187,47 @@ jobs:
         run: npm run build
 
       - name: Upload page coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: page-coverage
           path: dashboard/coverage/coverage-summary.json
+
+  sanitize:
+    # REQ-TEST-007 (test_plan.md TC-039): the same Google Tests and the
+    # fault-injection subset, built with AddressSanitizer and
+    # UndefinedBehaviorSanitizer, undefined behaviour fatal
+    # (CMakeLists.txt, ENABLE_SANITIZERS). Separate from the coverage build,
+    # whose instrumentation it would slow and whose counts it would not
+    # change: no coverage, no pytest and no cppcheck here. A report fails
+    # the job and is recorded in verification_results.md, never suppressed:
+    # no suppression file, no option that recovers. One test skips itself
+    # under this build, by name and with its reason printed (TC-039's
+    # preconditions; tests/unit/test_udp_publisher.cpp).
+    runs-on: ubuntu-24.04   # pinned with the C++ job, for the same reason
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install tools
+        # The two system libraries the C++ job installs; no lcov and no
+        # cppcheck, which this job does not run.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libzmq3-dev libcurl4-openssl-dev
+
+      - name: Configure (warnings as errors, sanitizers on)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DWARNINGS_AS_ERRORS=ON
+          -DENABLE_SANITIZERS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests and the fault-injection subset under the sanitizers
+        # print_stacktrace: a UBSan report names its stack, as ASan's does.
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure

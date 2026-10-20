@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-19
+> **Last Updated:** 2026-10-20
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -32,7 +32,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Framework:** Google Test.
 - **Isolation:** Hardware dependencies are replaced with test doubles. The `DataSource` abstraction is the primary seam: a test-only `FakeSource` returns hand-built frames, so the pipeline can be exercised without sensors or the simulator. Time-dependent logic does not sleep in tests: fixed-rate scheduling takes an injectable `Clock` and tests drive it with a fake that advances time by fiat; fault timeouts read time from frame timestamps. One real-clock smoke test (about 20 ms) exercises the OS boundary with loose bounds.
 - **Location:** `tests/unit/`, one test file per module (`test_altitude.cpp`, `test_fault_detection.cpp`, and so on).
-- **Executed:** Every commit, in CI and locally.
+- **Executed:** Every commit, in CI and locally; in CI once more under the sanitizers (TC-039, REQ-TEST-007).
 
 ### 2.2 Integration Tests
 
@@ -49,7 +49,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 - **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scheduled fault: dropped reads, repeated values (a whole channel or one field), out-of-range and non-finite values, a bias step or a drift, and the fault's removal at a scheduled frame. Lane faults (FTS-FM-001 FAULT-019 to FAULT-022) are the exception: every lane sees the same frame, so they are injected through the redundant processor's lane-fault interface (REQ-RED-005) by `LaneFaultInjector`, which alters one lane's input before it runs or its output before the vote; such a run does not replay its verdict, since the alteration is not in the raw frames (REQ-LOG-003), except the one fault of REQ-RED-007's option, which the log records and the replay re-applies.
 - **Randomization:** Every run is defined by one seed, its run id, which fixes its cell, its schedule and the simulator's noise. The schedule's draws use the harness's own arithmetic over `std::mt19937` and `std::seed_seq`, both fixed by the C++ standard, so a schedule is the same on every platform; the simulator's noise follows the platform's standard library (FTS-DD-001 Section 8), so a measured distribution belongs to the platform its report names. A randomized test that cannot be replayed is not evidence.
 - **Location:** `tests/fault_injection/`; the report generator in `analysis/`; the on-demand script in `scripts/`.
-- **Executed:** The fixed-seed subset, ten seeds per cell, on every commit, as part of ctest. The full campaign on demand (`scripts/fault_campaign.sh`), its report the record (TC-036); there is no nightly job.
+- **Executed:** The fixed-seed subset, ten seeds per cell, on every commit, as part of ctest, and in CI once more under the sanitizers (TC-039). The full campaign on demand (`scripts/fault_campaign.sh`), its report the record (TC-036); there is no nightly job.
 
 ### 2.4 Hardware Tests
 
@@ -79,6 +79,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 | CTest | Test runner | Ships with CMake. Runs the Google Test binaries and reports results in a form GitHub Actions can consume. |
 | Vitest | Page tests | The test runner of the page's own build tool (Vite), so one configuration serves the build and the tests; jsdom gives it a DOM without a browser, fake timers make the staleness tests instant. |
 | websockets | The bridge's server and its test client | A pure-Python WebSocket implementation on asyncio, no web framework around it; the test client is the same library. |
+| AddressSanitizer, UndefinedBehaviorSanitizer | Dynamic analysis under the Google Tests | GCC's own instrumentation of memory accesses and of the operations C++ leaves undefined, reported at the moment they happen with a stack: what an assertion on a value cannot see. No new test and no new tool, a second build of the same tests. Required by REQ-TEST-007. |
 
 Compiler warnings (`-Wall -Wextra -Wpedantic`) are treated as a static analysis layer of their own. A warning is a failed build.
 
@@ -94,6 +95,7 @@ A build passes when all of the following hold. Any single failure fails the buil
 4. cppcheck shall report zero warnings at the `--enable=warning,style,performance,portability` level on any release-tagged build. Non-release builds report but do not block.
 5. Every requirement in the traceability matrix shall trace to at least one test. A requirement with an empty test column fails the build once that requirement's implementation column is filled.
 6. The compiler shall emit zero warnings.
+7. Every Google Test, the fault-injection subset included, shall pass under AddressSanitizer and UndefinedBehaviorSanitizer with no sanitizer report (REQ-TEST-007, TC-039).
 
 A release is a passing build on a tagged commit, with the coverage and cppcheck reports committed under `coverage/` and `static_analysis/` and summarized in docs/verification_results.md.
 
@@ -320,7 +322,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Shut the context down, then publish one frame. Record the return value, the failure count, and the error code.
   6. *(pytest, each transport)* Run `telemetry` publishing 500 frames with a receiver that reads 50 frames, stops reading for 3 s, then drains; the UDP receiver's `SO_RCVBUF` is 4096 bytes. Read the process's timing summary, the receiver's gap and out-of-order counts, and compare the frames after the stall with the log.
   7. *(pytest, each transport)* Run `telemetry` publishing 50 frames with no receiver. Read the timing summary and the transport summary. (The 500-frame run by hand over ZeroMQ is on record in FTS-VR-001 Entry 6.)
-  8. Construct `UdpPublisher` on `localhost`, on `256.1.1.1`, on port 0, on port 70000, on `0.0.0.0`, on `255.255.255.255`, and once with the process's descriptor limit at zero. Record `ok()`, `error()`, and the result of one `publish()` each time.
+  8. Construct `UdpPublisher` on `localhost`, on `256.1.1.1`, on port 0, on port 70000, on `0.0.0.0`, on `255.255.255.255`, and once with the process's descriptor limit at zero (under the sanitized build of TC-039 this last construction skips itself, with its reason printed: the exhausted descriptor table starves libubsan's own vtable probe, FTS-VR-001 Entry 27). Record `ok()`, `error()`, and the result of one `publish()` each time.
   9. With no receiver bound, publish 1000 frames. Record the wall time and the statistics.
   10. With no receiver bound, publish one frame, then publish again every millisecond for up to 100 ms. Record the first failure's error code and the result of the publish after it.
   11. Receiver bound with `SO_RCVBUF` 4096 and never reading. Publish 1000 frames. Record the wall time and the statistics, then drain the receiver and count what arrived.
@@ -503,7 +505,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 ### TC-016: Configuration Loading, Validation, and the Session Record
 
 - **Requirement:** REQ-CFG-001, REQ-CFG-002, REQ-CFG-003 (also exercises REQ-TRANS-002, REQ-SENS-006, REQ-LOG-003)
-- **Level:** Unit (steps 1 through 9 and 21, `tests/unit/test_config.cpp`; step 10, the injection tests in `test_kalman.cpp`, `test_complementary.cpp`, `test_simulated_data.cpp`, `test_live_sensor_source.cpp`), Integration (steps 11 through 20 and the `--adsb` half of 21, `tests/integration/test_config.py` and `test_adsb.py`)
+- **Level:** Unit (steps 1 through 9 and 21, `tests/unit/test_config.cpp`; step 10, the injection tests in `test_kalman.cpp`, `test_complementary.cpp`, `test_simulated_data.cpp`, `test_live_sensor_source.cpp`), Integration (steps 11 through 20, 22 and 23, and the `--adsb` half of 21, `tests/integration/test_config.py` and `test_adsb.py`)
 - **Objective:** Verify that every tunable REQ-CFG-001 names is read from one YAML file and reaches the module that uses it; that every invalid value is refused at startup and named, all in one report; and that the configuration a session ran with is recorded beside its log and is what a replay uses unless another is named.
 - **Preconditions:** `config/telemetry_config.yaml` (the shipped file) and `src/config/telemetry_config.cpp`. Unit steps load YAML text in memory (`load_config_text`) except where a path is the point. Integration steps run the binary from a temporary directory with `--config` naming the shipped file, as every run in the suite does (Section 2.2); a "copy" is the shipped text with one `key: value` line edited.
 - **Steps:**
@@ -528,6 +530,8 @@ Test cards are the individual test procedures. Each card is executed by one or m
   19. *(pytest, each transport)* The shipped file (both transports disabled) with `--zmq` or `--udp`: frames received, the `Transport:` summary 50 published, 0 failures.
   20. *(pytest, each transport)* A copy with the transport enabled and the receiver's address, no flag: frames received and byte-identical to the log.
   21. The `adsb` block removed entirely; one key removed inside it; *(pytest)* `--adsb --adsb-credentials <a nonexistent path>` with a copy lacking the block (added 2026-10-15).
+  22. *(pytest)* The session log copied alone as `flight.bin`, a name not of the form `<prefix>_NNN.bin`, replayed without `--config`: exit 1, the message naming the log, the naming rule and `--config`, no `logs/` created. Then with `--config` naming the shipped file: exit 0, the `Configuration:` line saying that no configuration was recorded beside it and that identity is not claimed, the replay's records byte-identical to the session's (the shipped file is what the session recorded), and `logs/replay_config.yaml` equal to the shipped file (added 2026-10-20: until then the naming refusal ran before `--config` was read, while its message asked for it).
+  23. *(pytest)* The session log copied alone under its own name, no record beside it, replayed with `--config` naming the shipped file: exit 0, the line saying that no configuration was recorded with it and that identity is not claimed, the records byte-identical to the session's (added 2026-10-20; step 16 is the same log without `--config`).
 - **Expected result:**
 
   | Step | Expected |
@@ -544,8 +548,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 18 | exit 1, the input intact |
   | 19 and 20 | frames received as listed |
   | 21 | accepted with `adsb` empty; `adsb.<key>: missing`; exit 1 naming `adsb` and `--adsb`, no `logs/` |
+  | 22 | exit 1 naming the log, the rule and `--config`; then exit 0, the notice, every record equal to the session's |
+  | 23 | exit 0, the notice, every record equal to the session's |
 
-- **Pass/fail:** Any field of the shipped file differing from the defaults fails (step 1). Any invalid value accepted, any valid edge value refused, any problem reported under the wrong key, or fewer problems than planted fails. A record that differs from the file by one byte fails. A replay that runs without a record and without `--config`, or that runs another configuration silently, fails.
+- **Pass/fail:** Any field of the shipped file differing from the defaults fails (step 1). Any invalid value accepted, any valid edge value refused, any problem reported under the wrong key, or fewer problems than planted fails. A record that differs from the file by one byte fails. A replay that runs without a record and without `--config`, or that runs another configuration silently, fails; so does a log of another name refused under `--config`, or replayed silently without it.
 
 ### TC-017: Validity of Computed Fields, NO_DATA, and Format Version 2
 
@@ -985,6 +991,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   13. The kept aircraft against an aircraft above the ceiling 100 m from the reference point; the kept aircraft climbing under the ceiling; a candidate under the ceiling 2,500 m nearer.
   14. The kept aircraft one metre above the ceiling, climbing; then back under it, descending, 4,500 m nearer than its replacement; the same with no other candidate.
   15. `distance_m` to each corner of the shipped box, the farthest times tan 3°, against the shipped ceiling.
+  16. One table: the kept aircraft with each field a reading needs absent in turn (latitude, longitude, geometric altitude, ground speed, track, position time) and once reported on the ground; then the kept aircraft alone in the box, levelled off (added 2026-10-20: the five absences the record showed untaken since FTS-VR-001 Entry 18 §18.7, and the kept aircraft with no candidate at all, Entry 24 §24.7).
 - **Expected result:**
 
   | Step | Expected |
@@ -1004,6 +1011,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 13 | no change for the aircraft above the ceiling, whatever its distance; kept while climbing under it; then `nearer` |
   | 14 | `above` to the nearest candidate; `nearer` back; `above` to none, then `initial` |
   | 15 | the far corner between 31,000 and 31,200 m; the ceiling at or above the path's height there and below 3,498 m |
+  | 16 | `incomplete` for each absence and `landed` for the ground, the nearest candidate taking over each time; kept with no change when nothing in the box is a candidate |
 
 - **Pass/fail:** Exact as listed. A grounded, climbing or incomplete aircraft selected, an aircraft above the ceiling selected or kept, a switch inside the margin, a kept aircraft dropped on a single absence or a failed poll, or a change without its reason and identities fails.
 
@@ -1353,6 +1361,30 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Pass/fail:** Steps 1 through 6 exact as listed; step 7 recorded, its departures from FTS-FI-001 Section 5.3 being the check's purpose.
 
+### TC-039: Sanitized Build of the Unit Tests and the CI Subset
+
+- **Requirement:** REQ-TEST-007 (also exercises every requirement the Google Tests and the fault-injection subset verify; REQ-TEST-001, REQ-TEST-006)
+- **Level:** Unit and fault injection, in CI (steps 1 through 3: the `sanitize` job of `.github/workflows/ci.yml`, `ctest` over `unit_tests` and `fault_injection_tests`); by hand once (step 4); recorded (step 5: FTS-VR-001)
+- **Objective:** Verify that every Google Test and the fault-injection subset pass when the system is compiled with AddressSanitizer and UndefinedBehaviorSanitizer, undefined behaviour fatal, and that a sanitizer report fails the build rather than hiding in a log.
+- **Preconditions:** GCC on the pinned `ubuntu-24.04` runner; `CMakeLists.txt`'s `ENABLE_SANITIZERS` option; no suppression file anywhere in the repository, and no sanitizer option that recovers or ignores (`grep -rn "sanitize\|ASAN_OPTIONS\|UBSAN_OPTIONS"` finds only the build file, the workflow, the documents and the one skip below). One test skips itself under this build, by name and with its reason printed: `UdpPublisherTest.SocketFailureIsReportedNotThrown` (TC-010 step 8) starves the process of descriptors so that `socket()` fails, which also starves libubsan's own vtable probe, a `pipe()`, so the publisher's valid construction is reported as an invalid vptr (FTS-VR-001 Entry 27); a skip is reported by ctest, never silent, and the branch it covers is measured on the coverage build, where the test runs. A second such skip needs the same evidence and its own entry.
+- **Steps:**
+  1. Configure with `-DCMAKE_BUILD_TYPE=Debug -DWARNINGS_AS_ERRORS=ON -DENABLE_SANITIZERS=ON` and build every target.
+  2. Run `ctest --output-on-failure` with `UBSAN_OPTIONS=print_stacktrace=1`.
+  3. Read the job's log for `AddressSanitizer`, `LeakSanitizer` and `runtime error:`.
+  4. *(By hand, once)* Confirm the instrumentation is live: a scratch program with a one-past-the-end read, compiled and linked with the option's flags, reports the read and exits non-zero, so a green job means no finding, not no check.
+  5. *(Recorded)* Each run's outcome in FTS-VR-001's entry for the commit; a report, its text and the decision taken.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | the build clean, no warning |
+  | 2 | every test passes, the subset's 450 runs included; the one documented skip reported by ctest as skipped, no other |
+  | 3 | none of the three strings |
+  | 4 | the deliberate error reported, the process ended with a non-zero status |
+  | 5 | recorded |
+
+- **Pass/fail:** Any sanitizer report fails, whatever test it falls in. A report is never suppressed, filtered or made to recover to pass this card; it is recorded in FTS-VR-001 and resolved as a defect or as a decision with its reason. A job that runs with the instrumentation off (the option unset, a flag dropped) fails step 4.
+
 ## 6. Coverage Strategy
 
 ### 6.1 Statement versus Branch Coverage
@@ -1411,3 +1443,4 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - Format version 3 (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 and the amended REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004 and REQ-DISP-007; TC-031) is specified here, built on the ADS-B branch (2026-10-15 and 16) and recorded in FTS-VR-001 Entry 19. TC-031 step 17, the seed-42 log against the kept version-2 reference, is a recorded hand check in Entry 19 §19.4, not a gate; the detector judges neither the fix quality nor the satellite count yet (FAULT-003b stays parked with its bytes in place), nothing consumes the ADS-B vertical rate or pressure altitude until Phase B; the voter's status field, zero at format version 3's landing, is the voter's since 2026-10-18.
 - The redundancy voter (REQ-RED-001 to REQ-RED-006, REQ-DISP-008; TC-032 to TC-034) is specified here and recorded in FTS-VR-001 Entry 20. TC-034's recorded steps (9 to 11), the voted logs against the single-lane references, are hand checks in Entry 20 §20.4, not gates; TC-009 step 8, the three lanes' cost on the Raspberry Pi, waits for hardware. The fault-injection harness of Section 2.3 drives the lane-fault interface and sweeps the persistence count.
 - The fault-injection campaign (REQ-TEST-005, REQ-TEST-006, REQ-RED-007; TC-035 to TC-037) is specified here, built, and its preview of 2026-10-19 recorded in FTS-FI-001 and FTS-VR-001 Entry 21. The non-finite check its evidence brought (REQ-FAULT-003's clause, TC-038) is built and recorded in FTS-VR-001 Entry 22, U06 and U07 measured before and after. A campaign run before the bench session is a preview against the simulator's noise model; the campaign of record reruns after the stationary capture's constants land (TC-036). TC-037 step 9, the demo recorded with a lane fault and replayed paced, is a hand record.
+- REQ-TEST-007 (the sanitized build, TC-039) entered 2026-10-20 with the `sanitize` job (commit 5 of the pre-release topic) and is Verified by that job's first run on the record, CI run 39370957221 (FTS-VR-001 Entry 27 §27.9); its one documented skip is TC-039's precondition.

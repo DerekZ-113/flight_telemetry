@@ -300,7 +300,7 @@ struct Options {
 void print_usage() {
     std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name> | --adsb [--adsb-credentials <file>] [--adsb-origin <url>]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--lane-fault <lane>@<seconds>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
-              << "; a replay reads the file recorded beside its log)\n"
+              << "; a replay reads the file recorded beside its log, or this one when given)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
               << "                       sensors.gps.enabled, the GPS receiver on sensors.gps.device, paced\n"
               << "  --replay <log.bin>   feed a recorded log through the pipeline, unpaced, to its end\n"
@@ -702,13 +702,18 @@ int main(int argc, char* argv[]) {
     std::filesystem::path config_path = options.config_path.value_or(kDefaultConfigPath);
     std::optional<std::filesystem::path> recorded;
     if (replaying) {
+        // A record exists by name only beside a log named <prefix>_NNN.bin
+        // (REQ-CFG-003). Without --config that record is the only source, so
+        // a log of another name is refused here; with --config the named
+        // file is the configuration whatever the log is called, and the
+        // Configuration line below says that no record was found.
         recorded = recorded_config_path(*options.replay_file);
-        if (!recorded.has_value()) {
-            std::cerr << "error: cannot derive the configuration recorded with " << *options.replay_file
-                      << ": the log is not named <prefix>_NNN.bin; pass --config <file>" << std::endl;
-            return 1;
-        }
         if (!options.config_path.has_value()) {
+            if (!recorded.has_value()) {
+                std::cerr << "error: cannot derive the configuration recorded with " << *options.replay_file
+                          << ": the log is not named <prefix>_NNN.bin; pass --config <file>" << std::endl;
+                return 1;
+            }
             config_path = *recorded;
         }
     }
@@ -742,6 +747,9 @@ int main(int argc, char* argv[]) {
         const std::string& log = *options.replay_file;
         if (!options.config_path.has_value()) {
             config_note = " (recorded with " + log + ")";
+        } else if (!recorded.has_value()) {
+            config_note = " (no configuration recorded beside " + log +
+                          ", which is not named <prefix>_NNN.bin; replay identity is not claimed)";
         } else {
             const ConfigLoad record = load_config_file(*recorded);
             if (record.text.empty()) {

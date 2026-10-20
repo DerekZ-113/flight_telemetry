@@ -204,8 +204,18 @@ TEST(UdpPublisherTest, NonUnicastAddressIsRefused) {
 // socket() fails only when the process is out of descriptors. The soft
 // limit is lowered to zero around the construction, so that branch is a
 // test rather than a coverage exclusion, and restored before anything
-// else runs. (TC-010 step 8)
+// else runs. (TC-010 step 8) Under the sanitized build (TC-039) the test
+// skips itself: libubsan validates an object's vtable by probing memory
+// through a pipe, which the exhausted descriptor table refuses, so the
+// publisher's own construction is reported as an invalid vptr although
+// nothing is wrong with it (FTS-VR-001 Entry 27). The branch is measured
+// on the coverage build, where the test runs.
 TEST(UdpPublisherTest, SocketFailureIsReportedNotThrown) {
+#ifdef TELEMETRY_SANITIZED
+    GTEST_SKIP() << "under the sanitizers: libubsan probes a vtable's memory through a pipe, which the exhausted "
+                    "descriptor table refuses, so the construction would read as an invalid vptr (FTS-VR-001 Entry 27); "
+                    "the branch is measured on the coverage build";
+#endif
     rlimit saved{};
     ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &saved), 0);
     rlimit none = saved;

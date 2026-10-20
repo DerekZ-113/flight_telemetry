@@ -122,7 +122,10 @@ std::optional<SelectionChange> AircraftSelector::update(const opensky_json::Stat
         return take(nearest, SwitchReason::LEFT);
     }
     if (!usable(*current)) {
-        return take(nearest, current->on_ground ? SwitchReason::LANDED : SwitchReason::INCOMPLETE);
+        // The reason on a line of its own: take() can throw, and a call that
+        // can throw stays off a decision's line (CLAUDE.md; FTS-VR-001 Entry 27).
+        const SwitchReason reason = current->on_ground ? SwitchReason::LANDED : SwitchReason::INCOMPLETE;
+        return take(nearest, reason);
     }
     if (!under_ceiling(*current)) {
         // Climbed out: a go-around or a departure, not the vehicle on

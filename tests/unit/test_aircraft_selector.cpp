@@ -443,6 +443,58 @@ TEST(AircraftSelectorTest, TheShippedCeilingClearsAThreeDegreePathAtTheBoxesFarC
     EXPECT_LT(AdsbConfig{}.ceiling_m, 3498.0);
 }
 
+// TC-028 step 16. The fields a reading needs, one table: the kept aircraft
+// with each absent in turn is replaced with reason `incomplete`, and once
+// on the ground with `landed`, through update(), so the absence is judged
+// both where candidates are gathered and where the kept aircraft is
+// checked; then the kept aircraft alone in the box and levelled off is
+// kept with no change, nothing being a candidate. The five absences the
+// record showed untaken since FTS-VR-001 Entry 18 §18.7, and the kept
+// aircraft with no candidate of Entry 24 §24.7.
+TEST(AircraftSelectorTest, EveryAbsentFieldReplacesTheKeptAircraftAndNoCandidateKeepsIt) {
+    struct Row {
+        const char* field;
+        void (*remove)(AircraftState&);
+        SwitchReason reason;
+    };
+    const Row rows[] = {
+        {"latitude", [](AircraftState& s) { s.latitude.reset(); }, SwitchReason::INCOMPLETE},
+        {"longitude", [](AircraftState& s) { s.longitude.reset(); }, SwitchReason::INCOMPLETE},
+        {"geo_altitude", [](AircraftState& s) { s.geo_altitude_m.reset(); }, SwitchReason::INCOMPLETE},
+        {"velocity", [](AircraftState& s) { s.velocity_mps.reset(); }, SwitchReason::INCOMPLETE},
+        {"true_track", [](AircraftState& s) { s.true_track_deg.reset(); }, SwitchReason::INCOMPLETE},
+        {"time_position", [](AircraftState& s) { s.time_position.reset(); }, SwitchReason::INCOMPLETE},
+        {"on_ground", [](AircraftState& s) { s.on_ground = true; }, SwitchReason::LANDED},
+    };
+    for (const Row& row : rows) {
+        SCOPED_TRACE(row.field);
+        AircraftSelector selector = make();
+        StatesDocument doc = example();
+        ASSERT_TRUE(selector.update(doc).has_value());
+        AircraftState& kept = find(doc, "000001");
+        row.remove(kept);
+        EXPECT_FALSE(AircraftSelector::usable(kept));
+        EXPECT_FALSE(selector.candidate(kept));
+        const std::optional<SelectionChange> change = selector.update(doc);
+        ASSERT_TRUE(change.has_value());
+        EXPECT_EQ(change->reason, row.reason);
+        EXPECT_EQ(change->previous->icao24, "000001");
+        EXPECT_EQ(change->current->icao24, "000002");
+    }
+
+    // Alone and levelled off: present, airborne, complete and under the
+    // ceiling, so kept, and nothing anywhere in the box is a candidate.
+    AircraftSelector selector = make();
+    StatesDocument alone = example();
+    alone = without(without(alone, "000002"), "000003");   // TEST004 climbs, TEST005 is grounded, TEST006 is incomplete
+    ASSERT_TRUE(selector.update(alone).has_value());
+    find(alone, "000001").vertical_rate_mps = 0.0f;
+    EXPECT_FALSE(selector.candidate(find(alone, "000001")));
+    EXPECT_FALSE(selector.update(alone).has_value());
+    EXPECT_EQ(selector.selected()->icao24, "000001");
+    ASSERT_TRUE(selector.selected_state().has_value());
+}
+
 TEST(AircraftSelectorTest, EveryReasonHasAName) {
     EXPECT_STREQ(switch_reason_name(SwitchReason::INITIAL), "initial");
     EXPECT_STREQ(switch_reason_name(SwitchReason::NEARER), "nearer");

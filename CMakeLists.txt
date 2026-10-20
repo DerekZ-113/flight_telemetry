@@ -21,6 +21,12 @@ option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors (CI)" OFF)
 # ENABLE_COVERAGE: gcov instrumentation for REQ-TEST-003. Never on for a
 # release or Pi build; it slows the code and writes .gcda files at exit.
 option(ENABLE_COVERAGE "Instrument telemetry_core and unit_tests for gcov/lcov" OFF)
+# ENABLE_SANITIZERS: AddressSanitizer and UndefinedBehaviorSanitizer on the
+# project's own targets, for REQ-TEST-007's CI job; the block at the end of
+# this file applies it once the targets exist. Never on for a release or
+# Pi build, and not with ENABLE_COVERAGE, whose instrumentation it would
+# slow and whose counts it would not change.
+option(ENABLE_SANITIZERS "Build the project's targets with AddressSanitizer and UndefinedBehaviorSanitizer (CI)" OFF)
 
 if(WARNINGS_AS_ERRORS)
     add_compile_options(-Werror)
@@ -257,4 +263,29 @@ if(ENABLE_COVERAGE)
     # must also link the profiling runtime, or the build fails with
     # undefined __gcov_* symbols.
     target_link_options(telemetry_core PUBLIC --coverage)
+endif()
+
+# Sanitizers (REQ-TEST-007; FTS-TP-001 TC-039). Undefined behaviour does
+# not recover (-fno-sanitize-recover=undefined), so the first report ends the
+# test that produced it, with its stack; AddressSanitizer halts on its first
+# report by default. Frame pointers are kept so a report's stack reads. The
+# flags go on the project's six targets only, as the coverage flags do: the
+# fetched libraries are not instrumented, and a defect inside them is
+# outside what the requirement claims.
+if(ENABLE_SANITIZERS)
+    set(SANITIZER_FLAGS -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g)
+    foreach(t telemetry_core telemetry unit_tests fault_campaign_core fault_campaign fault_injection_tests)
+        target_compile_options(${t} PRIVATE ${SANITIZER_FLAGS})
+    endforeach()
+    # PUBLIC on the two libraries, as the coverage link flag is: every
+    # executable that links instrumented objects must link the sanitizer
+    # runtimes too.
+    foreach(t telemetry_core fault_campaign_core)
+        target_link_options(${t} PUBLIC -fsanitize=address,undefined)
+    endforeach()
+    # One test starves the process of descriptors so that socket() fails
+    # (TC-010 step 8), which also starves libubsan's own memory probe and
+    # makes a valid object read as an invalid vptr; under this build it skips
+    # itself by name, with its reason printed (TC-039, FTS-VR-001 Entry 27).
+    target_compile_definitions(unit_tests PRIVATE TELEMETRY_SANITIZED=1)
 endif()

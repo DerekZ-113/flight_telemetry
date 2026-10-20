@@ -114,8 +114,14 @@ TelemetryFrame SimulatedDataGenerator::generate(uint64_t timestamp_ms) {
     // or the profile's state turned into readings. Every draw below is the
     // same in both cases and in the same order; a reading is always
     // base + noise, so with the stationary base the arithmetic is the one
-    // the default always did, byte for byte.
-    const BaseReadings base = profile_ != nullptr ? scripted_readings(timestamp_ms) : kStationary;
+    // the default always did, byte for byte. The call sits on a line of its
+    // own, off the decision: GCC gives it an exception-unwind edge that no
+    // run can take, which the branch filter removes only from a line with
+    // no conditional (CLAUDE.md; FTS-VR-001 Entry 27).
+    BaseReadings base = kStationary;
+    if (profile_ != nullptr) {
+        base = scripted_readings(timestamp_ms);
+    }
 
     // BMP280 simulation — stationary at ~2m above sea level, or the script's
     // altitude: base pressure slightly below standard (1013.25 hPa) gives ~2m
