@@ -2444,12 +2444,77 @@ All distances are the selector's own equirectangular `distance_m` over the shipp
 
 ### 24.7 Measurement of record
 
-Reserved for the CI run on draft pull request 5.
+CI run 39342447232 on `8fbdf03`, the branch's head, on draft pull request 5, 2026-10-19 23:34:50 to 23:38:52 UTC. It ran on the one push that carried commits 1 to 4 (`94b7c42..8fbdf03`), the branch's first. Both jobs passed.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580 in 20.1 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 135.8 s, TC-029 step 20's test among them |
+| lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.3% (1,519 of 1,610) |
+| cppcheck (the runner's package, 2.13.0), 45 files | 0 findings |
+| `page` job | 89 of 89 in 13 files, the TypeScript build clean |
+| Wall time | the C++ job 4 min 0 s; the page job 19 s |
+
+Per-scope branch coverage on GCC, beside Entry 23's record and this entry's preview:
+
+| Scope | Record (GCC) | Run 39319857862 on `279e8c6` (GCC) | §24.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 100.0% | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 92.2% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 97.8% | 97.8% | 100.0% | 80% |
+| drivers | 90.3% | 90.3% | 91.6% | 70% |
+| overall | 94.3% | 94.4% | 94.8% | 80% |
+
+The files commits 2 and 3 changed under lcov's scope, on GCC, read from the run's `coverage-html` artifact beside Entry 23's:
+
+| File | Lines | Branches | Functions | At `279e8c6` |
+|---|---|---|---|---|
+| `drivers/aircraft_selector.cpp` | 87 of 87 | 60 of 68 | 15 of 15 | 79 of 79, 55 of 62, 14 of 14 |
+| `drivers/adsb_source.cpp` | 158 of 159 | 54 of 58 | 19 of 19 | 157 of 158, 54 of 58, 18 of 18 |
+| `config/telemetry_config.cpp` | 482 of 482 | 242 of 242 | 31 of 31 | 481 of 481, 242 of 242, 31 of 31 |
+
+The other 59 files of the report equal Entry 23's record in lines, functions and branches.
+
+The record reconciles with Entry 23's exactly:
+- **Branches:** 1,604, plus 2 (`candidate`'s chain, four terms where it had three, eight branches where it had six, now over lines 49 and 50), 2 (the `above` test, line 126) and 2 (an exception-unwind pair on the loop's `if (!candidate(state))`, line 93, below), make the 1,610.
+- **Taken:** 1,514, plus 2, 2 and 1, make the 1,519. The pair's unwind leg is the one not taken: the call returned 423 times and never unwound.
+- **Lines:** 3,243, plus 8 in the selector, 1 in the source (the lambda) and 1 in the loader (the key's line), make the 3,253, every new one executed: 3,202.
+- **Functions:** 363, plus `under_ceiling` and the source's lambda, make the 365; 355 ran.
+
+The five expectations §24.5 set before the push:
+
+| Expectation | Measured |
+|---|---|
+| `aircraft_selector.cpp` 59 of 66: `candidate`'s chain two more branches and the `above` test two, all four taken | The four as predicted: the chain's new term taken both ways (32 states above the ceiling), the `above` test 32 kept and 3 dropped. But 60 of 68: line 93 carries an unwind pair it did not carry on Entry 23's record. Missed by that pair |
+| The seven untaken legs stay, named as the five absences in `usable`, the null vertical rate and one more | Seven old legs stay, but §24.5 named one wrongly. The null vertical rate was taken already: `candidate`'s six branches were all taken on Entry 23's record, by `AdsbSourceTest.VerticalRateAndPressureAltitudeAreRawFieldsWithPresenceBits` since format version 3. The seven are the five absences in `usable` (lines 43 and 44), the unwind leg of `take`'s call on the landed-or-incomplete line (124), and `nearest == nullptr` under a kept aircraft in the challenge test (138). With line 93's unwind leg, eight are untaken |
+| `adsb_source.cpp` unchanged in count | 54 of 58, as before: met |
+| Overall 1,518 of 1,608 (94.4%) | 1,519 of 1,610 (94.3%): the same pair |
+| The suites: Google Test 580, pytest 180, the page 89 | 580, 180 and 89: met |
+
+**The unwind pair, read from the record.** The statement on line 93 did not change: Entry 23's record held it at two branches, both taken. Its callee changed. GCC's C++ front end marks a function as one that cannot throw when nothing in its body calls a function not already known not to throw, and a call to such a function gets no exception edge. The old `candidate` called `usable`, defined above it, and the optional's `noexcept` members. The new one also calls `under_ceiling`, which commit 3 defined below it. So when `candidate`'s body is read, `under_ceiling` is not yet known not to throw, `candidate` is left as one that may, and its call in `update` gets the pair. Every other line agrees with that reading:
+- `update`'s calls to `usable` (line 123) and to `under_ceiling` (line 126), both defined above `update` and calling nothing that throws, carry no pair.
+- `take` (line 124), which copies strings, carries one, as on Entry 23's record.
+- The Mac preview could not show it: clang decides what may throw by its own rules, and its line 93 carried the decision's two branches only.
+
+The reading fits every line of the record; a run with the fix confirms it or not.
+
+**The fix, not made here.** Three ways, each one line or two:
+- define `under_ceiling` above `candidate`, with a comment that says why the order matters, which removes the cause;
+- declare `under_ceiling` `noexcept`, which removes it too, with a keyword `src/` does not use yet;
+- put the call into a local on a line of its own, CLAUDE.md's rule for a call that can throw, which leaves the edge and removes it from the measure.
+
+Predicted with either of the first two: line 93 back to two branches, `aircraft_selector.cpp` 59 of 66, overall 1,518 of 1,608 (94.4%). The decision is Derek's (§24.8).
+
+Two expectations missed in this entry, both in counts and neither in coverage: every decision the topic added is taken both ways. The lesson is Entry 23's again, from the other side: the preview cannot see what GCC decides about exceptions, and §24.5 named the untaken legs from Entry 18 §18.7 instead of from the latest record.
 
 ### 24.8 Open
 
 - **The live run (TC-029 step 19), optional and Derek's:** every `NEW_VEHICLE` frame's `gps_altitude_m` at or below 1,650 m (a kept aircraft is dropped at the poll after it crosses, so a frame may carry one poll's climb above it); no `nearer` row to an aircraft at an arrival altitude and an `above` row only for a climb-out; the exit line's census against §18.4's 46 aircraft and 5 candidates; the vertical speed on final with no excursion like §18.5's; the hand check that every aircraft the strip names is an arrival; and the schema consequence in practice, Entry 18's first live file replayed without `--config` (refused by name) and with the shipped file (byte-identical to §18.4's `2971db60…`). Recorded as §24.9 when run.
 - **A watch item:** no band at the ceiling (§24.4); a live run's selection record would show a flap.
 - **Phase B keeps** the vertical rate as the filter's third measurement, the pressure altitude, and FAULT-024's finiteness check for the two ADS-B fields (Entry 22 §22.8).
-- `aircraft_selector.cpp`'s seven untaken legs on the record (Entry 18 §18.7) would take one table-driven test; outside this topic.
+- **Line 93's unwind pair (§24.7):** the fix is `under_ceiling` defined above `candidate` (or declared `noexcept`, or the call put into a local), with its own record; Derek's to decide, in this pull request or after the merge.
+- `aircraft_selector.cpp`'s other untaken legs on the record (§24.7, correcting §24.5 and the plan, which named them from Entry 18 §18.7): the five absences in `usable` would take one table-driven test, and a kept aircraft with no candidate at all one case; `take`'s unwind leg on line 124 no input reaches. Outside this topic.
 - Entry 23's open items stand (the campaign of record after the bench session, TC-037 step 9, TC-009 step 8).
