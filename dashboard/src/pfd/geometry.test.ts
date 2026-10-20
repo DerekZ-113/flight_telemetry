@@ -16,6 +16,7 @@ import {
   tapeReadout,
   tapeTicks,
   trackReadout,
+  VOTER,
   vsPointerY,
   vsReadout,
 } from "./geometry";
@@ -124,5 +125,28 @@ describe("the ground track plot's geometry", () => {
     expect(scaleBarLabel(5000)).toBe("5 km");
     expect(plotScale([]).halfExtentM).toBe(10);
     expect(plotScale([{ east_m: -40, north_m: 10 }]).halfExtentM).toBeCloseTo(48, 6);
+  });
+});
+
+// The voter panel's place (FTS-DS-001 §3 and §4.7): the left column under the
+// GS box, clear of it and of the attitude indicator's circle, the flag box
+// (90 by 32, Flag.tsx) below the cells and inside the column.
+describe("the voter panel's geometry", () => {
+  it("sits under the GS box, clear of it and of the attitude indicator", () => {
+    const gsBottom = 236 + 48;
+    expect(VOTER.captionY - 13).toBeGreaterThan(gsBottom);
+    expect(VOTER.cellX[0]).toBe(40);
+    expect(VOTER.cellX[2] + VOTER.cellWidth).toBeLessThanOrEqual(150);
+    expect(VOTER.flagX - 45).toBeGreaterThanOrEqual(40);
+    expect(VOTER.flagX + 45).toBeLessThanOrEqual(150);
+    expect(VOTER.flagY - 16).toBeGreaterThan(VOTER.cellY + VOTER.cellHeight);
+    expect(VOTER.flagY + 16).toBeLessThan(434);   // the track indicator's readout box
+    // Every corner of the column the panel uses is outside the attitude indicator's circle.
+    for (const [x, y] of [
+      [150, VOTER.captionY - 13],
+      [150, VOTER.flagY + 16],
+    ]) {
+      expect(Math.hypot(x - 400, y - 260)).toBeGreaterThan(160);
+    }
   });
 });

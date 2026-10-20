@@ -26,7 +26,8 @@ by one period; a larger step means frames were missed, a step of zero or
 less means a frame arrived out of order (a datagram can), and both counts
 are reported at exit. Each frame also carries its source's sequence number
 (REQ-LOG-008, since format version 3), printed beside the time; the counts
-stay on timestamps until the voter consumes it (FTS-DD-001 Section 12). The
+stay on timestamps, the voter consuming the number only as a staleness check
+between its lanes (REQ-RED-006, FTS-DD-001 Section 13). The
 UDP mode is standard library only, so it runs on the Pi without pyzmq.
 
 The session status (REQ-TRANS-004) rides the same socket: the binary says which

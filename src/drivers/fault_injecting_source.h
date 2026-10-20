@@ -42,6 +42,9 @@ public:
 
     // Communication failure: read_ok = false, fields held at the last
     // good value, as a driver that got no reply would leave them.
+    // Channel::VOTER names the voter's events, not a sensor, so it is
+    // accepted and does nothing here and in hold_values: the cost of one
+    // enumeration serving both kinds of event (design.md section 13).
     void fail_reads(Channel channel, bool enable);
 
     // Stuck sensor: read_ok = true, fields repeat the last good value.

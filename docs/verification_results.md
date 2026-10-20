@@ -1621,5 +1621,133 @@ One correction to Entry 18, made with this record: §18.7's cppcheck row read 40
 - Phase B (design §12): the vertical rate, recorded since commit 7, as the filter's third measurement; the pressure altitude; the selection's altitude term.
 - FAULT-003b: the detector's judgment of the fix quality and the satellite count the frame now carries.
 - The voter (design §11.1), whose status field waits for it.
-- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made.
+- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made. Made 2026-10-18 with this build before the voter's first line, Entry 20 §20.4.
 - Entry 18's open items stand: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines; and Entry 17's: §17.7, TC-025 step 8, the Pi.
+
+## Entry 20 — 2026-10-18, The redundancy voter: three identical processing lanes behind one detector, a majority voter, the voter's status on every frame (macOS preview)
+
+Six requirements (REQ-RED-001 to REQ-RED-006) and one for the display (REQ-DISP-008; SRD 0.13.0 → 0.14.0, 57 → 64 statements), five amended (REQ-PROC-007's statement, REQ-CFG-001's, and the rationales of REQ-LOG-003, REQ-LOG-008 and REQ-PROC-008), four fault entries (FAULT-019 to FAULT-022; FTS-FM-001 0.6.0 → 0.7.0), three test cards (TC-032 to TC-034) and five amended (TC-004, TC-009, TC-017, TC-026, TC-031), FTS-DS-001 0.3.0 → 0.4.0, design Section 13, two new C++ pairs and a header-only interface, the voter panel on the page; no format change, no key, no thread. Ten commits on `claude/redundancy-voter-phase-1-3e0ca4`, stacked on the ADS-B branch at `a7461a3` (Entry 19 §19.7), off `main` until after the v0.1.0 tag, the first recording the single-lane references before any code; §20.7 records the CI run.
+
+### 20.1 What was built
+
+- The single-lane references (commit 1): the demo recorded at format version 3 for the first time and the seed-42 session re-recorded, both by a build of `a7461a3` kept aside (§20.4).
+- Documents (commit 2): the SRD statements above, with the decisions of the topic applied (exactly three lanes; bit for bit; a lane excluded after three consecutive disagreements and never readmitted; the two-lane case split in two); FTS-FM-001's *Processing Lane Failures* and a lane conditions table; TC-032 lane isolation, TC-033 no majority, TC-034 determinism over 10,000 frames, TC-009 step 8 for the Pi; FTS-DD-001 Section 13 with the honesty note, the persistence count in Section 12, Section 11.1 entered and its format-version-2 validity rule withdrawn; FTS-DS-001 §4.7; CLAUDE.md's two rules refined (a new enumerator in an existing byte is not a struct change; a value a requirement states is a named constant, not a key).
+- `src/processing/fault_detector.h` / `.cpp`, the injector, `pipeline/frame_format.py` (commit 3): `Channel::VOTER` (3) and the fault types LANE_DISAGREEMENT, LANE_FAULTED, NO_MAJORITY and LANE_OVERRUN (4 to 7), new values of the event's existing bytes, their names on both sides, and a case in each of the seven switches over `Channel` and in `fault_type_name`'s over `FaultType` (REQ-RED-003, REQ-RED-004, REQ-RED-006).
+- `src/processing/voter.h` / `.cpp` (commits 4 to 6): `lanes_agree`, the one comparison, the floats' bits through `memcpy`, a NaN agreeing with nothing (REQ-RED-002); `Voter`: the pairs in order, the representative, the checked frame with its ten computed fields, the count and the exclusion, the bits taken before the counts move, no majority held under `min(held, FAILURE_WARNING)` with one event per run and no count moved (REQ-RED-003, REQ-RED-004); the overrun by the frame's identity and the held vote cleared on a new vehicle (REQ-RED-006, REQ-PROC-008); `VoterTally` for the exit line.
+- `src/processing/redundant_processor.h` / `.cpp`, `src/processing/lane_fault_hook.h` (commit 7): three lanes built element by element from the configuration, each on its own copy of the checked frame, all three every cycle, and the lane-fault interface around each (REQ-RED-001, REQ-RED-005); `tests/unit/scripted_lane_faults.h`.
+- `src/main.cpp` (commit 8): `RedundantProcessor` where the processor was, the voter's events logged after the detector's, `RunTallies`, the `Voter:` line; the comments that said the voter was to come (REQ-RED-001).
+- The page (commit 9): `voterState` and `lanesIn` beside the instruments' rule, `VOTER_BITS`, `VOTER`, `VoterPanel` (REQ-DISP-008).
+- Tests: unit +44, 412 → 456 (`test_voter.cpp` 30: `LanesAgreeTest` 5, `VoterTest` 25; `test_redundant_processor.cpp` 11; `test_replay.cpp` +2, `ReplayReproducesLiveSession` through the three lanes; `test_fault_detection.cpp` +1 and `EventNamesAreReadable` extended); pytest +3, 142 → 145 (`test_voter.py` 3; two expectations of `test_validity.py` moved from 0 to VOTED); page +11, 73 → 84 (`VoterPanel.test.tsx` 5, `instrumentState.test.ts` +3, `Pfd.test.tsx` +2, `geometry.test.ts` +1).
+
+### 20.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 456 of 456 (412 before), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 145 of 145 in 127.8 s (142 before) |
+| Page (Vitest 4.1, jsdom) | 84 of 84 in 13 files (73 in 12 before); `npm run build` clean |
+| cppcheck 2.21.0 | 0 findings with CI's flags at every commit, on 41 files; one style finding in commit 5's first draft (`useStlAlgorithm` on the pair search, a raw loop) fixed with `std::find_if`, not suppressed |
+| Mutations | sixteen, every one caught by the test named beside it: commit 5, the count's reset on agreement (`TransientDisagreementResetsTheCount`), `>=` the persistence made `>` (`ThreeConsecutiveDisagreementsFaultTheLane`), the degrade under no majority (`TwoDisagreeingLanesHaveNoMajority`), the no-majority run never ending (`NoMajorityEventOncePerRun`), the NaN test in `floats_agree` (`NaNAgreesWithNothing`), the held vote never updated (`TwoDisagreeingLanesHaveNoMajority`); commit 6, the sequence and the timestamp each left out of the identity check (`StaleLaneIsAnOverrun`), stale lanes eligible (`TwoStaleLanesNeverOutvoteACurrentOne`), the held vote kept across a new vehicle (`NewVehicleClearsHeldValuesNotLatches`), one validity left out of the cleared vote (the same test, after the review of §20.5 widened it to all five fields), every onset a disagreement (`StaleLaneIsAnOverrun`), an excluded lane listed by the tally (`VoterTallyCounts`); commit 7, the lanes sharing one input (`PerturbedLaneInputDivergesOnlyThatLane`), the output hook skipped (`PerturbedLaneOutputIsIsolated`), every lane running lane 1's processor (`DeterministicOverTenThousandFrames`). Two first mutants of the degrade and the tally did not compile under `-Werror` (an unused function, a tautology) and were rewritten so they did |
+| The byte checks | §20.4 |
+| The panel, by eye | the desktop app's browser pane on a paced replay of the voted demo through the bridge: `VOTE` and the cells 1 2 3 under the GS box, clear of the attitude indicator, the strip RUNNING at 51 fps |
+
+Red first at every commit: commit 3's extended name test did not compile before the new enumerators, commit 4's and commit 7's tests before their headers, commits 5 and 6 before the functions they call, commit 8's two `test_validity.py` expectations failed against the single-lane binary (three failures) before `main` was wired, commit 9's page tests before `VoterPanel` and `voterState`.
+
+### 20.3 Coverage preview
+
+Mac, clang, `build-cov` with the unit tests only (the recipe of Entries 6 to 10), so the record is §20.7's on GCC: processing 100.0%, config 98.2%, timing 96.9%, logging 86.8%, transport 91.4%, replay 100.0%, drivers 91.0%, overall 93.9%, every scope above its threshold. The topic's files: `processing/voter.cpp` 157 of 157 lines and 68 of 68 branches, `processing/redundant_processor.cpp` 23 of 23 and 6 of 6, `processing/fault_detector.cpp` 66 of 66 branches, `drivers/fault_injecting_source.cpp` 16 of 16. One new exclusion: `copy_channel`'s VOTER case in `fault_injecting_source.cpp`, two lines marked `LCOV_EXCL_LINE`, unreachable because `read_frame()` copies the three sensor channels only. No new conditional line combines a decision with a call in a function holding an object with a destructor: the one such candidate, the tally's lane bit beside a comparison in a function holding a string stream, was split so the call sits on a line of its own; any exception edge the record shows goes into §20.7 under the marker rule.
+
+### 20.4 The byte checks
+
+**The single-lane references (step 1).** The voter must change the simulator's logs in `voter_status` alone, so the comparison needs the logs of the pipeline without it, recorded by the same toolchain at the same format version. `build-ref/` was configured from the untouched tree at `a7461a3` (`-DWARNINGS_AS_ERRORS=ON`, the `telemetry` target), its binary copied aside as `build-ref/telemetry_a7461a3` and never rebuilt during the topic; both logs are kept beside it in `build-ref/ref_logs/` (`build*/` is ignored, so neither is committed; the hashes below let either be checked or regenerated).
+
+| Item | Observed |
+|---|---|
+| The seed-42 500-frame session, `--config config/telemetry_config.yaml --cycles 500` | `7720966cb87473bc429f975794ffb4fdfcba1652b7c1a0bec54bc15da2f15ae3`, Entry 19 §19.4's version-3 hash reproduced; every validity NORMAL from frame 0, no event, `voter_status` 0 on every frame. Its replay `703f621cca12153e267be4794a28dd28a8be4df58a929d8ce40c1c9a55b01269`, Entry 19's too: every record identical, `cmp -l` printing `11 2 3` |
+| The demo, `--motion demo --cycles 7500` (FTS-DS-001 §7; Entry 19 §19.8's open item) | 7,500 frames in 907,516 bytes (16 + 7,500 × 121), one file, no event, `voter_status` 0 and the sequence equal to the frame's index on every frame, every validity NORMAL from frame 0, missed cycles 0; `d9ee490a17a9c4cc74d4b019b93e14cb55cfc304b9734e9e5b19d41f61ce41e9` on this Mac (libc++; the runner's libstdc++ draws differently, FTS-DD-001 §8). Its unpaced replay `bb9a8af7a979f24ae02d2b201fe41e1732a4a221289c847d8786e6530f9ee89e`: every record identical, the header differing in the run-mode byte alone. Entry 17's `caba9aeb…` is the same flight at format version 2 |
+
+**The voted logs (commit 8), against the references, by `cmp -l` and by a check of every differing byte's position and values.**
+
+| Item | Observed |
+|---|---|
+| The seed-42 session | `f1dc959aa7583c90b65293470056ce79561b71caac1ef0c7dfed8ba3e0e20ec5`: exactly 500 differing bytes against `7720966c…`, one per frame at the 1-based offset 132 + 121n (the 16-byte header, the tag, offset 114 of the frame), each `0` against `1`, VOTED's low byte; the header, every other frame byte and the events (none) identical. `Voter:     500 frames, lanes in the vote 1 2 3, no majority on 0 frames, voter events 0` |
+| Its replay | `189eb162b045fe2b3abe5f9b133c170f909d0d14dcce01c50418bcfc7172b9e3`: every record identical to the session's, the header differing in byte 11 alone (`11 2 3`) |
+| The single-lane seed-42 reference replayed by this build | `189eb162…` again: every record equal to the voted recording's, the voter's status recomputed from the raw frames, never copied (the replay's header differs from the voted session's in the run mode alone, `11 3 2`) |
+| The demo | `6f877d1de11e83a7f3c37e91325e06070276b880ec5d7fff9c88c3d73d5bfd1c`: exactly 7,500 differing bytes against `d9ee490a…`, every one at 132 + 121n, `0` against `1`; 907,516 bytes, every validity NORMAL from frame 0, missed cycles 0, `Voter:     7500 frames, lanes in the vote 1 2 3, no majority on 0 frames, voter events 0` |
+| Its replay, and the single-lane demo replayed by this build | `c14802ab8c6339fb5d0f8b6ca884f102864f6867e228fb70d294c7bb1abca9c0` both: every record identical to the voted recording's |
+| Version-1 and version-2 logs replayed (pytest) | raw fields equal to the input's, every frame VOTED (`test_older_log_replays_through_this_build`), and a version-3 log of the voted session's frames rewritten with status 0, as the single lane wrote them, replayed into the voted session's records exactly (`test_pre_voter_version_3_log_replays_voted`) |
+
+The two new hashes are recorded once each: the seed-42 one in TC-026 step 8, the demo's in FTS-DS-001 §7. The single-lane hashes stay here as the references they were.
+
+### 20.5 Decisions taken, and deviations from the plan
+
+- **Answered before the plan was written (2026-10-18).** The voter's events ride new values of `FaultEvent`'s existing channel and type bytes, no tag and no version bump, by the road `NOT_AVAILABLE` took; a lane is one processor, behind one detector, the Roadmap's `ProcessingLane`, so a sensor fault stays one event and a channel's status one writer.
+- **The refinements the code forced, built as the plan's item 9 stated them:** a NaN agrees with nothing; "consecutive" counts majority cycles only; an overrun is a miss on a majority cycle; the Health and Validity topic's rule (NO_COMPUTED_DATA with fewer than two NORMAL lanes) is withdrawn; a field never voted reads NO_COMPUTED_DATA under no majority; a lane's bit appears from the frame after its exclusion; CLAUDE.md's two rules refined; the `Voter:` line counted in a tested unit.
+- **Commits 4 to 6 split differently from the plan.** No `vote()` can exist without its no-majority branch, so the plan's commit 4 (the comparison and the majority's output) could not stand alone without a branch written to be rewritten: commit 4 is the comparison alone, commit 5 the vote with its majority, count, exclusion and no-majority rule, commit 6 the overrun, the new vehicle and the tally. Eleven commits as planned; the concepts in the same order.
+- **One test beyond the plan's list:** `RedundantProcessorTest.StaleInputIsAnOverrun`, the overrun reached through the lane-fault interface the way the harness will reach it.
+- **An adversarial review before the commits.** Four read-only reviewers (the code against the requirements, the tests against the cards, the documents against one another, the page against FTS-DS-001), every finding re-checked by a second reviewer told to refute it: thirteen distinct findings confirmed, each closed in the commit that introduced it, by assertions added to existing tests, so no count moved. Four tests asserted less than their cards: TC-033 steps 1 and 6 now check all five computed fields, TC-032 step 9 that the lanes are bit-identical again after the upset, TC-034 step 5 a version-2 log beside the version-1 one with the older logs' raw fields compared, TC-033 step 8 both statuses under every feed cause. `test_voter_event_names` cited TC-032 step 6, which describes another procedure; it is TC-032 step 11 now, an integration step. This entry counted four amended requirements of five and eight switches over `Channel` of seven. "The only writer of `Validity`" stood in CLAUDE.md, FTS-DD-001 §7 and two matrix rows after the voter began degrading held verdicts; they say "the only judge", and REQ-PROC-007's row traces the no-majority clause to the voter and TC-033. REQ-TIME-003's row did not name TC-009 step 8. FTS-DD-001 §13 and REQ-RED-004's rationale said the ADS-B attitude "stays dashes" under no majority, where the page shows its no-source flag (FTS-DS-001 §4.1); they say so now.
+- **Flag, pre-existing, not fixed:** `ctest -j` fails twenty logging and replay tests on this Mac, because each test process names its temporary directory from a static counter that starts at 0 in every process (`ftlg_replay_0`, the logging tests' likewise), so parallel processes collide; serially, as CI runs them, all pass.
+- **Flag, pre-existing:** the README's documents table had stood at SRD 0.11.0 and 47 statements since the ADS-B topic; it now reads 0.14.0, 64, and the matrix's counts. FTS-TP-001 §7 says nine requirements are Partial where the matrix counts ten (the four I2C sensor requirements, the GPS and REQ-SENS-008, PROC-004, FAULT-003, TIME-003, TEST-004); left for its author.
+
+### 20.6 Library and toolchain facts this entry rests on
+
+- `std::memcpy` into a `uint32_t` is the defined way to read a float's bits in C++17 (a `reinterpret_cast` read breaks strict aliasing; `std::bit_cast` is C++20), and compilers emit a register move for it; `std::isnan` from `<cmath>`; nothing in the build sets `-ffast-math`, under which `isnan` may be folded away.
+- Scoped enumerations of one type compare with the built-in relational operators, so `std::min(Validity, Validity)` is the worst-wins combiner the encoding's order was chosen for.
+- cppcheck 2.21's `useStlAlgorithm` reads a loop that returns from inside as a `find_if`; `std::find_if` over a `constexpr std::array` of index pairs takes a lambda that captures the lanes by reference.
+- `std::array<TelemetryProcessor, 3>` initialized with double braces from three temporaries is clean on clang and GCC; the processor is copyable, its members values only.
+- Under `-Werror`, a mutant that leaves a static function unused (`-Wunused-function`) or writes a tautology does not compile; a mutation proof needs a mutant that compiles.
+
+### 20.7 Measurement of record
+
+CI run 39192240395 on `1366efa`, the branch's head, on the draft pull request (number 3, to `main`, stacked on the ADS-B branch), 2026-10-19 02:55 to 02:59 UTC, the one push that carried the topic's ten commits (`a7461a3..1366efa`); both jobs green.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 456 of 456 in 14.9 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binary) | 145 of 145 in 131.2 s, `test_voter.py`'s three among them |
+| lcov over `src/` | lines 98.3% (2,979 of 3,031), functions 97.1% (331 of 341), branches 93.3% (1,412 of 1,514) |
+| cppcheck (the runner's package, 2.13.0), 41 files | 0 findings |
+| `page` job (Node 22.23.3, Vitest with coverage, `npm run build`) | 84 of 84 in 13 files; statements 99.14%, branches 98.99%, functions 97.82%, lines 99.7%; `VoterPanel.tsx` 100% on all four; the build clean in 134 ms |
+| Wall time | the C++ job 4 min 6 s; the page job 26 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside Entry 19's record and this entry's Mac preview (§20.3):
+
+| Scope | Record (GCC) | Entry 19 record (GCC) | §20.3 preview (clang) | Threshold |
+|---|---|---|---|---|
+| processing | 99.1% | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 98.2% | 90% |
+| timing | 100.0% | 100.0% | 96.9% | 80% |
+| logging | 100.0% | 100.0% | 86.8% | 80% |
+| transport | 88.8% | 88.8% | 91.4% | 80% |
+| replay | 95.0% | 95.0% | 100.0% | 80% |
+| drivers | 89.2% | 89.2% | 91.0% | 70% |
+| overall | 93.3% | 93.0% | 93.9% | 80% |
+
+The files the ten commits added or changed under lcov's scope, on GCC (`main.cpp` outside it, as since Entry 5; the other changed headers carry no code the report counts):
+
+| File | Lines | Branches | Functions | At Entry 19 |
+|---|---|---|---|---|
+| `processing/voter.cpp` (new) | 143 of 143 | 86 of 88 | 20 of 20 | — |
+| `processing/redundant_processor.cpp` (new) | 19 of 19 | 6 of 6 | 3 of 3 | — |
+| `processing/lane_fault_hook.h` (new) | 1 of 1 | none | 1 of 2 | — |
+| `processing/fault_detector.cpp` | 154 of 154 | 70 of 70 | 13 of 13 | 149 of 149, 70 of 70 |
+| `drivers/fault_injecting_source.cpp` | 74 of 74 | 16 of 16 | 8 of 8 | 72 of 72, 16 of 16 |
+| `replay/log_replay_source.cpp`, `replay/log_replay_source.h` | 44 of 44, 2 of 2 | 19 of 20, none | 5 of 5, 2 of 2 | the same |
+
+The record reconciles with Entry 19's file by file: a script read both runs' reports, and every file but the first five in the table has the counts it had. The ten commits added 170 lines and every one ran: `voter.cpp` 143, `redundant_processor.cpp` 19, `fault_detector.cpp` 5 (the new enumerators' cases in `channel_name` and `fault_type_name`), `fault_injecting_source.cpp` 2 (the VOTER cases of `fail_reads` and `hold_values`; `copy_channel`'s two are excluded, §20.3), `lane_fault_hook.h` 1; 2,809 and 170 make the 2,979. Those cases sit in switches whose lines carry `LCOV_EXCL_BR_LINE` (§1.3), so they add lines and no branch. The commits added 25 functions and 24 ran: the one that did not is `LaneFaultHook`'s deleting destructor (`D0`), which never runs for an abstract class: a `delete` through the base calls the derived class's deleting destructor, which calls the base's `D2` (Entry 11 §11.7). Its `D2` ran 10 times, and the six other interface headers in the report show the same pair (`data_source.h`, `clock.h`, `publisher.h`, `http_client.h`, `i2c_bus.h`, `serial_port.h`), four of them on objects the code does delete through the base, the compiler-generated variants §1.2 describes. They added 94 branches and 92 are taken: `redundant_processor.cpp`'s 6, and 86 of `voter.cpp`'s 88, against the 68 of 68 clang's preview counted in the same file: GCC counts each operand of the short-circuit chains and the ternary as a decision of its own (sixteen more, all taken, as Entry 11 §11.7 describes) and the returning and unwinding edges of the calls on lines 130 and 167 (four); 1,320 and 92 make the 1,412, and 1,420 and 94 the 1,514.
+
+The two untaken branches are exception-unwind edges, each on a line the topic wrote (line numbers here are the run's, `1366efa`), and nothing else untaken or unrun sits on a line it changed: a script set every untaken branch and unrun line in the report's pages for the seven changed files under lcov's scope against the lines `git diff a7461a3 1366efa` changed in them, after checking that its reading of the pages reproduces every file's totals in both runs (102 untaken branches and 52 unrun lines here, 100 and 52 at Entry 19). The other seven changed files are headers the report does not count, and `main.cpp`. The untaken branch in `log_replay_source.cpp` (line 34) is Entry 19's, on a line the topic left alone.
+
+- `voter.cpp:130`, `if (has_flag(checked, FrameFlag::NEW_VEHICLE))`: four branches, the call returning (49,649 times) and unwinding (never), and the condition's two legs (7 and 49,642). `has_flag` is not `noexcept` and is defined in `telemetry_frame.cpp`; the same call in `processor.cpp:37` carries no unwind edge, so what gives this one its edge lies in what GCC builds for `Voter::vote`, which this record does not establish.
+- `voter.cpp:167`, `std::count_if` over the lane states: two branches, the call returning (34 times) and unwinding (never). The predicate on line 168 ran 102 times and makes no branch.
+
+§20.3 said an edge this record showed would go under the marker rule, but on the runner's lcov 2.0 the marker removes every branch on its line, the decision's as well as the unwind edges (Entry 11 §11.7; the seven marked lines carry no branch data in this run), so marking line 130 would take the NEW_VEHICLE decision out of the measurement. The commit that records this run applies instead the style rule Entry 11 §11.7 names, which Entry 8 used in the live source and §20.3 in the tally: the call moves to a statement line of its own, `const bool new_vehicle = has_flag(...)`, and the `if` on the next line tests the local. In this run the statement lines in `voter.cpp` that call one of the project's functions without deciding (`find_representative` at 153, `record_event` at 169 and 199, `lane_bit` at 255) carry no branch data, so the call's edges should leave and the decision's two legs stay. Line 167 makes no decision, so it takes the marker, which there removes only the call's two edges: `// LCOV_EXCL_EXCEPTION_BR_LINE` with a one-line reason, the source's eighth. Line 62's `std::find_if`, the same shape, carries no branch data, and why line 167 keeps its edge is not established here either. The run of that commit should read `voter.cpp` 84 of 84 branches over 144 lines, processing 100.0% (230 of 230) and overall 93.4% (1,410 of 1,510), which the next record reconciles.
+
+The page: branches 98.99% against Entry 19's 98.93%. Every branch the topic added is taken (`VoterPanel.tsx` 100% on all four measures, `voterState` and `lanesIn` with no uncovered line), and the uncovered lines the table names in `src/pfd`, `geometry.ts:123` and `instrumentState.ts:147` and `150`, are Entry 19's lines 110, 107 and 110, moved down by the lines the topic inserted above them; `badge.ts:29`, the fourth, is Entry 19's too, in a file the topic did not change.
+
+### 20.8 Open
+
+- §20.7's two remedies, read from the run of the commit that makes them: `voter.cpp` 84 of 84 branches, processing 100.0%, line 130's decision still counted on its new line.
+- TC-009 step 8 on the Pi: the three lanes' cost, paired against a build of `a7461a3` (missed cycles 0, jitter within the run-to-run spread, the cost per replayed frame under 2 ms).
+- The fault-injection harness, the next topic: it drives `LaneFaultHook`, builds `Voter(persistence)` directly to sweep the count, and counts isolation latency, healthy lanes thrown out and no-majority events from the public output; its scenarios go under `tests/fault_injection/`, which FTS-TP-001 §2.3 names.
+- Entry 19's open items stand: Phase B, FAULT-003b; and Entry 18's: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines without a marker.

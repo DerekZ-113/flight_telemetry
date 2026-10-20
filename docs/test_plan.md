@@ -3,7 +3,7 @@
 > **Document ID:** FTS-TP-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-16
+> **Last Updated:** 2026-10-18
 > **Related:** FTS-SRD-001 (requirements), FTS-FM-001 (fault model), FTS-TM-001 (traceability), FTS-DD-001 (design)
 
 This document defines how the Flight Telemetry System is verified. It covers test objectives, test levels, tools, pass/fail criteria, individual test procedures (test cards), and the structural coverage strategy. What is tested, requirement by requirement, is recorded in the traceability matrix, not here.
@@ -36,7 +36,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 ### 2.2 Integration Tests
 
-- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015); the validity bytes, NO_DATA and the format version as the binary, the receiver and the reader present them (TC-017 steps 11 through 15, `test_validity.py`); a replay that ends at its log and one paced to its timestamps, through the binary (TC-019, TC-020); the session status over both transports (TC-021); and the bridge from the receiver to a WebSocket, driven in-process with a scripted source and a client, and once end to end from a paced replay (TC-022 steps 1 through 7).
+- **Scope:** The full pipeline across the C++/Python boundary: C++ processing publishes over ZeroMQ and UDP and the Python receiver consumes and validates; the binary's own log replayed through it and compared in Python (TC-004); and the Python log reader and analysis scripts, tested at this level on the binary's logs and on synthetic ones (TC-008 steps 8 through 14, TC-015); the validity bytes, NO_DATA and the format version as the binary, the receiver and the reader present them (TC-017 steps 11 through 15, `test_validity.py`); a replay that ends at its log and one paced to its timestamps, through the binary (TC-019, TC-020); the session status over both transports (TC-021); and the bridge from the receiver to a WebSocket, driven in-process with a scripted source and a client, and once end to end from a paced replay (TC-022 steps 1 through 7); and the voter in the binary, its events named on the Python side (TC-032 step 11), the session voting every frame and logs recorded before it replayed voted (TC-034 steps 6 through 8, `test_voter.py`).
 - **Framework:** pytest, with numpy and matplotlib for the analysis.
 - **Isolation:** The C++ binary runs with the simulated data source, so integration tests are hardware-independent and reproducible. One simulated session per run (500 frames, seed 42, and its replay) in a temporary directory, shared by every test through `conftest.py`; a missing binary fails the run rather than skipping it. Every run of the binary passes `--config` with the shipped `config/telemetry_config.yaml` (the binary reads it relative to the working directory by default, and these runs happen in temporary directories); a test that needs another configuration hands the binary a copy with one line edited, and a later `--config` on the command line wins.
 - **Location:** `tests/integration/`, run as `.venv/bin/python -m pytest`.
@@ -46,7 +46,7 @@ The two objectives work in opposite directions. Requirements-based testing start
 
 - **Scope:** System behavior under the failure modes in FTS-FM-001. Each FAULT entry maps to at least one injected scenario.
 - **Framework:** Parameterized Google Test harness for single faults; pytest scenarios for multi-fault and recovery sequences.
-- **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scripted or seeded fault schedule: dropped reads, repeated values, out-of-range values, and recovery after a configurable interval.
+- **Method:** Faults are injected at the `DataSource` boundary. A `FaultInjectingSource` wraps another source and applies a scripted or seeded fault schedule: dropped reads, repeated values, out-of-range values, and recovery after a configurable interval. Lane faults (FTS-FM-001 FAULT-019 to FAULT-022) are the exception: every lane sees the same frame, so they are injected through the redundant processor's lane-fault interface (REQ-RED-005), which alters one lane's input before it runs or its output before the vote; such a run does not replay its verdict, since the alteration is not in the raw frames (REQ-LOG-003).
 - **Randomization:** Randomized schedules use a logged seed so any failing run can be reproduced exactly. A randomized test that cannot be replayed is not evidence.
 - **Location:** `tests/fault_injection/`.
 - **Executed:** Every commit for the deterministic scenarios. Randomized sweeps run nightly.
@@ -175,7 +175,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   3. Parse both logs in Python. For each frame index, compare every field.
   4. Assert the frame counts are equal.
   5. Assert every raw field is identical (replay must not alter its input).
-  6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status, and the five validity bytes) is identical, compared as raw bytes rather than with a floating-point tolerance; the reserved bytes are zero in both.
+  6. Assert every computed field (baro altitude, pitch, roll, fused altitude, vertical speed, channel status, and the five validity bytes) and, since the voter (REQ-RED-002), the voter status are identical, compared as raw bytes rather than with a floating-point tolerance; the reserved bytes are zero in both.
 - **Expected result:** 500 frames in each log. Zero field differences; every record of the two files byte-identical, and their headers equal but for the run mode at offset 10, SIMULATED in the session's and REPLAY in the replay's since format version 3, because the header names the session that wrote the file (REQ-LOG-007; `cmp -l` lists that one byte and `cmp` from offset 16 is silent); every frame's bytes equal to its repacking (the reserved bytes zero); timestamps 0 to 9980 ms in both.
 - **Pass/fail:** Any differing byte in any computed field fails. A tolerance-based comparison is not acceptable here: the requirement says identical, and a drift that is small today becomes a debugging problem when the Kalman filter changes. This test runs on a single toolchain. Cross-platform bit identity between the Mac development build and the Raspberry Pi target is not claimed, because `std::normal_distribution` is not specified by the standard and the two C++ standard libraries differ.
 
@@ -278,10 +278,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 ### TC-009: Fixed-Rate Scheduling and Jitter
 
-- **Requirement:** REQ-TIME-001, REQ-TIME-002 (step 7: REQ-TIME-003)
-- **Level:** Unit (steps 1 through 6), Hardware (step 7)
+- **Requirement:** REQ-TIME-001, REQ-TIME-002 (step 7: REQ-TIME-003; step 8: REQ-TIME-003, REQ-RED-001)
+- **Level:** Unit (steps 1 through 6), Hardware (steps 7 and 8)
 - **Objective:** Verify that the loop is scheduled on absolute deadlines that do not drift, that overruns re-phase without bursting, that per-cycle jitter is measured and logged, and, on the target hardware, that jitter stays below 1 ms.
-- **Preconditions:** `FixedRateScheduler` driven by a `FakeClock` for steps 1 through 5; `MonotonicClock` for step 6; the Raspberry Pi for step 7. Period 20 ms unless stated.
+- **Preconditions:** `FixedRateScheduler` driven by a `FakeClock` for steps 1 through 5; `MonotonicClock` for step 6; the Raspberry Pi for steps 7 and 8, and for step 8 a build of `a7461a3`, the last commit before the voter, in a second worktree beside the build under test (`git worktree add`). Period 20 ms unless stated.
 - **Steps:**
   1. Configure the fake clock to wake 300 µs late on every sleep and simulate 5 ms of work per cycle. Run 1000 cycles. Record every `scheduled_ns`.
   2. Run 10 cycles with the same latency. Record every `jitter_ns`.
@@ -290,6 +290,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Record three hand-built `CycleTiming`s through a `JitterLog` to a temporary file. Read the file back.
   6. With the real clock and a 1 ms period, run 20 cycles. Record every `jitter_ns` and the total elapsed time.
   7. *(Pi only, pending hardware)* Run the telemetry binary for 60 s at 50 Hz. Read `logs/telemetry_jitter.csv`.
+  8. *(Pi only, pending hardware)* The three lanes' cost: `telemetry --live --cycles 3000` twice with each build, alternating, the `a7461a3` build first; read each run's jitter file and `Timing:` line, and the voted build's `Voter:` line. Then replay the demo's recording (FTS-DS-001 §7) unpaced with each build under `/usr/bin/time -p`, the standard output to `/dev/null`, and divide the wall time by 7,500.
 - **Expected result:**
 
   | Step | Expected |
@@ -301,8 +302,9 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 5 | four lines: the documented header and one line per cycle with the fields in order |
   | 6 | every `jitter_ns ≥ 0`; elapsed at least 20 ms and at most 20 ms + 2 s |
   | 7 | maximum `jitter_ns` below 1 000 000; `missed_cycles` 0 |
+  | 8 | `missed_cycles` 0 on every run of both builds; each build's median and 99th-percentile jitter within the other build's run-to-run spread, and the maximum below 1 ms; the voted build's cost per replayed frame below 2 ms, a tenth of the period; `Voter:` naming lanes 1, 2 and 3 in the vote and no majority on 0 frames |
 
-- **Pass/fail:** Steps 1 through 6 all hold. Step 7 is the REQ-TIME-003 criterion and is judged on the Linux `clock_nanosleep` path only; numbers from the macOS fallback are recorded in FTS-VR-001 as a preview and do not satisfy the requirement.
+- **Pass/fail:** Steps 1 through 6 all hold. Step 7 is the REQ-TIME-003 criterion and is judged on the Linux `clock_nanosleep` path only; numbers from the macOS fallback are recorded in FTS-VR-001 as a preview and do not satisfy the requirement. Step 8 shows that the three lanes of REQ-RED-001 fit the cycle: the jitter measures how late the loop wakes, not how long its work takes, so the step rests on the missed cycles and the cost per frame together, recorded in FTS-VR-001 Entry 20.
 
 ### TC-010: Publisher Never Blocks the Processing Loop
 
@@ -587,7 +589,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 9 | validity NOT_JUDGED and reserved zero after the strip; every frame and event bit-identical between live and replay, FAILURE_WARNING on the DEGRADED frames inside the injected windows and NORMAL outside; the version-1 file's frames come back judged with no NOT_JUDGED byte |
   | 10 | NO_DATA on every frame before the first reading; NOMINAL on the first reading with no event; DEGRADED with its event on a first-reading fault; NO_DATA on every frame before the timeout and DEGRADED after it |
   | 11 | version 2 (3 since format version 3); every validity NORMAL and every status NOMINAL on all 500 frames of both logs; `Validity:  every computed field NORMAL on 500 of 500 frames (first on frame 0)` in both; no exhaustion line |
-  | 12 | exit 0; "format version 1" on stdout; the replay log the build's version (2, then 3); raw fields equal, and since format version 3 the sequence 0 and the tail zero; no NOT_JUDGED byte; the version-2 log the same with "format version 2" on stdout |
+  | 12 | exit 0; "format version 1" on stdout; the replay log the build's version (2, then 3); raw fields equal, and since format version 3 the sequence 0 and the tail zero but for the voter status, VOTED since the voter (REQ-RED-002); no NOT_JUDGED byte; the version-2 log the same with "format version 2" on stdout |
   | 13 | exit 1, stderr names the version found and the range read ("format version 3" and "reads 1 to 2"; since format version 3, "format version 4" and "reads 1 to 3"), no `logs/` written; "Replay:    5 frames, end of log reached" and a 5-frame replay log (REQ-LOG-006; until it, "replay exhausted after 5 frames; 7 cycles repeated the last frame" and a 12-frame log) |
   | 14 | the names beside the values on every line; the frames byte-identical to the log |
   | 15 | the offsets; the two dictionaries; NaN in the flagged field only; the file's bytes; the counts |
@@ -914,10 +916,10 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 5 | pitch within 0.3° of 8, ground speed 30, every validity NORMAL on the last frame, the GPS more than 200 m east of the first fix by the test's own conversion; `Motion:    profile demo` in the summary |
   | 6 | every record byte-identical and the header equal but for its run mode, REPLAY in place of SIMULATED (since format version 3, REQ-LOG-007); `Replay:    1000 frames, end of log reached` |
   | 7 | exit 1 each, the first two naming the rule, the third naming `demo`; nothing built |
-  | 8 | `7720966c…` since format version 3 (FTS-VR-001 Entry 19 §19.4; `6d43f343…` at version 2, Entry 12 §12.4), unchanged |
+  | 8 | `f1dc959a…` since the voter (FTS-VR-001 Entry 20 §20.4: byte 114 of every frame, VOTED; `7720966c…` at format version 3 before it, Entry 19 §19.4; `6d43f343…` at version 2, Entry 12 §12.4), unchanged |
   | 9 | recorded in FTS-VR-001 Entry 17 §17.4: the hash, the paced replay byte-identical (since format version 3, record for record, its header naming REPLAY), its lateness, the page's phases as FTS-DS-001 §7 lists |
 
-- **Pass/fail:** Steps 1 through 8 exact as listed. Any change to the session fixture's bytes, a profile run whose replay differs, a refused flag that built anything, or a filter output more than 0.3° from the script fails.
+- **Pass/fail:** Steps 1 through 8 exact as listed. Any change to the session fixture's bytes (beyond the one the voter made by design, byte 114 of every frame, FTS-VR-001 Entry 20 §20.4), a profile run whose replay differs, a refused flag that built anything, or a filter output more than 0.3° from the script fails.
 
 ### TC-027: The OpenSky Client: Credentials, the Token, the States Response
 
@@ -1104,7 +1106,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 1 | 120 and 8; 52, 80, 103, 104, 108, 112, 113, 114, 116; every byte zero; NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY; VOTED, LANE_1_FAULTED, LANE_2_FAULTED, LANE_3_FAULTED, NO_MAJORITY |
   | 2 | `FTLG`, 3, 120 and 16, 4 and 4; "format version 4; this build reads 1 to 3"; "frame size 104 in the header, 120 for version 3 in this build"; accepted; accepted |
   | 3 | each old field as written; the version-1 frame's validity NOT_JUDGED and both former reserved fields zero; the version-2 frame's validity as written and its sequence and flags as the bytes held; the tail zero on both; the header's modes UNKNOWN |
-  | 4 | the sequence, the flags and the four tail fields kept, `voter_status` (a verdict the voter will recompute) and `reserved_d` zero, every computed field and validity stripped as before |
+  | 4 | the sequence, the flags and the four tail fields kept, `voter_status` (a verdict the voter recomputes) and `reserved_d` zero, every computed field and validity stripped as before |
   | 5 | 0, 1, 2 from each source; 0, 1, 2 through the injector; the replay's frames carrying the recorded 0 to 49 |
   | 6 | quality 2, 9 satellites and the FIX_QUALITY bit on the fix cycle and held with the bit on every cycle after; 0, 0 and the bit clear before the first fix; the simulator's quality 1, 8 satellites and the bit on every frame; the ADS-B source's 0, 0 and the bit clear |
   | 7 | the example's vertical rate and pressure altitude with both bits, held with the bits on all 100 cycles; after the null, the rate 0 with its bit clear and the altitude with its bit still set |
@@ -1112,14 +1114,116 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 9 | on the flagged frame the fused altitude equal to the new reading and the vertical speed 0, both NORMAL, the previous estimate gone; on the flagged frame without a reading NO_COMPUTED_DATA for the fused fields, then NORMAL at the new reading; pitch, roll and barometric altitude NO_COMPUTED_DATA and 0 after the flag until their next readings |
   | 10 | `46 54 53 53 03 03 01 04` then eleven zero bytes; `46 54 53 53 03 04 01 04` then `a1 b2 c3` and `TEST001 ` space-padded to eight; "bad magic: not a telemetry log"; nineteen bytes on each transport with `status_published` 1 |
   | 11 | 120 and the offsets of step 1; the frames' old fields as written with zero tails and sequence 0; an array of 120-byte records whose old bytes equal the file's; the summary's sequence line |
-  | 12 | version 3, run mode SIMULATED, source mode SIMULATED; the sequence equal to the frame's index on all 500 frames; quality 1, 8 satellites and the FIX_QUALITY bit alone on every frame; the vertical rate, the pressure altitude, the voter status and `reserved_d` 0 |
-  | 13 | exit 0; "format version 2" on stdout; the replay log version 3 with run mode REPLAY and source mode UNKNOWN; raw fields equal, sequence 0, tail zero; exit 1 naming "format version 4" and "reads 1 to 3", nothing written |
+  | 12 | version 3, run mode SIMULATED, source mode SIMULATED; the sequence equal to the frame's index on all 500 frames; quality 1, 8 satellites and the FIX_QUALITY bit alone on every frame; the vertical rate, the pressure altitude and `reserved_d` 0; the voter status 0 until the voter, VOTED (0x0001) since (REQ-RED-002) |
+  | 13 | exit 0; "format version 2" on stdout; the replay log version 3 with run mode REPLAY and source mode UNKNOWN; raw fields equal, sequence 0, the tail zero but for the voter status, VOTED since the voter; exit 1 naming "format version 4" and "reads 1 to 3", nothing written |
   | 14 | the bit set on exactly the frames the selection record's timestamps name (each names a newly selected aircraft in the script; a change to none would flag nothing); on each the fused altitude equal to the GPS altitude and the vertical speed 0, NORMAL; the two fields the script's values with their bits; source mode ADSB on every status; the replay's statuses mode REPLAY with source mode ADSB, the log's records byte-identical and its header REPLAY over ADSB |
   | 15 | `{"type":"session","mode":"REPLAY","source_mode":"ADSB",...}`; `hello`'s `session` carrying `source_mode` |
   | 16 | `REPLAY · ID UNAVAILABLE` boxed with `ft HAE` and the attribution; `REPLAY` alone with `ft` and no attribution; `ADS-B · TEST001` plain with `ft HAE` and the attribution |
   | 17 | in every frame, the first 104 bytes equal the reference's except at offsets 52 to 55 (the sequence, the frame's index) and 103 (`08`, the FIX_QUALITY bit); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00`; every event identical; the two hashes recorded |
 
 - **Pass/fail:** Steps 1 through 16 exact as listed. A byte of a version-2 field that moved, an older file refused or misread, a version accepted outside 1 to 3, a mode inferred from a frame, a sequence the loop assigned, a filter that carried an estimate across a flagged frame, a presence bit set over a field that was absent or clear over one that was present, or a replayed ADS-B recording labelled `ft` fails. Step 17 is recorded in FTS-VR-001 Entry 19; any difference beyond those listed fails.
+
+### TC-032: Lane Isolation
+
+- **Requirement:** REQ-RED-002, REQ-RED-003, REQ-RED-005, REQ-RED-006 (also exercises REQ-RED-001, REQ-DISP-008, REQ-PROC-007)
+- **Level:** Unit (steps 1 through 9: `tests/unit/test_voter.cpp`, `test_redundant_processor.cpp`), Page (step 10: `dashboard/src/pfd/VoterPanel.test.tsx`, `instrumentState.test.ts`), Integration (step 11: `tests/integration/test_voter.py`)
+- **Objective:** Verify that the lanes are compared bit for bit in exactly the thirteen compared fields (five computed values, five validities, three channel statuses); that one wrong lane is outvoted in every one of them, the output equal to a healthy lane's; that a lane outside the majority on three consecutive majority cycles is excluded and stays excluded, and that its count resets when it agrees; that a stale lane takes no part in the vote and counts toward the three; that the interface of REQ-RED-005 reaches each lane's input and output; that the panel names an excluded lane; and that the Python twin names the voter's events as the C++ side does.
+- **Preconditions:** Lane outputs taken from a `TelemetryProcessor` over `SimulatedSource(20, 42)` frames checked by a `FaultDetector`, or built by hand; a scripted `LaneFaultHook` (`tests/unit/scripted_lane_faults.h`); the page's fake socket for step 10.
+- **Steps:**
+  1. `lanes_agree` on two identical frames; on frames differing in one bit of each compared field in turn; on frames differing only in a raw field, the timestamp, the sequence, the flags, the tail or the voter status.
+  2. `lanes_agree` on −0.0 against +0.0 in a computed field.
+  3. Three identical lanes for 10 frames.
+  4. For each lane and each of the thirteen fields, corrupt that field of that lane on one frame among healthy ones.
+  5. Corrupt lane 2 on two consecutive frames, let it agree on one, corrupt it on two more.
+  6. Corrupt lane 3 on three consecutive frames, then let it agree for 100 frames.
+  7. Repeat step 6 with the persistence count 1 and 5.
+  8. A lane whose output carries the previous frame's sequence; one carrying the previous timestamp; two such lanes beside one current lane; a lane stale on one frame and disagreeing on the next two.
+  9. Through `RedundantProcessor` over the simulator with the scripted hook: alter lane 2's output on one frame; separately, alter lane 2's input (its pressure) on one frame.
+  10. *(page)* Render the panel for the voter status 0x0003, 0x0005 and 0x0009.
+  11. *(pytest)* The Python twin's names for channel 3 and fault types 4 to 7; the receiver's line for a LANE_FAULTED event naming lane 3 at 60 ms.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | true; false for each of the thirteen; true for each field not compared |
+  | 2 | false |
+  | 3 | the voter status 0x0001 on every frame; no event |
+  | 4 | the output's computed fields and validities equal a healthy lane's on every frame; one LANE_DISAGREEMENT (channel VOTER, value the lane) per corrupted frame; 0x0001 throughout |
+  | 5 | two LANE_DISAGREEMENT events, no LANE_FAULTED; 0x0001 throughout |
+  | 6 | LANE_DISAGREEMENT on the first frame, LANE_FAULTED (value 3) on the third, 0x0001 on those three; 0x0009 on every one of the 100 frames after, with no further event |
+  | 7 | excluded on the first corrupted frame, the two events on it in order, and on the fifth |
+  | 8 | each stale lane outvoted with LANE_OVERRUN at its onset; two stale lanes beside one current lane give no majority, never their frame; the lane stale then disagreeing excluded on the third frame with one onset event, LANE_OVERRUN |
+  | 9 | an altered output leaves the voted frame equal to the single lane's and lane 2 agreeing on the next frame; an altered input diverges lane 2 alone, excluded after three frames, every other lane and the voted frame equal to the single lane's |
+  | 10 | three lane cells, the named one amber, labelled 1, 2 and 3; no failure flag |
+  | 11 | channel 3 `VOTER`; types 4 to 7 `LANE_DISAGREEMENT`, `LANE_FAULTED`, `NO_MAJORITY`, `LANE_OVERRUN`, the sensor names unchanged; the line `[FAULT] t=60 ms channel=VOTER type=LANE_FAULTED value=3.0` |
+
+- **Pass/fail:** Every step exact as listed. A field the comparison ignores, a field outside the thirteen that takes part, an output carrying a corrupted lane's value, a lane excluded without three consecutive misses or readmitted after exclusion, or a stale frame voted fails.
+
+### TC-033: No Majority
+
+- **Requirement:** REQ-RED-004 (also exercises REQ-RED-002, REQ-RED-003, REQ-PROC-007, REQ-PROC-008, REQ-DISP-008)
+- **Level:** Unit (steps 1 through 7: `tests/unit/test_voter.cpp`), Page (step 8: `dashboard/src/pfd/VoterPanel.test.tsx`, `instrumentState.test.ts`, `Pfd.test.tsx`)
+- **Objective:** Verify both two-lane cases of REQ-RED-004: two remaining lanes that agree carry on, and two that disagree, or three that pairwise disagree, give a frame flagged NO_MAJORITY whose computed fields hold the last voted values under FAILURE_WARNING, or 0 under NO_COMPUTED_DATA where nothing was voted; that a NaN is never voted; that no lane is blamed while there is no majority, so at least two lanes always remain; that a new vehicle clears the held values but not the exclusion; and that the display flags the vote.
+- **Preconditions:** Lane outputs built by hand or taken from a `TelemetryProcessor` over `SimulatedSource(20, 42)` frames; the page's fake socket and fake clock for step 8.
+- **Steps:**
+  1. Exclude lane 3 (three corrupted frames); then lanes 1 and 2 agree for 5 frames, disagree for 5, agree for 5.
+  2. Three pairwise-different lanes on the first frame; then 10 voted frames and three pairwise-different lanes again.
+  3. A no-majority frame after a vote in which one field was NO_COMPUTED_DATA; two agreeing lanes holding FAILURE_WARNING in a field.
+  4. One lane holding a NaN in a computed field; two lanes holding the same NaN, the third a number.
+  5. Lane 2 corrupted for two frames, then 5 frames of no majority, then lane 2 corrupted for one more frame with a majority.
+  6. With lane 3 excluded and no majority, a frame flagged NEW_VEHICLE.
+  7. Corruptions scripted on every lane in turn for 200 frames.
+  8. *(page)* Render the panel for 0x0011 and 0x0015; for 0x0001 under each feed cause (stale, ended, lagging, bridge gone); the whole PFD for 0x0015 and for 0.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | 0x0009 on the agreeing frames; on the disagreeing frames 0x0019, every computed field the last voted value with FAILURE_WARNING where it was NORMAL, and one NO_MAJORITY event (value 2) on the first of them; 0x0009 again after, with no further event |
+  | 2 | on the first frame 0x0011, every computed field 0 with NO_COMPUTED_DATA, one NO_MAJORITY event (value 3); later the held values under FAILURE_WARNING |
+  | 3 | the NO_COMPUTED_DATA field stays 0 and NO_COMPUTED_DATA; the agreed FAILURE_WARNING passes through |
+  | 4 | the NaN lane outvoted; the two NaN lanes never form a majority, so the frame is NO_MAJORITY and holds no NaN |
+  | 5 | lane 2 excluded on its third miss, the five no-majority frames neither advancing nor resetting its count |
+  | 6 | every computed field 0 with NO_COMPUTED_DATA, lane 3's bit still set |
+  | 7 | at most one lane bit set on any frame; never fewer than two lanes in the vote |
+  | 8 | a red flag naming the vote with the lane cells kept, the excluded cell amber; under each feed cause the cells removed and the flag carrying the cause, grey when ended; the strip reading RUNNING and the attitude flagged at 0x0015 when its validity says so; dashes and no pipeline annunciator at 0 |
+
+- **Pass/fail:** Every step exact as listed. A no-majority frame that shows NORMAL, raises a flag over a field never voted, holds a NaN, blames a lane, or stops the loop fails; so does a flag missing on the display while the frame carries NO_MAJORITY.
+
+### TC-034: Lane Determinism over 10,000 Simulated Frames
+
+- **Requirement:** REQ-RED-001, REQ-RED-002 (also exercises REQ-RED-005, REQ-LOG-003, REQ-LOG-004, REQ-LOG-005, REQ-PROC-008, REQ-FAULT-004, REQ-TEST-002)
+- **Level:** Unit (steps 1 through 5: `tests/unit/test_redundant_processor.cpp`, `test_replay.cpp`), Integration (steps 6 through 8: `tests/integration/test_voter.py`, `test_validity.py`), recorded (steps 9 through 11, FTS-VR-001 Entry 20 §20.4)
+- **Objective:** Verify that three identical lanes agree bit for bit on every frame of a long run with sensor faults in it; that the voted frame equals the single-lane pipeline's in every byte but the voter status; that sensor faults are reported once and the voter adds no event to a healthy run; that every lane is reborn alike on a new vehicle; and that a session recorded with the voter replays identically while logs of versions 1, 2 and 3 recorded before it replay with the voter's status recomputed.
+- **Preconditions:** `SimulatedSource(20, 42)` and the demo profile; `FaultInjectingSource` with scripted windows; the single-lane references of FTS-VR-001 Entry 20 §20.4 (the seed-42 session `7720966c…` and the demo `d9ee490a…`, recorded by the build of `a7461a3`) for steps 9 through 11.
+- **Steps:**
+  1. 10,000 seed-42 frames through `FaultInjectingSource` with barometer, IMU and GPS windows, each through a `FaultDetector`, then through `RedundantProcessor` and through a bare `TelemetryProcessor`; compare every byte of the two outputs.
+  2. Two `RedundantProcessor`s over the same 10,000 frames, each with a hook that only observes the three lane outputs.
+  3. The demo profile for 7,500 frames through `RedundantProcessor` and a bare processor; 200 frames with NEW_VEHICLE set on frame 120.
+  4. A bus failure (barometer and IMU reads failing together) through the detector and the redundant processor.
+  5. Replay through `RedundantProcessor`: a voted session of 500 frames with injected faults; a session whose lane 2 a hook altered; logs of versions 1, 2 and 3 written without a voter.
+  6. *(pytest)* The session fixture's log and its replay: every frame's voter status; the events; the `Voter:` line.
+  7. *(pytest)* The session's log rewritten with every voter status 0, as a log recorded before the voter, replayed.
+  8. *(pytest)* Synthetic version-1 and version-2 logs of 50 raw frames replayed.
+  9. *(Recorded)* The voted seed-42 session against the single-lane reference, by `cmp -l` and by a script frame by frame.
+  10. *(Recorded)* The same for the demo's recording.
+  11. *(Recorded)* Each single-lane reference replayed by the voted build, against the voted recording; both new hashes.
+- **Expected result:**
+
+  | Step | Expected |
+  |---|---|
+  | 1 | on every frame, bytes 0 to 113 and 116 to 119 equal; the voter status 0x0001 |
+  | 2 | the two runs' frames and events equal by `memcmp`; the three lane outputs bit-identical on every frame; no voter event |
+  | 3 | every byte but the voter status equal to the bare processor's; on frame 120 every lane reborn alike (fused altitude equal to the barometric, vertical speed 0), no disagreement |
+  | 4 | the detector's two events, once each; no voter event |
+  | 5 | every frame and event of the voted session's replay equal by `memcmp`; the altered session's replay equal in every byte but the voter status and the voter's events; the older logs' frames voted 0x0001 with their raw fields equal |
+  | 6 | 0x0001 on all 500 frames of both logs; no event; `Voter:     500 frames, lanes in the vote 1 2 3, no majority on 0 frames, voter events 0` |
+  | 7 | every record equal to the session's own log |
+  | 8 | raw fields equal to the input's; 0x0001 on every frame |
+  | 9 | exactly 500 differing bytes, one per frame at 1-based offset 132 + 121n, `0` against `1` |
+  | 10 | exactly 7,500 differing bytes of the same form |
+  | 11 | every record identical to the voted recording's; the two hashes recorded |
+
+- **Pass/fail:** Steps 1 through 8 exact as listed. Any lane disagreement in a run without an injected fault, any byte other than the voter status that differs from the single lane, a sensor event reported more than once, or a voter event in a healthy run fails. Steps 9 through 11 are recorded in FTS-VR-001 Entry 20; any difference beyond those listed fails.
 
 ## 6. Coverage Strategy
 
@@ -1147,7 +1251,7 @@ Chasing these to 100% produces tests that exist to satisfy the metric rather tha
 
 | Scope | Branch coverage target |
 |---|---|
-| `src/processing/` (filters and fault detection) | 90% |
+| `src/processing/` (filters, fault detection, the lanes and the voter) | 90% |
 | `src/config/` (the configuration loader and its rules) | 90% |
 | `src/timing/`, `src/logging/`, `src/transport/`, `src/replay/` | 80% |
 | `src/drivers/` | 70% |
@@ -1176,4 +1280,5 @@ MC/DC is out of scope for this project. It requires tool support (gcov does not 
 - GPS fix-quality detection at the detector (FAULT-003b) is deferred; the frame carries the fix quality and the satellite count since format version 3 (TC-031 step 6), and the rule that judges them is still to be written (FTS-DD-001 Section 11.2); the live source withholds a no-fix epoch, so the condition reaches the detector as the timeout (TC-018 step 13). The Hardware steps of TC-018 (20 through 24) and its capture fixture (step 17) wait for the Raspberry Pi and the receiver; results go to FTS-VR-001 Entry 13 §13.8. GPS stuck detection is not covered by any FAULT entry and is not implemented.
 - The display's instruments (REQ-DISP-001, REQ-DISP-002, REQ-DISP-006, REQ-SENS-007; TC-023 to TC-026) are built on the display's branch (2026-10-15). TC-025 step 8, a Chrome background tab, is a manual record and not a gate; TC-026 step 9 is the demo's hand measurement; both go to FTS-VR-001 Entry 17.
 - The ADS-B source (REQ-SENS-008 to REQ-SENS-011, REQ-FAULT-007, REQ-CFG-004, REQ-DISP-007; TC-027 to TC-030) is built on its branch (2026-10-15). TC-029 step 19, the live run against the service, is a manual record in FTS-VR-001 Entry 18 and never a gate: CI never calls the service, and the data license forbids committing what it returns.
-- Format version 3 (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 and the amended REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004 and REQ-DISP-007; TC-031) is specified here, built on the ADS-B branch (2026-10-15 and 16) and recorded in FTS-VR-001 Entry 19. TC-031 step 17, the seed-42 log against the kept version-2 reference, is a recorded hand check in Entry 19 §19.4, not a gate; the detector judges neither the fix quality nor the satellite count yet (FAULT-003b stays parked with its bytes in place), nothing consumes the ADS-B vertical rate or pressure altitude until Phase B, and the voter's status field is zero until the voting of FTS-DD-001 Section 11.1 lands.
+- Format version 3 (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008 and the amended REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004 and REQ-DISP-007; TC-031) is specified here, built on the ADS-B branch (2026-10-15 and 16) and recorded in FTS-VR-001 Entry 19. TC-031 step 17, the seed-42 log against the kept version-2 reference, is a recorded hand check in Entry 19 §19.4, not a gate; the detector judges neither the fix quality nor the satellite count yet (FAULT-003b stays parked with its bytes in place), nothing consumes the ADS-B vertical rate or pressure altitude until Phase B; the voter's status field, zero at format version 3's landing, is the voter's since 2026-10-18.
+- The redundancy voter (REQ-RED-001 to REQ-RED-006, REQ-DISP-008; TC-032 to TC-034) is specified here and recorded in FTS-VR-001 Entry 20. TC-034's recorded steps (9 to 11), the voted logs against the single-lane references, are hand checks in Entry 20 §20.4, not gates; TC-009 step 8, the three lanes' cost on the Raspberry Pi, waits for hardware. The fault-injection harness of Section 2.3, which will drive the lane-fault interface and sweep the persistence count, is the next topic.

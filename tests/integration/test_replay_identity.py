@@ -16,7 +16,7 @@ from pipeline.frame_format import FRAME, FRAME_FIELDS
 from pipeline.log_reader import frame_dtype, read_log
 
 # strip_to_raw in src/replay/log_replay_source.cpp clears these before the pipeline recomputes them
-# (the voter's status: once a voter runs; zero until then).
+# (the voter's status among them, recomputed by the replay's voter, REQ-RED-002).
 COMPUTED_FIELDS = ("baro_altitude_m", "pitch_deg", "roll_deg", "fused_altitude_m", "vertical_speed_mps",
                    "baro_status", "imu_status", "gps_status",
                    "baro_altitude_validity", "pitch_validity", "roll_validity",

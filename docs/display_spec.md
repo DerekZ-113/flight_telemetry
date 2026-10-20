@@ -1,14 +1,14 @@
 # Flight Telemetry System — Display Specification
 
 > **Document ID:** FTS-DS-001
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-16
-> **Related:** FTS-SRD-001 v0.13.0 (REQ-DISP-001 to REQ-DISP-007, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2 and 12), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030, TC-031), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
+> **Last Updated:** 2026-10-18
+> **Related:** FTS-SRD-001 v0.14.0 (REQ-DISP-001 to REQ-DISP-008, REQ-RED-002 to REQ-RED-004, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2, 12 and 13), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030 to TC-033), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
 
 ## 1. Purpose and Scope
 
-This document specifies the Primary Flight Display built in `dashboard/` (REQ-DISP-001 to REQ-DISP-006): for each instrument, its source field by name, the rule that decides whether it shows a value, its units and the constant that converts them, its range, its scale, its rounding, how it updates, and what it shows under every flag. It binds the page's code (`dashboard/src/pfd/`) and its tests: a number in a test that disagrees with this document is a defect in one or the other. The frame's fields and units are defined in `src/telemetry_frame.h`; the JSON that carries them to the page is `pipeline/bridge.py`'s (FTS-DD-001 Section 9); the feed's states come from `dashboard/src/useTelemetryFeed.ts`.
+This document specifies the Primary Flight Display built in `dashboard/` (REQ-DISP-001 to REQ-DISP-008): for each instrument, its source field by name, the rule that decides whether it shows a value, its units and the constant that converts them, its range, its scale, its rounding, how it updates, and what it shows under every flag. It binds the page's code (`dashboard/src/pfd/`) and its tests: a number in a test that disagrees with this document is a defect in one or the other. The frame's fields and units are defined in `src/telemetry_frame.h`; the JSON that carries them to the page is `pipeline/bridge.py`'s (FTS-DD-001 Section 9); the feed's states come from `dashboard/src/useTelemetryFeed.ts`.
 
 The display is a ground-station view of telemetry, not a certified cockpit display. It follows cockpit conventions where they are the right thing to follow (a flag replaces a value; the aircraft symbol is fixed and the horizon moves; red warns, amber cautions) and says so where it departs from them (a ground track plot in metres; a track indicator where a heading indicator would stand).
 
@@ -26,7 +26,7 @@ The display is a ground-station view of telemetry, not a certified cockpit displ
 | the stream ended (Section 5) | every value removed; a grey flag with each instrument's name; the strip reads ENDED |
 | channel NOT_AVAILABLE (REQ-FAULT-007): the source has no sensor for it | the value removed; a no-source flag with the instrument's name, a white outline on no fill, and no cause in the strip: nothing failed, and nothing will come |
 
-An instrument driven by more than one field (the attitude indicator: pitch and roll) shows the most severe state of its fields: the failure flag, then dashes with PIPELINE, then the no-source flag, then dashes, then the value. The feed's state takes precedence over every field's. A removed value is never shown struck through, dimmed or greyed on an instrument; that rendering is the diagnostic view's (Section 8). The rule is one function, `instrumentState` in `dashboard/src/pfd/instrumentState.ts`, and every instrument calls it.
+An instrument driven by more than one field (the attitude indicator: pitch and roll) shows the most severe state of its fields: the failure flag, then dashes with PIPELINE, then the no-source flag, then dashes, then the value. The feed's state takes precedence over every field's. A removed value is never shown struck through, dimmed or greyed on an instrument; that rendering is the diagnostic view's (Section 8). The rule is one function, `instrumentState` in `dashboard/src/pfd/instrumentState.ts`, and every instrument calls it. The voter panel (Section 4.7) follows a field of its own, the voter's status, by the same feed causes first.
 
 ### 2.2 Colours
 
@@ -34,7 +34,7 @@ An instrument driven by more than one field (the attitude indicator: pitch and r
 |---|---|---|
 | red | a value withdrawn because it cannot be trusted: FAILURE_WARNING, DEGRADED, STALE, LAG, BRIDGE DISCONNECTED | `#d0342c`, white text |
 | grey box | a value withdrawn because the stream ended; nothing failed | `#5a6570`, white text |
-| amber | a caution about the system: PIPELINE, MODE UNKNOWN, and the SIM and REPLAY labels, boxed | `#f0a830` |
+| amber | a caution about the system: PIPELINE, MODE UNKNOWN, the SIM and REPLAY labels, boxed, and a lane the voter excluded (Section 4.7) | `#f0a830` |
 | white | information and normal values; the LIVE and ADS-B labels, plain, and the aircraft's identity; the no-source flag, an outline on no fill | `#e8edf2` |
 | sky, ground | the attitude ball's halves | `#2a6fd6`, `#8a5a2b` |
 | yellow | the fixed aircraft symbol | `#ffcc33` |
@@ -69,6 +69,7 @@ One SVG, `viewBox="0 0 800 520"`, scaled to its container; the coordinates below
 ```
 y   0..36    the strip:  [mode label · identity]   [feed state and its cause]   [rate · lag]
 y 100..420   [GS box x 40..150]   [attitude indicator: centre (400,260), r 160]   [altitude tape x 600..690]  [VS x 710..760]
+y 300..396   [voter panel x 40..150, under GS]
 y 448..520   the track indicator: the top of a rose arc, centre (400,640), r 180, under a lubber line at (400,462); the readout box at y 434
 ```
 
@@ -126,6 +127,14 @@ Each subsection gives the source, the rule, units and range, geometry, update be
 
 Section 6.
 
+### 4.7 Voter panel (VOTE)
+
+- **Source:** `voter_status`, the voter's decisions as bits (REQ-RED-002 to REQ-RED-004, `src/telemetry_frame.h`): VOTED 0x0001, LANE_1_FAULTED 0x0002, LANE_2_FAULTED 0x0004, LANE_3_FAULTED 0x0008, NO_MAJORITY 0x0010; the rule is REQ-DISP-008's. The bridge forwards the number by name with every frame; the page decodes the bits in one place (`VOTER_BITS` in `feed.ts`, the twin of `VOTER_STATUS_NAMES`).
+- **Rule:** the feed's state first (Section 5): under any cause the cells are removed and the flag `VOTE` carries the cause, red, or grey when the stream ended. Then the field: zero means no voter ran (a frame from a build before the voter), so the panel shows dashes, with no flag and no PIPELINE annunciator, zero being a defined state and not an unjudged one; with VOTED, three cells labelled 1, 2 and 3, one per lane, white digits in white outlines; a lane whose FAULTED bit is set has its cell filled amber, a caution, since the output is still good and the system runs on the two lanes left; with NO_MAJORITY the red flag `VOTE` below the cells, which stay drawn, since which lanes are in the vote is the voter's latched state and not a voted value. The strip stays RUNNING under NO_MAJORITY; the attitude indicator, the altitude tape and the vertical speed indicator raise their own flags from their fields' FAILURE_WARNING.
+- **Geometry:** the left column under GS: the caption `VOTE` centred at (95, 312); three cells 30 by 28 at x 40, 80 and 120, y 320 to 348; the flag box (90 by 32, Section 2.1) centred at (95, 380); the constants are `VOTER` in `geometry.ts`, clear of the GS box and of the attitude indicator's circle by test.
+- **Update:** every frame.
+- **Not shown:** a transient disagreement (FTS-FM-001 FAULT-019): no bit of the frame carries it and the bridge forwards no events; the console and the log carry it. The flag reads `VOTE`, not `NO MAJORITY`: a flag names its instrument, and the box is fixed.
+
 ## 5. The feed's states (REQ-DISP-001, REQ-DISP-003, REQ-DISP-004, REQ-DISP-006)
 
 The strip at the top of the panel shows, left to right, the mode label, the feed's state with its cause, and the rate with the lag.
@@ -175,7 +184,7 @@ The readings are the pipeline's inverse: the pressure from the scripted altitude
 
 What the instruments show, by phase (seen on 2026-10-15, FTS-VR-001 Entry 17): parked, ALT reads 10 ft (2 m under the 10 ft rounding), VS settles from the Kalman filter's startup transient to 0, GS 0, `TRK ---` with no rose, the plot a dot; the takeoff roll, GS rising to 58 kt, TRK 090° and the rose from 2 kt, the marker moving east; rotation and climb, the horizon 32 px down (8°), VS +600, ALT rising to 400 ft; the turn, the horizon rotated 20° counterclockwise, TRK sweeping 090 → 270, the plot's half circle; the descent, the horizon 16 px up, VS −400, ALT to 200 ft; level and slowing; then ENDED, grey flags, the trail kept.
 
-Commands: record with `./build/telemetry --motion demo --cycles 7500` (150 s; 7,500 frames, 907,516 bytes at format version 3, under one rotation); then, with the bridge (`.venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555`) and the page (`cd dashboard && npm run dev`, `http://127.0.0.1:5173`) running, replay with `./build/telemetry --replay logs/telemetry_000.bin --pace --zmq tcp://127.0.0.1:5555`. The page labels the recording SIM and the replay REPLAY; every record of the replay's log is byte-identical to the recording's, its header naming REPLAY where the recording's names SIMULATED (REQ-TIME-004, REQ-LOG-003, REQ-LOG-007). The log is 7,500 frames in 907,516 bytes (787,516 at format version 2); its bytes depend on the toolchain's `normal_distribution`, so its hash is recorded per platform in FTS-VR-001 (Entry 17: `caba9aeb…` on the development Mac at format version 2; recorded again with the demo) and the log is regenerated, not committed.
+Commands: record with `./build/telemetry --motion demo --cycles 7500` (150 s; 7,500 frames, 907,516 bytes at format version 3, under one rotation); then, with the bridge (`.venv/bin/python -m pipeline.bridge --endpoint tcp://127.0.0.1:5555`) and the page (`cd dashboard && npm run dev`, `http://127.0.0.1:5173`) running, replay with `./build/telemetry --replay logs/telemetry_000.bin --pace --zmq tcp://127.0.0.1:5555`. The page labels the recording SIM and the replay REPLAY; every record of the replay's log is byte-identical to the recording's, its header naming REPLAY where the recording's names SIMULATED (REQ-TIME-004, REQ-LOG-003, REQ-LOG-007). The log is 7,500 frames in 907,516 bytes (787,516 at format version 2); its bytes depend on the toolchain's `normal_distribution`, so its hash is recorded per platform in FTS-VR-001 and the log is regenerated, not committed: `6f877d1d…` on the development Mac since the voter (Entry 20 §20.4, every frame VOTED; `d9ee490a…` at format version 3 before it, the same entry; `caba9aeb…` at format version 2, Entry 17).
 
 ## 8. The diagnostic view
 

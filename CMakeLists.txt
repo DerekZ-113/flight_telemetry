@@ -38,6 +38,8 @@ add_library(telemetry_core STATIC
     src/processing/kalman_filter.cpp
     src/processing/complementary_filter.cpp
     src/processing/fault_detector.cpp
+    src/processing/voter.cpp
+    src/processing/redundant_processor.cpp
     src/drivers/simulated_data.cpp
     src/drivers/simulated_source.cpp
     src/drivers/motion_profile.cpp

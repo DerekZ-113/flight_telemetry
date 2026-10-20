@@ -64,6 +64,7 @@ ChannelStatus status_of(const TelemetryFrame& f, Channel ch) {
         case Channel::BARO: return f.baro_status;
         case Channel::IMU:  return f.imu_status;
         case Channel::GPS:  return f.gps_status;
+        case Channel::VOTER: break;   // not a sensor channel
     }
     return ChannelStatus::NOMINAL;
 }
@@ -73,6 +74,7 @@ void set_read_ok(TelemetryFrame& f, Channel ch, bool ok) {
         case Channel::BARO: f.baro_read_ok = ok; break;
         case Channel::IMU:  f.imu_read_ok = ok; break;
         case Channel::GPS:  f.gps_read_ok = ok; break;
+        case Channel::VOTER: break;   // not a sensor channel
     }
 }
 
@@ -694,6 +696,21 @@ TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
     EXPECT_EQ(b.sequence, 1u);
 }
 
+// Channel::VOTER names the voter's events (REQ-RED-003; FTS-DD-001
+// Section 13), not a sensor: failing or holding it changes no frame, byte
+// for byte, against the same simulator with nothing injected.
+TEST(FaultInjectingSourceTest, VoterIsNotASensorChannel) {
+    FaultInjectingSource source(std::make_unique<SimulatedSource>(kDtMs, 42, kDtMs));
+    SimulatedSource plain(kDtMs, 42, kDtMs);
+    source.fail_reads(Channel::VOTER, true);
+    source.hold_values(Channel::VOTER, true);
+    for (int i = 0; i < 60; i++) {
+        const TelemetryFrame injected = source.read_frame();
+        const TelemetryFrame expected = plain.read_frame();
+        EXPECT_EQ(std::memcmp(&injected, &expected, sizeof(TelemetryFrame)), 0) << "frame " << i;
+    }
+}
+
 namespace {
 
 // A source that hands out the frames it was given, in order: the injector
@@ -776,6 +793,20 @@ TEST(FaultDetectionTest, EventNamesAreReadable) {
     EXPECT_STREQ(fault_type_name(FaultType::STUCK), "STUCK");
     EXPECT_STREQ(fault_type_name(FaultType::OUT_OF_RANGE), "OUT_OF_RANGE");
     EXPECT_STREQ(fault_type_name(FaultType::RECOVERY), "RECOVERY");
+    // The voter's events, new values of the same two bytes (REQ-RED-003,
+    // REQ-RED-004, REQ-RED-006; FTS-FM-001 FAULT-019 to FAULT-022). The
+    // numbers are pinned too: they are what a log carries and what an
+    // older reader prints.
+    EXPECT_STREQ(channel_name(Channel::VOTER), "VOTER");
+    EXPECT_STREQ(fault_type_name(FaultType::LANE_DISAGREEMENT), "LANE_DISAGREEMENT");
+    EXPECT_STREQ(fault_type_name(FaultType::LANE_FAULTED), "LANE_FAULTED");
+    EXPECT_STREQ(fault_type_name(FaultType::NO_MAJORITY), "NO_MAJORITY");
+    EXPECT_STREQ(fault_type_name(FaultType::LANE_OVERRUN), "LANE_OVERRUN");
+    EXPECT_EQ(static_cast<int>(Channel::VOTER), 3);
+    EXPECT_EQ(static_cast<int>(FaultType::LANE_DISAGREEMENT), 4);
+    EXPECT_EQ(static_cast<int>(FaultType::LANE_FAULTED), 5);
+    EXPECT_EQ(static_cast<int>(FaultType::NO_MAJORITY), 6);
+    EXPECT_EQ(static_cast<int>(FaultType::LANE_OVERRUN), 7);
 }
 
 // Events are written to the binary log as raw bytes. The two bytes between
@@ -839,6 +870,8 @@ TEST(FaultDetectionTest, NotAvailableChannelIsLeftAloneWithNoEvent) {
                     f.imu_read_ok = false;
                     f.accel_x = f.accel_y = f.accel_z = 0.0f;   // stuck, were they readings
                     f.gyro_x = f.gyro_y = f.gyro_z = 0.0f;
+                    break;
+                case Channel::VOTER:   // not in the list: not a sensor channel
                     break;
             }
             const TelemetryFrame out = d.check(f);

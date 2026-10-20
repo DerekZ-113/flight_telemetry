@@ -25,15 +25,17 @@ enum class ChannelStatus : uint8_t {
     NOT_AVAILABLE = 3,
 };
 
-// Validity of one computed field (REQ-PROC-007), written by the processor
-// only, in ARINC 429's sign/status vocabulary. A value and its validity
+// Validity of one computed field (REQ-PROC-007), judged by the processor
+// and, since the voter, chosen from a majority of lanes or degraded by the
+// voter when there is none (REQ-RED-002, REQ-RED-004), in ARINC 429's
+// sign/status vocabulary. A value and its validity
 // travel in the same record, so no consumer can take one without the other.
 // Zero is deliberately none of the three judgments: a value-initialized
 // frame, a source's raw frame and every frame of a version-1 log read
 // NOT_JUDGED, which no consumer may take for NORMAL, and the processor
 // writes one of the other three on every frame it emits, so "the pipeline
 // forgot" is distinguishable from "no data". The order is worst first, so
-// min() across several lanes is the worst-wins combiner a voter wants.
+// min() is the worst-wins combiner, the voter's degrade under no majority.
 enum class Validity : uint8_t {
     NOT_JUDGED = 0,        // nothing has judged this field: a raw frame, a version-1 log
     NO_COMPUTED_DATA = 1,  // no estimate of this field has ever existed; the value is 0
@@ -58,14 +60,14 @@ enum class FrameFlag : uint8_t {
 };
 
 // The voter's status (format version 3, offset 114): the decisions the
-// voter of design.md section 11.1 (REQ-RED-001 to REQ-RED-005, parked)
-// will state about the frame it produced, one bit each. Zero means no
-// voter ran, which is what every writer puts until the voter lands; the
-// field is assigned now so that the voter never needs a format version 4.
-// A verdict of the pipeline, not a fact a source states, so the replay's
-// strip zeroes it as it zeroes validity, for a replay that runs the voter
-// to recompute. Until the drafts enter the SRD the field traces to
-// REQ-LOG-001 as a named byte that is zero by definition.
+// voter of design.md section 13 states about the frame it produced, one
+// bit each: VOTED (REQ-RED-002), a lane excluded from the vote
+// (REQ-RED-003), no majority (REQ-RED-004). Zero means no voter ran, which
+// every writer put until the voter landed (2026-10-18) and every source
+// still puts; the field was assigned with version 3 so that the voter
+// never needed a format version 4. A verdict of the pipeline, not a fact a
+// source states, so the replay's strip zeroes it as it zeroes validity and
+// the replay's voter recomputes it.
 enum class VoterStatus : uint16_t {
     VOTED = 0x0001,            // the voter produced this frame
     LANE_1_FAULTED = 0x0002,   // lane 1 was excluded from the vote
@@ -87,7 +89,7 @@ enum class VoterStatus : uint16_t {
 //   Validity bytes   → REQ-PROC-007
 //   Sequence number  → REQ-LOG-008 (the source counts its own frames)
 //   Flags byte       → REQ-PROC-008, REQ-SENS-005, REQ-SENS-008 (FrameFlag)
-//   Voter status     → REQ-LOG-001 today (zero: no voter ran); REQ-RED when the voter lands (VoterStatus)
+//   Voter status     → REQ-RED-002, REQ-RED-003, REQ-RED-004 (VoterStatus; zero: no voter ran)
 //   Reserved field   → REQ-LOG-001 (no unspecified byte; zero until a version assigns it)
 //
 // The layout is the log format (REQ-LOG-001, design.md section 9): the
@@ -167,8 +169,8 @@ struct TelemetryFrame {
     // present only under their FrameFlag bits (REQ-SENS-008); the
     // receiver's own judgment of its fix, GGA's quality (1 GPS, 2
     // differential, 6 estimated) and satellite count, under FIX_QUALITY
-    // (REQ-SENS-005); the voter's status, VoterStatus bits, zero until a
-    // voter runs; and one reserved field, zero until a format version
+    // (REQ-SENS-005); the voter's status, VoterStatus bits, zero from a
+    // source; and one reserved field, zero until a format version
     // assigns it, so the next change has room before it needs a bump.
     float gps_vertical_rate_mps;       // 104
     float gps_pressure_altitude_m;     // 108

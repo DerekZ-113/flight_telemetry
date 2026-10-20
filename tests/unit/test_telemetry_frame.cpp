@@ -68,8 +68,9 @@ TEST(FrameLayoutTest, FlagBitsAreNamedAndTested) {
 }
 
 // The voter's status is named bits too, assigned ahead of the voter so it
-// never needs a format version 4: zero means no voter ran, which every
-// writer puts today. (REQ-LOG-001; design.md section 11.1; TC-031 step 1)
+// never needed a format version 4: zero means no voter ran, which every
+// source puts. (REQ-RED-002 to REQ-RED-004; design.md section 13; TC-031
+// step 1)
 TEST(FrameLayoutTest, VoterStatusBitsAreNamed) {
     EXPECT_EQ(static_cast<uint16_t>(VoterStatus::VOTED), 0x0001);
     EXPECT_EQ(static_cast<uint16_t>(VoterStatus::LANE_1_FAULTED), 0x0002);
