@@ -45,13 +45,14 @@ bool AircraftSelector::usable(const opensky_json::AircraftState& state) {
            state.time_position.has_value();
 }
 
+// Must stay above candidate() so GCC sees candidate() cannot throw; a reorder silently restores update()'s unwind edge.
+bool AircraftSelector::under_ceiling(const opensky_json::AircraftState& state) const {
+    return *state.geo_altitude_m <= ceiling_m_;
+}
+
 bool AircraftSelector::candidate(const opensky_json::AircraftState& state) const {
     return usable(state) && under_ceiling(state) && state.vertical_rate_mps.has_value() &&
            *state.vertical_rate_mps < 0.0f;
-}
-
-bool AircraftSelector::under_ceiling(const opensky_json::AircraftState& state) const {
-    return *state.geo_altitude_m <= ceiling_m_;
 }
 
 double AircraftSelector::distance_m(double latitude, double longitude, const AdsbReference& reference) {

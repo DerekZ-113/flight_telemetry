@@ -2515,6 +2515,57 @@ Two expectations missed in this entry, both in counts and neither in coverage: e
 - **The live run (TC-029 step 19), optional and Derek's:** every `NEW_VEHICLE` frame's `gps_altitude_m` at or below 1,650 m (a kept aircraft is dropped at the poll after it crosses, so a frame may carry one poll's climb above it); no `nearer` row to an aircraft at an arrival altitude and an `above` row only for a climb-out; the exit line's census against §18.4's 46 aircraft and 5 candidates; the vertical speed on final with no excursion like §18.5's; the hand check that every aircraft the strip names is an arrival; and the schema consequence in practice, Entry 18's first live file replayed without `--config` (refused by name) and with the shipped file (byte-identical to §18.4's `2971db60…`). Recorded as §24.9 when run.
 - **A watch item:** no band at the ceiling (§24.4); a live run's selection record would show a flap.
 - **Phase B keeps** the vertical rate as the filter's third measurement, the pressure altitude, and FAULT-024's finiteness check for the two ADS-B fields (Entry 22 §22.8).
-- **Line 93's unwind pair (§24.7):** the fix is `under_ceiling` defined above `candidate` (or declared `noexcept`, or the call put into a local), with its own record; Derek's to decide, in this pull request or after the merge.
+- **Line 93's unwind pair (§24.7):** the fix is `under_ceiling` defined above `candidate` (or declared `noexcept`, or the call put into a local), with its own record; Derek's to decide, in this pull request or after the merge. (Decided 2026-10-19: the order, under a comment that guards it, in commit 6; Entry 25.)
 - `aircraft_selector.cpp`'s other untaken legs on the record (§24.7, correcting §24.5 and the plan, which named them from Entry 18 §18.7): the five absences in `usable` would take one table-driven test, and a kept aircraft with no candidate at all one case; `take`'s unwind leg on line 124 no input reaches. Outside this topic.
 - Entry 23's open items stand (the campaign of record after the bench session, TC-037 step 9, TC-009 step 8).
+
+## Entry 25 — 2026-10-19, The selector's candidate test off its exception edge: `under_ceiling` defined above `candidate` (macOS preview)
+
+Entry 24 §24.7 found an exception-unwind pair on `update`'s `if (!candidate(state))` in `src/drivers/aircraft_selector.cpp` that Entry 23's record did not have. The statement had not changed; its callee had. Since commit 3, `candidate` calls `under_ceiling`, which was defined below it, so GCC no longer knew that `candidate` cannot throw. Of the three fixes §24.7 named, Derek chose the order, with a one-line comment that guards it. This entry records the change, with the prediction for the record written before the push.
+
+What changed:
+- **Code:** `under_ceiling`'s definition moved above `candidate`'s, under a one-line comment. No statement changed.
+- **Records:** this entry; Entry 24 §24.8's item for the pair points here.
+- **Unchanged:** every behaviour; no requirement, format, key or test; the default runs' bytes (§25.2).
+
+The commit is 6 on `claude/adsb-altitude-term-d9561c`, after commit 5 (`045af0a`, Entry 24 §24.7), on draft pull request 5. §25.4 records the CI run.
+
+### 25.1 What was built
+
+- **`src/drivers/aircraft_selector.cpp` (commit 6; REQ-SENS-009, REQ-TEST-003):** `under_ceiling` now follows `usable` and precedes `candidate`, the order in which `candidate` calls them, under the comment "Must stay above candidate() so GCC sees candidate() cannot throw; a reorder silently restores update()'s unwind edge."
+- **Why the order works.** GCC's C++ front end marks a function as one that cannot throw when nothing in its body calls a function not already known not to throw. With `under_ceiling` read first, everything `candidate` calls is known not to throw by the time `candidate` is read: `usable`, `under_ceiling` and the optional's `noexcept` members. So `candidate` is marked too, and `update`'s call to it, now on line 94, needs no exception edge.
+- **Why the comment.** Nothing else guards the order. A later reorder would build, pass every test, and show only in the next CI record, as the pair did in Entry 24 §24.7.
+
+### 25.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 580 of 580, `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 180 of 180 in 132.7 s |
+| cppcheck 2.21.0 | 0 findings in 45 files with CI's flags |
+| The byte checks | the five hashes of Entry 22 §22.4, each equal on commit 6's build: the seed-42 session `f1dc959a…`, its replay `189eb162…`, the demo `6f877d1d…`, the demo with `--lane-fault 2@60` `a2d1d891…`, its replay `33b34f60…` |
+
+The coverage preview is not run. clang decides what may throw by its own rules, and its line 93 carried only the decision's two branches before this change (Entry 24 §24.7), so a preview cannot show the edge this commit removes. The record is the run.
+
+### 25.3 The expectations for the record
+
+Written before the push, from run 39342447232 (Entry 24 §24.7):
+- **The pair is gone.** Line 94, line 93 before the move, carries only the decision's two branches, both taken, and `aircraft_selector.cpp` reads 59 of 66.
+- **Nothing else in the file moves.** `candidate`'s chain stays at eight branches, now over lines 54 and 55; the `above` test stays at two, now on line 127. The seven untaken legs §24.7 names stay untaken, now on lines 43, 44, 125 and 139.
+- **The totals:** branches 1,518 of 1,608 (94.4%); drivers 753 of 833 (90.4%, from 90.3%); every other scope unchanged. Lines 3,202 of 3,253 and functions 355 of 365 are unchanged: the comment is no code, and the move adds no line.
+- **The suites:** Google Test 580, pytest 180, the page 89.
+- **If line 94 still carries the pair,** §24.7's reading is wrong, and §25.4 says so.
+
+### 25.4 Measurement of record
+
+Reserved for the CI run on draft pull request 5.
+
+### 25.5 Decisions taken
+
+- **The order, not `noexcept` or a local (Derek's choice, 2026-10-19).** The order removes the cause and adds no keyword `src/` does not already use. `noexcept` would remove the cause too, and state the fact in the interface. A local would leave the edge in place and only take it out of the measure.
+- **The comment** is Derek's request: it says that the order matters, and that a reorder brings the edge back silently.
+- **CLAUDE.md's rule is unchanged.** It names by kind the calls to keep off a decision's line: a `std::string` temporary, a standard-library call, an iterator range. A call to one of the project's own functions counts too when that function calls one defined after it. Whether the rule should say so is Derek's call.
+
+### 25.6 Open
+
+- Entry 24's open items stand: the live run (recorded as §24.9 when run), the watch item at the ceiling, Phase B, the other untaken legs and Entry 23's items.
