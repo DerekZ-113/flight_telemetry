@@ -21,6 +21,7 @@ const char* switch_reason_name(SwitchReason reason) {
         case SwitchReason::LANDED:     return "landed";
         case SwitchReason::LEFT:       return "left";
         case SwitchReason::INCOMPLETE: return "incomplete";
+        case SwitchReason::ABOVE:      return "above";
     }
     return "UNKNOWN";  // LCOV_EXCL_LINE (unreachable: the switch covers every enumerator)
 }
@@ -33,8 +34,10 @@ bool operator!=(const AircraftIdentity& a, const AircraftIdentity& b) {
     return !(a == b);
 }
 
-AircraftSelector::AircraftSelector(const AdsbReference& reference, double switch_margin_m, int gone_after_polls)
-    : reference_(reference), switch_margin_m_(switch_margin_m), gone_after_polls_(gone_after_polls) {}
+AircraftSelector::AircraftSelector(const AdsbReference& reference, double switch_margin_m, int gone_after_polls,
+                                   double ceiling_m)
+    : reference_(reference), switch_margin_m_(switch_margin_m), gone_after_polls_(gone_after_polls),
+      ceiling_m_(ceiling_m) {}
 
 bool AircraftSelector::usable(const opensky_json::AircraftState& state) {
     return !state.on_ground && state.latitude.has_value() && state.longitude.has_value() &&
@@ -42,8 +45,14 @@ bool AircraftSelector::usable(const opensky_json::AircraftState& state) {
            state.time_position.has_value();
 }
 
-bool AircraftSelector::candidate(const opensky_json::AircraftState& state) {
-    return usable(state) && state.vertical_rate_mps.has_value() && *state.vertical_rate_mps < 0.0f;
+// Must stay above candidate() so GCC sees candidate() cannot throw; a reorder silently restores update()'s unwind edge.
+bool AircraftSelector::under_ceiling(const opensky_json::AircraftState& state) const {
+    return *state.geo_altitude_m <= ceiling_m_;
+}
+
+bool AircraftSelector::candidate(const opensky_json::AircraftState& state) const {
+    return usable(state) && under_ceiling(state) && state.vertical_rate_mps.has_value() &&
+           *state.vertical_rate_mps < 0.0f;
 }
 
 double AircraftSelector::distance_m(double latitude, double longitude, const AdsbReference& reference) {
@@ -115,9 +124,15 @@ std::optional<SelectionChange> AircraftSelector::update(const opensky_json::Stat
     if (!usable(*current)) {
         return take(nearest, current->on_ground ? SwitchReason::LANDED : SwitchReason::INCOMPLETE);
     }
+    if (!under_ceiling(*current)) {
+        // Climbed out: a go-around or a departure, not the vehicle on
+        // approach. `nearest` was chosen among candidates, so whatever
+        // replaces it is under the ceiling.
+        return take(nearest, SwitchReason::ABOVE);
+    }
 
-    // Kept: present, airborne and complete, descending or not. A
-    // challenger must be nearer by more than the margin.
+    // Kept: present, airborne, complete and under the ceiling, descending
+    // or not. A challenger must be nearer by more than the margin.
     misses_ = 0;
     selected_state_ = *current;
     selected_distance_m_ = distance_m(*current->latitude, *current->longitude, reference_);

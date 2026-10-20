@@ -1,11 +1,13 @@
-"""TC-029 steps 12 through 18 and TC-021 step 10 at the integration level (REQ-SENS-008,
+"""TC-029 steps 12 through 18 and 20, and TC-021 step 10, at the integration level (REQ-SENS-008,
 REQ-SENS-009, REQ-SENS-010, REQ-SENS-011, REQ-CFG-004, REQ-TRANS-004, REQ-FAULT-001,
 REQ-FAULT-007; also REQ-LOG-003, REQ-LOG-004, REQ-TEST-002).
 
 A local HTTP server on the loopback stands in for the OpenSky Network at its two paths, the
 token endpoint and `states/all`, and the binary reaches it through --adsb-origin: CI never
 calls the service, and every response here is synthetic (two aircraft on the 28R final, the
-geometry of tests/unit/opensky_examples.h; nothing came from the service). The script, in the
+geometry of tests/unit/opensky_examples.h, and a third overflying the field above the ceiling,
+placed by distance and bearing from the configured reference point; nothing came from the
+service). The script, in the
 order the binary asks: a token for the credentials the test wrote; states responses whose
 position times advance, the nearer aircraft landing at the fourth; a 401 at the fifth states
 request, repaired by a refresh and a retry with the new token; a 429 with Retry-After 1 at the
@@ -19,6 +21,7 @@ the run directory, which is searched afterwards for the secret and the token.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 from contextlib import contextmanager
@@ -56,6 +59,29 @@ ENDED_REPEATS = 3
 # descending, B about 9 km behind it.
 A = {"icao24": "000001", "callsign": "TEST001 ", "lon": -122.3289, "lat": 37.6002, "geo": 480.0, "vel": 72.0}
 B = {"icao24": "000002", "callsign": "TEST002 ", "lon": -122.2888, "lat": 37.5833, "geo": 730.0, "vel": 80.0}
+
+
+def adsb_value(key: str) -> float:
+    """One number of the shipped file's adsb block, so that no coordinate or threshold is written here."""
+    match = re.search(rf"^\s+{key}:\s*(\S+)", SHIPPED_CONFIG.read_text(), re.M)
+    assert match, key
+    return float(match.group(1))
+
+
+def placed(distance_m: float, bearing_deg: float) -> tuple[float, float]:
+    """Latitude and longitude `distance_m` from the reference point on `bearing_deg`, clockwise from
+    north: the inverse of the selector's equirectangular distance (REQ-SENS-009)."""
+    lat0, lon0 = adsb_value("latitude"), adsb_value("longitude")
+    k = 6_371_000.0 * math.pi / 180.0
+    bearing = math.radians(bearing_deg)
+    return (lat0 + distance_m * math.cos(bearing) / k,
+            lon0 + distance_m * math.sin(bearing) / (k * math.cos(math.radians(lat0))))
+
+
+# The overflight of FTS-VR-001 Entry 18 §18.5 in every response: descending through 3,498 m 2.4 km from
+# the reference point, nearer than A or B and above the ceiling, so never a candidate (TC-029 step 20).
+C_LAT, C_LON = placed(2400.0, 140.0)
+C = {"icao24": "000003", "callsign": "TEST003 ", "lon": C_LON, "lat": C_LAT, "geo": 3498.0, "vel": 63.0}
 
 # The binary's exit line for the source (main.cpp).
 ADSB_LINE = re.compile(
@@ -102,7 +128,7 @@ class Script:
         if n == RATE_LIMITED_AT:
             return 429, {"X-Rate-Limit-Retry-After-Seconds": "1"}, b""
         time = T0 + n
-        rows = [state_row(B, time - 2)]
+        rows = [state_row(C, time - 2), state_row(B, time - 2)]
         if n < LANDS_AT:
             rows.append(state_row(A, time - 1))
         elif n == LANDS_AT:
@@ -248,7 +274,7 @@ def test_exit_line_counts_what_the_script_implies(adsb_run):
     assert counts["token_requests"] == 2 == adsb_run.script.tokens
     assert counts["readings"] == counts["ok"], "every response carried a later position or a new aircraft"
     assert counts["changes"] == 2
-    assert (counts["aircraft"], counts["candidates"]) == (1, 1), "only B in the last response"
+    assert (counts["aircraft"], counts["candidates"]) == (2, 1), "B and C in the last response, C above the ceiling"
     assert "position age min/mean/max = 1 / " in adsb_run.run.stdout and " / 2 s" in adsb_run.run.stdout
     assert "selected TEST002 (000002)" in adsb_run.run.stdout
     assert f"credentials from {adsb_run.credentials}" in adsb_run.run.stdout
@@ -324,6 +350,21 @@ def test_selection_record_beside_the_log(adsb_run):
     # The console says the same, at the same frame.
     assert "[ADS-B] t=0 ms none -> TEST001 (000001): initial, " in adsb_run.run.stdout
     assert f"[ADS-B] t={frames[switch].timestamp_ms} ms TEST001 (000001) -> TEST002 (000002): landed, " in adsb_run.run.stdout
+
+
+# --- step 20: an aircraft above the ceiling is never presented (REQ-SENS-009 since SRD 0.18.0) -----
+
+
+def test_an_aircraft_above_the_ceiling_is_never_presented(adsb_run):
+    ceiling = adsb_value("ceiling_m")
+    assert C["geo"] > ceiling > max(A["geo"], B["geo"])
+    frames = read_log(adsb_run.run.log).frames
+    assert all(abs(f.latitude - C["lat"]) > 1e-6 for f in frames), "no frame carries the overflight's position"
+    assert all(f.gps_altitude_m <= ceiling for f in frames)
+    lines = (adsb_run.cwd / "logs" / "telemetry_adsb.csv").read_text().splitlines()
+    assert len(lines) == 3 and all("000003" not in line for line in lines[1:])
+    assert all(s.identity != ("000003", "TEST003") for _, s in adsb_run.run.statuses)
+    assert "TEST003" not in adsb_run.run.stdout
 
 
 # --- TC-031 step 14: each new aircraft flagged, the filter reborn on it (REQ-PROC-008) ----------

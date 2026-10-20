@@ -119,5 +119,6 @@ adsb:
     longitude: -122.3790
   poll_interval_ms: 5000     # the service's own resolution; one credit per poll, 720 an hour against 4,000 a day; 1000 to 3600000
   switch_margin_m: 2000      # a candidate replaces the kept aircraft only when nearer by more than this; at least 0
+  ceiling_m: 1650            # no candidate above this geometric altitude (WGS-84 HAE), and the kept aircraft is dropped above it: the 3° glide path at the box's far corner, 31 km out, plus the field, rounded up; at least 0
   gone_after_polls: 2        # responses without the kept aircraft before it counts as gone; at least 1
   timeout_ms: 20000          # the GPS channel's timeout in this mode (FAULT-003); must exceed poll_interval_ms

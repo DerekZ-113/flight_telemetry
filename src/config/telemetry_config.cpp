@@ -646,6 +646,7 @@ ConfigLoad load_config_text(const std::string& text, const std::string& name) {
         }
         adsb_interval_ok = s.read_int("poll_interval_ms", 1000, 3600000, a.poll_interval_ms);
         s.read_number_at_least("switch_margin_m", 0.0, a.switch_margin_m);
+        s.read_number_at_least("ceiling_m", 0.0, a.ceiling_m);
         s.read_int("gone_after_polls", 1, kNoMaximum, a.gone_after_polls);
         adsb_timeout_ok = s.read_int("timeout_ms", 1, kNoMaximum, a.timeout_ms);
         s.finish();

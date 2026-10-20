@@ -38,7 +38,7 @@ AdsbSource::AdsbSource(std::unique_ptr<HttpClient> http, Clock& clock, const Ads
       clock_(clock),
       http_(std::move(http)),
       client_(*http_, clock, credentials, config.box, origin_override),
-      selector_(config.reference, config.switch_margin_m, config.gone_after_polls),
+      selector_(config.reference, config.switch_margin_m, config.gone_after_polls, config.ceiling_m),
       credentials_path_(credentials_path),
       worker_([this] { return poll_once(); })
 {
@@ -108,8 +108,9 @@ PollReport AdsbSource::poll() {
         const opensky_json::StatesDocument& document = result.document;
         report.response = true;
         report.aircraft = document.states.size();
+        const auto is_candidate = [this](const opensky_json::AircraftState& s) { return selector_.candidate(s); };
         report.candidates = static_cast<size_t>(
-            std::count_if(document.states.begin(), document.states.end(), &AircraftSelector::candidate));
+            std::count_if(document.states.begin(), document.states.end(), is_candidate));
         std::optional<SelectionChange> change = selector_.update(document);
         if (change.has_value()) {
             report.changes.push_back(SwitchRecord{0, report.poll, std::move(*change)});
