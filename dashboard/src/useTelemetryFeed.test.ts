@@ -9,7 +9,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FakeSocket, fakeSocketFactory } from "./fakeSocket";
-import { frame, hello, session, PERIOD_MS, STALE_MS } from "./testMessages";
+import { frame, hello, session, PERIOD_MS, STALE_MS, TEST001, TEST002 } from "./testMessages";
 import { useTelemetryFeed } from "./useTelemetryFeed";
 
 let clock = 0;
@@ -55,12 +55,14 @@ describe("useTelemetryFeed", () => {
     expect(FakeSocket.latest().url).toBe(URL);
   });
 
-  it("takes the threshold and the session from hello", () => {
+  it("takes the threshold and the session, its source mode with it, from hello and from a status", () => {
     const { result } = renderHook(() => useTelemetryFeed(URL, options));
-    openWithHello(hello({ mode: "REPLAY", state: "RUNNING" }, 2500));
+    openWithHello(hello({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" }, 2500));
     expect(result.current.connection).toBe("open");
     expect(result.current.staleMs).toBe(2500);
-    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING" });
+    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "ADSB" });
+    deliver(session("REPLAY", "RUNNING", null, "SIMULATED"));
+    expect(result.current.session).toEqual({ mode: "REPLAY", state: "RUNNING", identity: null, source_mode: "SIMULATED" });
   });
 
   it("marks the feed stale from its own clock and clears it on the next frame (step 11)", () => {
@@ -233,5 +235,26 @@ describe("useTelemetryFeed", () => {
     expect(result.current.trail).toHaveLength(3600); // kept until a new session's first frame
     deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
     expect(result.current.trail).toEqual([{ east_m: 0, north_m: 0 }]);
+  });
+  // --- TC-030 step 5: the trail and the identity (REQ-DISP-007) ------------------------------
+
+  it("clears the trail when the identity changes and keeps it when a status repeats it", () => {
+    const { result } = renderHook(() => useTelemetryFeed(URL, options));
+    openWithHello(hello({ mode: "ADSB", state: "RUNNING", identity: TEST001, source_mode: "ADSB" }));
+    expect(result.current.session?.identity).toEqual(TEST001);
+    for (let i = 0; i <= 50; i++) {
+      deliver({ ...frame(i), position: { east_m: i, north_m: 0 } }); // fresh on 0 and 50
+    }
+    expect(result.current.trail).toHaveLength(2);
+    deliver(session("ADSB", "RUNNING", TEST001)); // the same aircraft again: kept
+    expect(result.current.trail).toHaveLength(2);
+    deliver(session("ADSB", "RUNNING", TEST002)); // a new aircraft: a new track, before its first frame
+    expect(result.current.trail).toEqual([]);
+    expect(result.current.session?.identity).toEqual(TEST002);
+    deliver({ ...frame(100), position: { east_m: 0, north_m: 0 } });
+    expect(result.current.trail).toEqual([{ east_m: 0, north_m: 0 }]);
+    deliver(session("ADSB", "RUNNING", null)); // nothing selected is a change too
+    expect(result.current.trail).toEqual([]);
+    expect(result.current.session?.identity).toBeNull();
   });
 });

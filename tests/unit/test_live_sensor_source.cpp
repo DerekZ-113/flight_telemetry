@@ -98,10 +98,10 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.longitude, 0.0);
     EXPECT_EQ(f.gps_altitude_m, 0.0f);
     EXPECT_EQ(f.ground_speed_mps, 0.0f);
-    EXPECT_EQ(f.heading_deg, 0.0f);
+    EXPECT_EQ(f.course_deg, 0.0f);
     EXPECT_EQ(f.baro_status, ChannelStatus::NOMINAL);
     EXPECT_EQ(f.imu_status, ChannelStatus::NOMINAL);
-    EXPECT_EQ(f.gps_status, ChannelStatus::NOMINAL);
+    EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);   // no receiver on this rig (REQ-FAULT-007)
     EXPECT_EQ(f.baro_altitude_m, 0.0f);
     EXPECT_EQ(f.pitch_deg, 0.0f);
     EXPECT_EQ(f.roll_deg, 0.0f);
@@ -112,8 +112,28 @@ TEST(LiveSensorSourceTest, FrameCarriesBothChipsRawOnly) {
     EXPECT_EQ(f.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(f.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(f.reserved_a, 0u);
-    EXPECT_EQ(f.reserved_b, 0u);
+    EXPECT_EQ(f.sequence, 0u);          // the run's first frame (REQ-LOG-008)
+    EXPECT_EQ(f.flags, 0u);             // no receiver on this rig, so no fix quality (REQ-SENS-005)
+    EXPECT_EQ(f.gps_fix_quality, 0u);
+    EXPECT_EQ(f.gps_satellites, 0u);
+    EXPECT_EQ(f.voter_status, 0u);
+    EXPECT_EQ(f.reserved_d, 0u);
+}
+
+// REQ-LOG-008, TC-031 step 5. The source counts its own frames from zero,
+// one per read_frame(): a frame whose barometer read failed is still a
+// frame, and the count is the frames', not the readings'.
+TEST(LiveSensorSourceTest, NumbersItsFramesFromZero) {
+    Rig rig;
+    LiveSensorSource source = rig.make();
+    ASSERT_TRUE(source.ok()) << source.error();
+    for (uint32_t i = 0; i < 300; ++i) {
+        rig.bus->fail_reads_at(kBaro, Bmp280::kRegData, i % 7 == 3);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.sequence, i);
+        EXPECT_EQ(f.baro_read_ok, i % 7 != 3) << i;
+        rig.clock.advance(20'000'000);
+    }
 }
 
 // TC-014 step 6. A failed barometer burst holds the barometer's fields at
@@ -291,7 +311,7 @@ TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
     EXPECT_NEAR(fix.longitude, nmea_examples::kGgaLongitudeDeg, 1e-7);
     EXPECT_FLOAT_EQ(fix.gps_altitude_m, nmea_examples::kGgaAltitudeM);
     EXPECT_NEAR(fix.ground_speed_mps, nmea_examples::kRmcSpeedMps, 1e-6);
-    EXPECT_FLOAT_EQ(fix.heading_deg, nmea_examples::kRmcCourseDeg);
+    EXPECT_FLOAT_EQ(fix.course_deg, nmea_examples::kRmcCourseDeg);
     EXPECT_TRUE(fix.baro_read_ok);   // the chips are read on the same cycle as before
     EXPECT_TRUE(fix.imu_read_ok);
     // The raw-only contract: every status NOMINAL, every validity unjudged.
@@ -320,12 +340,44 @@ TEST(LiveSensorSourceTest, FixIsFreshOnlyOnTheCycleItCompleted) {
         EXPECT_EQ(f.longitude, fix.longitude) << i;
         EXPECT_EQ(f.gps_altitude_m, fix.gps_altitude_m) << i;
         EXPECT_EQ(f.ground_speed_mps, fix.ground_speed_mps) << i;
-        EXPECT_EQ(f.heading_deg, fix.heading_deg) << i;
+        EXPECT_EQ(f.course_deg, fix.course_deg) << i;
     }
     const std::optional<GpsCounters> counters = source.gps_counters();
     ASSERT_TRUE(counters.has_value());
     EXPECT_EQ(counters->fixes, 1u);
     EXPECT_EQ(counters->sentences, 2u);
+}
+
+// TC-031 step 6 (REQ-SENS-005). The receiver's own judgment of its fix,
+// GGA's quality and satellite count, rides the frame with the fix: zero
+// with the FIX_QUALITY bit clear before the first fix, the fix's values
+// with the bit on the cycle it completed, and held with the bit on every
+// cycle after, as the position is. No other fact is stated.
+TEST(LiveSensorSourceTest, FixQualityAndSatellitesRideTheFix) {
+    Rig rig;
+    LiveSensorSource source = rig.make_with_gps();
+    ASSERT_TRUE(source.ok()) << source.error();
+    const TelemetryFrame before = source.read_frame();
+    EXPECT_EQ(before.gps_fix_quality, 0u);
+    EXPECT_EQ(before.gps_satellites, 0u);
+    EXPECT_EQ(before.flags, 0u);
+
+    run_startup(source, rig);
+    rig.gps->queue(epoch());
+    const TelemetryFrame fix = source.read_frame();
+    ASSERT_TRUE(fix.gps_read_ok);
+    EXPECT_EQ(static_cast<int>(fix.gps_fix_quality), nmea_examples::kGgaQuality);
+    EXPECT_EQ(static_cast<int>(fix.gps_satellites), nmea_examples::kGgaSatellites);
+    EXPECT_EQ(fix.flags, static_cast<uint8_t>(FrameFlag::FIX_QUALITY));
+
+    for (int i = 0; i < 49; ++i) {
+        rig.clock.advance(20'000'000);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.gps_fix_quality, fix.gps_fix_quality) << i;
+        EXPECT_EQ(f.gps_satellites, fix.gps_satellites) << i;
+        EXPECT_EQ(f.flags, static_cast<uint8_t>(FrameFlag::FIX_QUALITY)) << i;
+    }
 }
 
 // A sentence cut across two cycles completes on the second, and the fix is
@@ -385,11 +437,35 @@ TEST(LiveSensorSourceTest, WithoutAPortTheGpsIsAbsent) {
         const TelemetryFrame f = source.read_frame();
         EXPECT_FALSE(f.gps_read_ok);
         EXPECT_EQ(f.latitude, 0.0);
-        EXPECT_EQ(f.heading_deg, 0.0f);
+        EXPECT_EQ(f.course_deg, 0.0f);
+        EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE);
     }
     EXPECT_FALSE(source.gps_counters().has_value());
     EXPECT_FALSE(source.last_gps_fix().has_value());
     EXPECT_EQ(source.gps_startup_discarded(), 0u);
+}
+
+// TC-017 step 18 (REQ-FAULT-007, FAULT-018). Without a receiver the GPS
+// channel is not provided: the source reports it NOT_AVAILABLE on every
+// frame, the fields zero and never fresh, so the detector leaves it alone
+// and no timeout and no event ever follow. Until 0.12.0 the source
+// reported NOMINAL and the detector declared a failure at 2 s on every
+// bench run without a receiver. The two chips stay NOMINAL, for the
+// detector to judge.
+TEST(LiveSensorSourceTest, GpsWithoutAReceiverIsNotAvailable) {
+    Rig rig;
+    LiveSensorSource source = rig.make();
+    ASSERT_TRUE(source.ok()) << source.error();
+    for (int i = 0; i < 100; ++i) {
+        rig.clock.advance(20'000'000);
+        const TelemetryFrame f = source.read_frame();
+        EXPECT_EQ(f.gps_status, ChannelStatus::NOT_AVAILABLE) << i;
+        EXPECT_FALSE(f.gps_read_ok) << i;
+        EXPECT_EQ(f.latitude, 0.0) << i;
+        EXPECT_EQ(f.gps_altitude_m, 0.0f) << i;
+        EXPECT_EQ(f.baro_status, ChannelStatus::NOMINAL) << i;
+        EXPECT_EQ(f.imu_status, ChannelStatus::NOMINAL) << i;
+    }
 }
 
 // A port that fails leaves the channel not fresh and counts the error; the

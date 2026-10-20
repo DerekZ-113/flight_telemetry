@@ -52,11 +52,42 @@ TEST_F(LoggingTest, HeaderRoundTrip) {
     LogReader reader(dir_ / "t_000.bin");
     ASSERT_TRUE(reader.ok()) << reader.error();
     EXPECT_EQ(reader.header().version, kLogFormatVersion);
-    EXPECT_EQ(kLogFormatVersion, 2);
+    EXPECT_EQ(kLogFormatVersion, 3);
     EXPECT_EQ(kOldestReadableLogFormatVersion, 1);
     EXPECT_EQ(reader.header().frame_size, sizeof(TelemetryFrame));
+    EXPECT_EQ(reader.header().frame_size, 120u);
     EXPECT_EQ(reader.header().event_size, sizeof(FaultEvent));
     EXPECT_EQ(reader.header().endian_marker, kEndianMarker);
+    // A logger nobody told the modes says so: UNKNOWN is the zero.
+    EXPECT_EQ(reader.header().run_mode, 0u);
+    EXPECT_EQ(reader.header().source_mode, 0u);
+}
+
+// The header records how the file was recorded and how its frames were
+// produced, written once (REQ-LOG-007; TC-031 step 2).
+TEST_F(LoggingTest, HeaderCarriesTheRunModeAndTheSourceMode) {
+    const LogFileHeader header = make_log_header(RunMode::REPLAY, RunMode::ADSB);
+    EXPECT_EQ(std::memcmp(header.magic, "FTLG", 4), 0);
+    EXPECT_EQ(header.version, 3);
+    EXPECT_EQ(header.frame_size, 120u);
+    EXPECT_EQ(header.event_size, 16u);
+    EXPECT_EQ(header.run_mode, static_cast<uint8_t>(RunMode::REPLAY));
+    EXPECT_EQ(header.source_mode, static_cast<uint8_t>(RunMode::ADSB));
+    EXPECT_TRUE(header_is_valid(header));
+    {
+        BinaryLogger logger(dir_, "t", 1 << 20, header);
+        ASSERT_TRUE(logger.ok());
+        logger.log_frame(TelemetryFrame{});
+    }
+    LogReader reader(dir_ / "t_000.bin");
+    ASSERT_TRUE(reader.ok()) << reader.error();
+    EXPECT_EQ(reader.header().run_mode, 3u);
+    EXPECT_EQ(reader.header().source_mode, 4u);
+    EXPECT_EQ(frame_size_for(1), 104u);
+    EXPECT_EQ(frame_size_for(2), 104u);
+    EXPECT_EQ(frame_size_for(3), 120u);
+    EXPECT_EQ(frame_size_for(0), 0u);     // a version this build does not define
+    EXPECT_EQ(frame_size_for(4), 0u);
 }
 
 // Bytes in, same bytes out. memcmp, not field-by-field with tolerance:
@@ -182,8 +213,24 @@ TEST_F(LoggingTest, ReaderRejectsWrongFrameSize) {
     }
     LogReader reader(dir_ / "bad.bin");
     EXPECT_FALSE(reader.ok());
-    EXPECT_NE(reader.error().find("frame size 112 in the header, 104 in this build"), std::string::npos)
+    EXPECT_NE(reader.error().find("frame size 128 in the header, 120 for version 3 in this build"), std::string::npos)
         << reader.error();
+}
+
+// The frame size is judged per version, since the frame grew at version 3:
+// a version-3 header claiming the old size, or an older header claiming
+// the new one, is a file this build cannot have written. (REQ-LOG-005;
+// TC-031 step 2)
+TEST_F(LoggingTest, FrameSizeIsJudgedPerVersion) {
+    LogFileHeader h = make_log_header();
+    h.frame_size = kVersion2FrameBytes;
+    EXPECT_EQ(header_problem(h), "frame size 104 in the header, 120 for version 3 in this build");
+    h.version = 2;
+    EXPECT_EQ(header_problem(h), "");
+    h.version = 1;
+    EXPECT_EQ(header_problem(h), "");
+    h.frame_size = static_cast<uint16_t>(sizeof(TelemetryFrame));
+    EXPECT_EQ(header_problem(h), "frame size 120 in the header, 104 for version 1 in this build");
 }
 
 TEST_F(LoggingTest, ReaderRejectsMissingFile) {
@@ -301,7 +348,7 @@ TEST_F(LoggingTest, ReaderRejectsWrongVersion) {
     std::ofstream(dir_ / "bad.bin", std::ios::binary).write(reinterpret_cast<const char*>(&h), sizeof(h));
     LogReader reader(dir_ / "bad.bin");
     EXPECT_FALSE(reader.ok());
-    EXPECT_NE(reader.error().find("format version 3; this build reads 1 to 2"), std::string::npos)
+    EXPECT_NE(reader.error().find("format version 4; this build reads 1 to 3"), std::string::npos)
         << reader.error();
     h.version = 0;
     std::ofstream(dir_ / "bad0.bin", std::ios::binary).write(reinterpret_cast<const char*>(&h), sizeof(h));
@@ -316,16 +363,17 @@ TEST_F(LoggingTest, ReaderRejectsWrongVersion) {
 TEST_F(LoggingTest, Version1HeaderIsReadAndSanitized) {
     LogFileHeader h = make_log_header();
     h.version = 1;
+    h.frame_size = kVersion2FrameBytes;                  // a version-1 frame is 104 bytes
     TelemetryFrame frame{};
     frame.timestamp_ms = 40;
     frame.pressure_hpa = 1000.0f;
-    frame.reserved_a = 0xDEADBEEFu;                      // stack contents in a pre-9/9 log
+    frame.sequence = 0xDEADBEEFu;                        // stack contents in a pre-9/9 log, where version 3 has the sequence
     frame.baro_altitude_validity = Validity::NORMAL;
     frame.pitch_validity = Validity::FAILURE_WARNING;
     frame.roll_validity = static_cast<Validity>(0x7F);
     frame.fused_altitude_validity = Validity::NORMAL;
     frame.vertical_speed_validity = Validity::NO_COMPUTED_DATA;
-    frame.reserved_b = 0x55;
+    frame.flags = 0x55;                                  // the same, where version 3 has the flags
     FaultEvent event{};
     event.timestamp_ms = 60;
     event.channel = Channel::GPS;
@@ -338,7 +386,7 @@ TEST_F(LoggingTest, Version1HeaderIsReadAndSanitized) {
         const uint8_t frame_tag = static_cast<uint8_t>(RecordType::FRAME);
         const uint8_t event_tag = static_cast<uint8_t>(RecordType::FAULT_EVENT);
         out.write(reinterpret_cast<const char*>(&frame_tag), 1);
-        out.write(reinterpret_cast<const char*>(&frame), sizeof(frame));
+        out.write(reinterpret_cast<const char*>(&frame), kVersion2FrameBytes);
         out.write(reinterpret_cast<const char*>(&event_tag), 1);
         out.write(reinterpret_cast<const char*>(&event), sizeof(event));
     }
@@ -347,23 +395,87 @@ TEST_F(LoggingTest, Version1HeaderIsReadAndSanitized) {
     ASSERT_TRUE(reader.ok()) << reader.error();
     EXPECT_EQ(reader.header().version, 1);
     LogRecord r;
+    r.frame.gps_fix_quality = 9;   // a stale tail from a previous record must not survive the read
     ASSERT_TRUE(reader.next(r));
     ASSERT_EQ(r.type, RecordType::FRAME);
     EXPECT_EQ(r.frame.timestamp_ms, 40u);
     EXPECT_EQ(r.frame.pressure_hpa, 1000.0f);
-    EXPECT_EQ(r.frame.reserved_a, 0u);
+    EXPECT_EQ(r.frame.sequence, 0u);
     EXPECT_EQ(r.frame.baro_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(r.frame.pitch_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(r.frame.roll_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(r.frame.fused_altitude_validity, Validity::NOT_JUDGED);
     EXPECT_EQ(r.frame.vertical_speed_validity, Validity::NOT_JUDGED);
-    EXPECT_EQ(r.frame.reserved_b, 0u);
+    EXPECT_EQ(r.frame.flags, 0u);
+    EXPECT_EQ(r.frame.gps_fix_quality, 0u);
+    EXPECT_EQ(r.frame.gps_satellites, 0u);
+    EXPECT_EQ(r.frame.gps_vertical_rate_mps, 0.0f);
+    EXPECT_EQ(r.frame.gps_pressure_altitude_m, 0.0f);
+    EXPECT_EQ(r.frame.voter_status, 0u);
+    EXPECT_EQ(r.frame.reserved_d, 0u);
     ASSERT_TRUE(reader.next(r));
     ASSERT_EQ(r.type, RecordType::FAULT_EVENT);
     EXPECT_EQ(r.event.timestamp_ms, 60u);
     EXPECT_EQ(r.event.reserved, 0u);
     EXPECT_EQ(r.event.value, 2020.0f);
     EXPECT_FALSE(reader.next(r));
+}
+
+// REQ-LOG-005, TC-031 step 3. A version-2 frame is the first 104 bytes of
+// a version-3 frame, every field where it was: the reader takes the bytes
+// the file holds, the tail stays zero, and nothing is sanitized, because
+// version 2 defined every byte (its reserved fields zero by definition).
+TEST_F(LoggingTest, Version2FrameReadsAsAPrefixOfVersion3) {
+    LogFileHeader h = make_log_header(RunMode::SIMULATED, RunMode::SIMULATED);
+    h.version = 2;
+    h.frame_size = kVersion2FrameBytes;
+    h.run_mode = 0;      // a version-2 header's two bytes were one reserved field, zero
+    h.source_mode = 0;
+    TelemetryFrame frame{};
+    frame.timestamp_ms = 40;
+    frame.pressure_hpa = 1000.0f;
+    frame.course_deg = 123.5f;
+    frame.sequence = 7;            // not what a version-2 source wrote, but what the bytes say
+    frame.gps_read_ok = true;
+    frame.baro_altitude_validity = Validity::NORMAL;
+    frame.vertical_speed_validity = Validity::FAILURE_WARNING;
+    frame.flags = 0x55;
+    frame.gps_fix_quality = 9;     // beyond the 104 bytes written: must not reach the reader
+    frame.reserved_d = 0xFFFFFFFFu;
+    {
+        std::ofstream out(dir_ / "v2.bin", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(&h), sizeof(h));
+        const uint8_t tag = static_cast<uint8_t>(RecordType::FRAME);
+        out.write(reinterpret_cast<const char*>(&tag), 1);
+        out.write(reinterpret_cast<const char*>(&frame), kVersion2FrameBytes);
+        out.write(reinterpret_cast<const char*>(&tag), 1);
+        out.write(reinterpret_cast<const char*>(&frame), kVersion2FrameBytes);
+    }
+    LogReader reader(dir_ / "v2.bin");
+    ASSERT_TRUE(reader.ok()) << reader.error();
+    EXPECT_EQ(reader.header().version, 2);
+    EXPECT_EQ(reader.header().run_mode, 0u);
+    LogRecord r;
+    for (int i = 0; i < 2; i++) {
+        ASSERT_TRUE(reader.next(r)) << "record " << i;
+        ASSERT_EQ(r.type, RecordType::FRAME);
+        EXPECT_EQ(r.frame.timestamp_ms, 40u);
+        EXPECT_EQ(r.frame.pressure_hpa, 1000.0f);
+        EXPECT_EQ(r.frame.course_deg, 123.5f);
+        EXPECT_EQ(r.frame.sequence, 7u);
+        EXPECT_TRUE(r.frame.gps_read_ok);
+        EXPECT_EQ(r.frame.baro_altitude_validity, Validity::NORMAL);
+        EXPECT_EQ(r.frame.vertical_speed_validity, Validity::FAILURE_WARNING);
+        EXPECT_EQ(r.frame.flags, 0x55);
+        EXPECT_EQ(r.frame.gps_fix_quality, 0u);
+        EXPECT_EQ(r.frame.gps_satellites, 0u);
+        EXPECT_EQ(r.frame.gps_vertical_rate_mps, 0.0f);
+        EXPECT_EQ(r.frame.gps_pressure_altitude_m, 0.0f);
+        EXPECT_EQ(r.frame.voter_status, 0u);
+        EXPECT_EQ(r.frame.reserved_d, 0u);
+    }
+    EXPECT_FALSE(reader.next(r));
+    EXPECT_TRUE(reader.error().empty()) << reader.error();   // a clean end, not a torn record
 }
 
 TEST_F(LoggingTest, ReaderRejectsWrongEventSize) {
@@ -399,14 +511,17 @@ TEST_F(LoggingTest, FrameMessageIsHeaderTagAndFrame) {
     SimulatedSource source(20, 42);
     const TelemetryFrame frame = source.read_frame();
 
-    const std::array<uint8_t, kFrameMessageBytes> message = frame_message(frame);
+    const LogFileHeader expected = make_log_header(RunMode::SIMULATED, RunMode::SIMULATED);
+    const std::array<uint8_t, kFrameMessageBytes> message = frame_message(frame, expected);
     ASSERT_EQ(message.size(), kHeader + kFrameRecord);
+    ASSERT_EQ(message.size(), 137u);
 
     LogFileHeader header{};
     std::memcpy(&header, message.data(), sizeof(header));
     EXPECT_TRUE(header_is_valid(header));
-    EXPECT_EQ(header.version, 2);
-    const LogFileHeader expected = make_log_header();
+    EXPECT_EQ(header.version, 3);
+    EXPECT_EQ(header.run_mode, 2u);     // the header handed in travels on the wire (REQ-LOG-007)
+    EXPECT_EQ(header.source_mode, 2u);
     EXPECT_EQ(std::memcmp(&header, &expected, sizeof(header)), 0);
     EXPECT_EQ(message[kHeader], static_cast<uint8_t>(RecordType::FRAME));
     EXPECT_EQ(std::memcmp(message.data() + kHeader + 1, &frame, sizeof(frame)), 0);

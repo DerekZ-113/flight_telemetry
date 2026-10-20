@@ -15,7 +15,10 @@ TelemetryFrame SimulatedSource::read_frame() {
     // Stamp the frame, then advance the clock for the next call. The first
     // frame is at t=0, matching how the fixed-rate loop will count from
     // system start (timestamp_ms is "milliseconds since system start").
+    // The count is the source's, as the clock is (REQ-LOG-008): the
+    // generator stays a function of the timestamp.
     TelemetryFrame frame = generator_.generate(next_timestamp_ms_);
+    frame.sequence = next_sequence();
     next_timestamp_ms_ += interval_ms_;
     return frame;
 }

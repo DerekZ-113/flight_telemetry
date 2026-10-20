@@ -1,5 +1,17 @@
 #include "drivers/fault_injecting_source.h"
 
+namespace {
+
+// The bits that say the GPS channel's optional fields are present
+// (FrameFlag): they describe the reading, so they are held with it.
+// NEW_VEHICLE is a fact about the frame, not the channel, and passes
+// through like the sequence number.
+constexpr uint8_t kGpsPresenceBits = static_cast<uint8_t>(
+    static_cast<uint8_t>(FrameFlag::VERTICAL_RATE) | static_cast<uint8_t>(FrameFlag::PRESSURE_ALTITUDE) |
+    static_cast<uint8_t>(FrameFlag::FIX_QUALITY));
+
+}  // namespace
+
 FaultInjectingSource::FaultInjectingSource(std::unique_ptr<DataSource> inner)
     : inner_(std::move(inner))
 {
@@ -21,11 +33,20 @@ void FaultInjectingSource::copy_channel(Channel channel, const TelemetryFrame& f
             to.gyro_x = from.gyro_x;   to.gyro_y = from.gyro_y;   to.gyro_z = from.gyro_z;
             break;
         case Channel::GPS:
+            // The whole reading, since format version 3 the receiver's
+            // judgment of its fix and the ADS-B fields with it, so a held
+            // GPS is held as the live source holds its last fix
+            // (REQ-SENS-005, REQ-SENS-008).
             to.latitude = from.latitude;
             to.longitude = from.longitude;
             to.gps_altitude_m = from.gps_altitude_m;
             to.ground_speed_mps = from.ground_speed_mps;
-            to.heading_deg = from.heading_deg;
+            to.course_deg = from.course_deg;
+            to.gps_vertical_rate_mps = from.gps_vertical_rate_mps;
+            to.gps_pressure_altitude_m = from.gps_pressure_altitude_m;
+            to.gps_fix_quality = from.gps_fix_quality;
+            to.gps_satellites = from.gps_satellites;
+            to.flags = static_cast<uint8_t>((to.flags & ~kGpsPresenceBits) | (from.flags & kGpsPresenceBits));
             break;
     }
 }

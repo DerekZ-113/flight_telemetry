@@ -5,21 +5,23 @@
 namespace {
 
 // A version-1 record has the same bytes as a version-2 one, with the
-// compiler's padding where version 2 names fields (log_format.h). A log
+// compiler's padding where version 2 named fields (log_format.h). A log
 // written before 2026-09-09 may carry stack contents there (FTS-VR-001
-// Entries 4 and 5), so the bytes are set to what version 2 means by them:
-// validity NOT_JUDGED, reserved zero. Replay and the tests then see one
-// defined thing. The Python reader keeps a file's bytes as they are, because
-// its byte-identity tests compare files (REQ-LOG-005).
+// Entries 4 and 5), so the bytes are set to what version 2 meant by them:
+// validity NOT_JUDGED, the former reserved fields (version 3's sequence
+// and flags) zero. Replay and the tests then see one defined thing. The
+// Python reader keeps a file's bytes as they are, because its
+// byte-identity tests compare files (REQ-LOG-005). A version-2 file needs
+// nothing of this: it defined every byte.
 void sanitize_version_1(LogRecord& out) {
     if (out.type == RecordType::FRAME) {
-        out.frame.reserved_a = 0;
+        out.frame.sequence = 0;
         out.frame.baro_altitude_validity = Validity::NOT_JUDGED;
         out.frame.pitch_validity = Validity::NOT_JUDGED;
         out.frame.roll_validity = Validity::NOT_JUDGED;
         out.frame.fused_altitude_validity = Validity::NOT_JUDGED;
         out.frame.vertical_speed_validity = Validity::NOT_JUDGED;
-        out.frame.reserved_b = 0;
+        out.frame.flags = 0;
     } else {
         out.event.reserved = 0;
     }
@@ -61,15 +63,20 @@ bool LogReader::next(LogRecord& out) {
         return false;   // clean end of file
     }
 
-    // The tag decides how many bytes follow. gcount() is the honest
-    // measure of what was actually read: a short read is a torn record.
+    // The tag decides how many bytes follow: for a frame, the file's
+    // version's size (the prefix rule, log_format.h), read into a
+    // value-initialized frame so that an older file's shorter record
+    // leaves the tail zero rather than the previous record's. gcount() is
+    // the honest measure of what was actually read: a short read is a torn
+    // record.
     char* dest = nullptr;
     std::streamsize size = 0;
     switch (static_cast<RecordType>(tag)) {   // LCOV_EXCL_BR_LINE: default handled below
         case RecordType::FRAME:
             out.type = RecordType::FRAME;
+            out.frame = TelemetryFrame{};
             dest = reinterpret_cast<char*>(&out.frame);
-            size = sizeof(out.frame);
+            size = frame_size_for(header_.version);
             break;
         case RecordType::FAULT_EVENT:
             out.type = RecordType::FAULT_EVENT;

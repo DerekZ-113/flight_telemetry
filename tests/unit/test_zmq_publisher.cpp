@@ -110,10 +110,12 @@ TEST_F(ZmqPublisherTest, InvalidEndpointIsReportedNotThrown) {
 }
 
 // One message is a one-record log file: the 16-byte header this build
-// writes to disk, the FRAME tag, then the frame's bytes verbatim.
-// (REQ-TRANS-001; FTS-DD-001 section 9)
+// writes to disk, with the modes the composition root handed the
+// publisher (REQ-LOG-007), the FRAME tag, then the frame's bytes verbatim.
+// (REQ-TRANS-001; FTS-DD-001 section 9; TC-031 step 2)
 TEST_F(ZmqPublisherTest, MessageIsHeaderTagAndFrameBytes) {
-    ZmqPublisher publisher(context_, "inproc://layout");
+    const LogFileHeader expected = make_log_header(RunMode::SIMULATED, RunMode::SIMULATED);
+    ZmqPublisher publisher(context_, "inproc://layout", kDefaultSendHighWaterMark, expected);
     ASSERT_TRUE(publisher.ok());
     zmq::socket_t sub = make_subscriber("inproc://layout");
     settle(publisher, sub);
@@ -130,7 +132,8 @@ TEST_F(ZmqPublisherTest, MessageIsHeaderTagAndFrameBytes) {
     LogFileHeader header{};
     std::memcpy(&header, bytes, sizeof(header));
     EXPECT_TRUE(header_is_valid(header));
-    const LogFileHeader expected = make_log_header();
+    EXPECT_EQ(header.version, 3);
+    EXPECT_EQ(header.run_mode, static_cast<uint8_t>(RunMode::SIMULATED));
     EXPECT_EQ(std::memcmp(bytes, &expected, sizeof(expected)), 0);
     EXPECT_EQ(bytes[sizeof(header)], static_cast<uint8_t>(RecordType::FRAME));
     EXPECT_EQ(std::memcmp(frame_bytes(msg), &frame, sizeof(frame)), 0);
@@ -232,12 +235,12 @@ TEST_F(ZmqPublisherTest, SendErrorIsCountedNotThrown) {
     EXPECT_EQ(publisher.stats().last_errno, ETERM);
     EXPECT_EQ(publisher.stats().published, 0u);
     // A status meets the same refusal through the same send (REQ-TRANS-004).
-    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::ENDED));
+    EXPECT_FALSE(publisher.publish_status(SessionStatus{RunMode::LIVE, RunMode::LIVE, StreamState::ENDED, SessionIdentity{}}));
     EXPECT_EQ(publisher.stats().send_failures, 2u);
     EXPECT_EQ(publisher.stats().status_published, 0u);
 }
 
-// REQ-TRANS-004, TC-021 step 2: a status is the eight bytes of
+// REQ-TRANS-004, TC-021 step 2: a status is the nineteen bytes of
 // session_message, sent through the same socket as the frames and counted
 // apart from them.
 TEST_F(ZmqPublisherTest, StatusMessageArrivesAndIsCounted) {
@@ -246,12 +249,12 @@ TEST_F(ZmqPublisherTest, StatusMessageArrivesAndIsCounted) {
     zmq::socket_t sub = make_subscriber("inproc://status");
     const int warm_ups = settle(publisher, sub);
 
-    ASSERT_TRUE(publisher.publish_status(RunMode::REPLAY, StreamState::RUNNING));
+    const SessionStatus status{RunMode::REPLAY, RunMode::ADSB, StreamState::RUNNING, SessionIdentity{}};
+    ASSERT_TRUE(publisher.publish_status(status));
 
     zmq::message_t msg;
     ASSERT_TRUE(sub.recv(msg).has_value());
-    const std::array<uint8_t, kSessionMessageBytes> expected =
-        session_message(RunMode::REPLAY, StreamState::RUNNING);
+    const std::array<uint8_t, kSessionMessageBytes> expected = session_message(status);
     ASSERT_EQ(msg.size(), expected.size());
     EXPECT_EQ(std::memcmp(msg.data(), expected.data(), expected.size()), 0);
     EXPECT_EQ(publisher.stats().status_published, 1u);
@@ -264,7 +267,7 @@ TEST_F(ZmqPublisherTest, StatusMessageArrivesAndIsCounted) {
 TEST_F(ZmqPublisherTest, NotOkCountsAStatusFailure) {
     ZmqPublisher publisher(context_, "not-an-endpoint");
     ASSERT_FALSE(publisher.ok());
-    EXPECT_FALSE(publisher.publish_status(RunMode::LIVE, StreamState::ENDED));
+    EXPECT_FALSE(publisher.publish_status(SessionStatus{RunMode::LIVE, RunMode::LIVE, StreamState::ENDED, SessionIdentity{}}));
     EXPECT_EQ(publisher.stats().send_failures, 1u);
     EXPECT_EQ(publisher.stats().status_published, 0u);
 }

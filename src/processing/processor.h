@@ -97,7 +97,9 @@ public:
     // Each filter predicts every cycle and takes a measurement from a
     // channel only when that channel is NOMINAL and its reading is fresh
     // (read_ok), so a reading is used once, on the cycle it was obtained
-    // (REQ-PROC-006). A 1 Hz GPS in a 50 Hz loop is fresh on one cycle in
+    // (REQ-PROC-006). The Kalman filter is born from the first fresh
+    // altitude reading of either source, the barometer first when both
+    // are fresh on one cycle (REQ-PROC-003). A 1 Hz GPS in a 50 Hz loop is fresh on one cycle in
     // fifty; a failed I2C read inside the timeout window is stale on a
     // channel that is still NOMINAL. Both are normal, and neither may be
     // re-applied as if it were new evidence.
@@ -112,6 +114,12 @@ public:
     // depends on is not trusted, NORMAL otherwise. A field that is not
     // NORMAL holds a defined number, never NaN: 0 before its first
     // estimate, the held or coasting estimate under FAILURE_WARNING.
+    //
+    // A frame the source flags NEW_VEHICLE (REQ-PROC-008) ends every
+    // estimate before anything else happens: both filters, the IMU's
+    // freshness clock, the held barometric altitude and the "ever" flags
+    // start again, so the new vehicle's fields begin from its own readings,
+    // on that frame when they are fresh.
     TelemetryFrame process(const TelemetryFrame& raw);
 
 private:
@@ -122,11 +130,13 @@ private:
     ProcessorConfig tuning_;
 
     // std::optional because the filter cannot be built until the first
-    // fresh barometric reading arrives: that reading is its initial
-    // altitude. Empty means "no estimate yet". Constructing it with a
-    // made-up altitude and overwriting later would work, but would leave
-    // a window where the filter holds a value nobody measured; a driver
-    // reports read_ok false until its first successful transaction.
+    // fresh altitude reading arrives, the barometer's or, when none has
+    // read, the GPS's (REQ-PROC-003): that reading is its initial altitude
+    // and its source's variance the initial uncertainty. Empty means "no
+    // estimate yet". Constructing it with a made-up altitude and
+    // overwriting later would work, but would leave a window where the
+    // filter holds a value nobody measured; a driver reports read_ok false
+    // until its first successful transaction.
     std::optional<KalmanFilter1D> altitude_filter_;
 
     // Not optional, unlike the Kalman member: its constructor takes only

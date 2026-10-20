@@ -10,8 +10,12 @@
 // a cell that quietly reads undefined.
 
 export type ValidityName = "NOT_JUDGED" | "NO_COMPUTED_DATA" | "FAILURE_WARNING" | "NORMAL";
-export type StatusName = "NOMINAL" | "DEGRADED" | "NO_DATA";
-export type RunMode = "LIVE" | "SIMULATED" | "REPLAY";
+export type StatusName = "NOMINAL" | "DEGRADED" | "NO_DATA" | "NOT_AVAILABLE";
+export type RunMode = "LIVE" | "SIMULATED" | "REPLAY" | "ADSB";
+// How the frames were produced (REQ-LOG-007): the run's own mode, except in a
+// replay, which names its recording's; UNKNOWN for a log older than format
+// version 3, whose source nobody recorded.
+export type SourceMode = RunMode | "UNKNOWN";
 export type StreamState = "RUNNING" | "ENDED";
 
 export const COMPUTED_FIELDS = [
@@ -26,7 +30,7 @@ export type ComputedField = (typeof COMPUTED_FIELDS)[number];
 export const CHANNELS = ["baro", "imu", "gps"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
-// Every field of the 104-byte frame but the two the bridge withholds
+// Every field of the 120-byte frame (format version 3) but the two the bridge withholds
 // (REQ-DISP-005): no latitude, no longitude, so the page has no slot that
 // could ever show one.
 export interface FrameFields {
@@ -42,10 +46,10 @@ export interface FrameFields {
   gyro_z: number;
   pitch_deg: number;
   roll_deg: number;
-  reserved_a: number;
+  sequence: number; // the source's count of its frames, from 0 (REQ-LOG-008)
   gps_altitude_m: number;
   ground_speed_mps: number;
-  heading_deg: number;
+  course_deg: number; // the course over ground, degrees true (heading_deg until format version 3)
   fused_altitude_m: number;
   vertical_speed_mps: number;
   baro_status: number;
@@ -59,7 +63,13 @@ export interface FrameFields {
   roll_validity: number;
   fused_altitude_validity: number;
   vertical_speed_validity: number;
-  reserved_b: number;
+  flags: number; // FrameFlag bits: NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY
+  gps_vertical_rate_mps: number; // present only under the VERTICAL_RATE bit (REQ-SENS-008)
+  gps_pressure_altitude_m: number; // present only under the PRESSURE_ALTITUDE bit (REQ-SENS-008)
+  gps_fix_quality: number; // present only under the FIX_QUALITY bit (REQ-SENS-005)
+  gps_satellites: number;
+  voter_status: number; // VoterStatus bits; zero: no voter ran
+  reserved_d: number;
 }
 
 // A position relative to the first fix the bridge saw, in metres
@@ -79,9 +89,19 @@ export interface FrameMessage {
   position: Position | null;
 }
 
+// The aircraft an ADS-B run presents (REQ-DISP-007): its ICAO address as
+// six hex digits and its callsign, which may be empty. Null when nothing is
+// selected, in every other mode, and when the bridge hides it.
+export interface Identity {
+  icao24: string;
+  callsign: string;
+}
+
 export interface Session {
   mode: RunMode;
   state: StreamState;
+  identity: Identity | null;
+  source_mode: SourceMode; // since status version 3
 }
 
 export interface SessionMessage extends Session {
@@ -142,5 +162,53 @@ export function modeLabel(session: Session | null): string {
       return "SIM";
     case "REPLAY":
       return "REPLAY";
+    case "ADSB":
+      return "ADS-B";
   }
+}
+
+// Whether two identities name the same aircraft; two nulls do.
+export function sameIdentity(a: Identity | null, b: Identity | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return a.icao24 === b.icao24 && a.callsign === b.callsign;
+}
+
+// Whether the frames came from the ADS-B source, live or replayed
+// (REQ-LOG-007): the tape's datum, a replay's identity statement and the
+// data license's attribution follow the data, not the run (REQ-DISP-007).
+export function adsbSource(session: Session | null): boolean {
+  return session?.source_mode === "ADSB";
+}
+
+// What follows the mode label (REQ-DISP-007, FTS-DS-001 §5): in ADS-B mode
+// the aircraft the instruments show, its callsign, or its address when no
+// callsign is reported, or dashes when none is selected (or hidden); in a
+// REPLAY of an ADS-B recording a statement that the identity is
+// unavailable, because a replay carries none and a blank would read as
+// "none selected"; nothing after any other replay, which never had an
+// identity to lose, nor after LIVE and SIM, which are own-ship.
+export function identityLabel(session: Session | null): string | null {
+  if (session === null) {
+    return null;
+  }
+  switch (session.mode) {
+    case "ADSB":
+      if (session.identity === null) {
+        return "---";
+      }
+      return session.identity.callsign !== "" ? session.identity.callsign : session.identity.icao24;
+    case "REPLAY":
+      return adsbSource(session) ? "ID UNAVAILABLE" : null;
+    case "LIVE":
+    case "SIMULATED":
+      return null;
+  }
+}
+
+// The strip's text: the label, and the identity after a middle dot.
+export function stripLabel(session: Session | null): string {
+  const identity = identityLabel(session);
+  return identity === null ? modeLabel(session) : `${modeLabel(session)} \u00b7 ${identity}`;
 }

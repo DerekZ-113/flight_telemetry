@@ -1,7 +1,8 @@
 # Build output (build/, build-cov/, ...)
 build*/
 
-# Runtime logs written by ./telemetry
+# Runtime logs written by ./telemetry. An ADS-B session's log and its telemetry_adsb.csv stay
+# here too: the OpenSky Network's terms forbid redistributing what it returns.
 logs/
 
 # IDE

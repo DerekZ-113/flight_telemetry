@@ -26,8 +26,20 @@ from pipeline.receiver import ZmqSource
 from synthetic_log import log_bytes, make_frame
 
 PERIOD_MS = 20
-RUNNING = b"FTSS" + bytes([1, 3, 1, 0])   # REPLAY, RUNNING
-ENDED = b"FTSS" + bytes([1, 3, 2, 0])     # REPLAY, ENDED
+
+
+def status(mode: int, state: int, identity: bytes = bytes(11), source: int | None = None) -> bytes:
+    """A status as the binary writes one (version 3): the source mode the mode itself unless given (a
+    replay names its recording's), the eleven identity bytes zero unless given."""
+    return b"FTSS" + bytes([3, mode, state, mode if source is None else source]) + identity
+
+
+RUNNING = status(3, 1, source=2)   # REPLAY of a simulated recording, RUNNING
+ENDED = status(3, 2, source=2)     # the same, ENDED
+IDENTITY_A = bytes.fromhex("a1b2c3") + b"TEST001 "
+IDENTITY_B = bytes.fromhex("b2c3d4") + b"TEST002 "
+ADSB_A = status(4, 1, IDENTITY_A)   # ADSB, RUNNING, the first aircraft
+ADSB_B = status(4, 1, IDENTITY_B)
 
 
 class QueueSource:
@@ -107,7 +119,8 @@ def test_frame_is_forwarded_by_name_without_coordinates():
                                         latitude=37.5, longitude=-122.25,
                                         baro_status=0, imu_status=1, gps_status=2, imu_read_ok=False,
                                         baro_altitude_validity=3, pitch_validity=2, roll_validity=1,
-                                        fused_altitude_validity=0, vertical_speed_validity=3))
+                                        fused_altitude_validity=0, vertical_speed_validity=3,
+                                        flags=0x06, gps_vertical_rate_mps=-3.5, gps_pressure_altitude_m=450.0))
                 message = await recv_json(ws)
             assert bridge.forwarded == 1
         return message
@@ -119,6 +132,11 @@ def test_frame_is_forwarded_by_name_without_coordinates():
     assert message["frame"]["pressure_hpa"] == pytest.approx(1001.5)
     assert message["frame"]["gps_altitude_m"] == pytest.approx(12.5)
     assert message["frame"]["imu_read_ok"] is False and message["frame"]["baro_read_ok"] is True
+    # The version-3 fields by name like every other (REQ-SENS-008): the ADS-B vertical rate and
+    # pressure altitude with the flags byte that says they are present.
+    assert message["frame"]["flags"] == 0x06
+    assert message["frame"]["gps_vertical_rate_mps"] == pytest.approx(-3.5)
+    assert message["frame"]["gps_pressure_altitude_m"] == pytest.approx(450.0)
     assert message["validity"] == {"baro_altitude_m": "NORMAL", "pitch_deg": "FAILURE_WARNING",
                                    "roll_deg": "NO_COMPUTED_DATA", "fused_altitude_m": "NOT_JUDGED",
                                    "vertical_speed_mps": "NORMAL"}
@@ -142,11 +160,12 @@ def test_session_status_is_forwarded_and_greets_a_later_client():
                 source.feed(RUNNING)
                 session = await recv_json(first)
                 assert session["type"] == "session"
-                assert (session["mode"], session["state"]) == ("REPLAY", "RUNNING")
+                assert (session["mode"], session["state"], session["source_mode"]) == ("REPLAY", "RUNNING", "SIMULATED")
                 assert isinstance(session["received_at_ms"], (int, float))
                 async with connect(ws_url(bridge)) as second:
                     hello = await recv_json(second)
-                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING"}
+                    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None,
+                                                "source_mode": "SIMULATED"}
                     source.feed(ENDED)
                     for ws in (first, second):
                         ended = await recv_json(ws)
@@ -220,7 +239,7 @@ def test_paced_replay_reaches_a_client_at_the_recorded_cadence(telemetry_bin, tm
     span = arrivals[-1] - arrivals[0]
     expected = (len(frames) - 1) * PERIOD_MS / 1000
     assert 0.8 * expected < span < 1.3 * expected, f"{len(frames)} frames over {span:.2f} s, not about {expected:.2f}"
-    assert ended["mode"] == "REPLAY"
+    assert (ended["mode"], ended["source_mode"]) == ("REPLAY", "SIMULATED")   # the session log's header says SIMULATED
     print(f"{len(frames)} paced frames through the bridge over {span:.2f} s (recorded span {expected:.2f} s)")
 
 
@@ -307,3 +326,99 @@ def test_origin_resets_after_a_backwards_timestamp_and_after_ended():
     assert restarted["position"] == {"east_m": 0.0, "north_m": 0.0}, "a backwards timestamp must re-take the origin"
     assert (ended["type"], ended["state"]) == ("session", "ENDED")
     assert after_end["position"] == {"east_m": 0.0, "north_m": 0.0}, "a frame after ENDED must re-take the origin"
+
+
+# --- TC-030 steps 1 to 3: the aircraft's identity (REQ-DISP-007, REQ-SENS-009) -----------------
+
+
+def test_identity_is_forwarded_in_session_and_hello():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as first:
+                await recv_json(first)
+                source.feed(ADSB_A)
+                session = await recv_json(first)
+                async with connect(ws_url(bridge)) as second:
+                    hello = await recv_json(second)
+                source.feed(status(4, 1))   # ADSB, nothing selected
+                none_selected = await recv_json(first)
+        return session, hello, none_selected
+
+    session, hello, none_selected = asyncio.run(check())
+    assert (session["type"], session["mode"], session["state"]) == ("session", "ADSB", "RUNNING")
+    assert session["identity"] == {"icao24": "a1b2c3", "callsign": "TEST001"}
+    assert session["source_mode"] == "ADSB"
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": {"icao24": "a1b2c3", "callsign": "TEST001"},
+                                "source_mode": "ADSB"}
+    assert none_selected["identity"] is None
+
+
+# --- TC-031 step 15: the source mode, forwarded and greeted (REQ-TRANS-004, REQ-DISP-007) -------
+
+
+def test_source_mode_is_forwarded_in_session_and_hello():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as first:
+                await recv_json(first)
+                source.feed(status(3, 1, source=4))   # the replay of an ADS-B recording
+                session = await recv_json(first)
+                async with connect(ws_url(bridge)) as second:
+                    hello = await recv_json(second)
+        return session, hello
+
+    session, hello = asyncio.run(check())
+    assert (session["type"], session["mode"], session["source_mode"]) == ("session", "REPLAY", "ADSB")
+    assert session["identity"] is None
+    assert hello["session"] == {"mode": "REPLAY", "state": "RUNNING", "identity": None, "source_mode": "ADSB"}
+
+
+def test_origin_is_retaken_when_the_identity_changes():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(ADSB_A, fix(1), fix(2, north_m=1.0))                 # the first aircraft: its origin, a metre north
+                first = [await recv_json(ws) for _ in range(3)]
+                source.feed(ADSB_A, fix(3, north_m=2.0))                         # the same aircraft repeated: kept
+                repeated = [await recv_json(ws) for _ in range(2)]
+                source.feed(ADSB_B, fix(4, north_m=5.0), fix(5, north_m=6.0))   # a new aircraft: a new track
+                switched = [await recv_json(ws) for _ in range(3)]
+                return first, repeated, switched
+
+    first, repeated, switched = asyncio.run(check())
+    assert first[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert first[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert repeated[1]["position"]["north_m"] == pytest.approx(2.0, abs=0.01), "a repeated identity keeps the origin"
+    assert switched[0]["identity"] == {"icao24": "b2c3d4", "callsign": "TEST002"}
+    assert switched[1]["position"] == {"east_m": 0.0, "north_m": 0.0}, "a new identity re-takes the origin"
+    assert switched[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_hide_identity_forwards_none_and_keeps_the_origin_rule():
+    source = QueueSource()
+
+    async def check():
+        async with Bridge(source, port=0, hide_identity=True) as bridge:
+            async with connect(ws_url(bridge)) as ws:
+                await recv_json(ws)
+                source.feed(ADSB_A, fix(1), fix(2, north_m=1.0), ADSB_B, fix(3, north_m=2.0))
+                messages = [await recv_json(ws) for _ in range(5)]
+                async with connect(ws_url(bridge)) as later:
+                    hello = await recv_json(later)
+        return messages, hello
+
+    messages, hello = asyncio.run(check())
+    assert messages[0]["identity"] is None and messages[3]["identity"] is None
+    assert hello["session"] == {"mode": "ADSB", "state": "RUNNING", "identity": None, "source_mode": "ADSB"}
+    assert messages[1]["position"] == {"east_m": 0.0, "north_m": 0.0}
+    assert messages[2]["position"]["north_m"] == pytest.approx(1.0, abs=0.01)
+    assert messages[4]["position"] == {"east_m": 0.0, "north_m": 0.0}, "the hidden identity still re-takes the origin"
+    for message in messages:
+        assert "a1b2c3" not in json.dumps(message) and "TEST00" not in json.dumps(message)

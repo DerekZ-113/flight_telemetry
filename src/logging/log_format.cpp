@@ -2,13 +2,14 @@
 
 #include <cstring>
 
-LogFileHeader make_log_header() {
+LogFileHeader make_log_header(RunMode run_mode, RunMode source_mode) {
     LogFileHeader h{};
     std::memcpy(h.magic, "FTLG", 4);
     h.version = kLogFormatVersion;
     h.frame_size = static_cast<uint16_t>(sizeof(TelemetryFrame));
     h.event_size = static_cast<uint16_t>(sizeof(FaultEvent));
-    h.reserved = 0;
+    h.run_mode = static_cast<uint8_t>(run_mode);
+    h.source_mode = static_cast<uint8_t>(source_mode);
     h.endian_marker = kEndianMarker;
     return h;
 }
@@ -24,9 +25,12 @@ std::string header_problem(const LogFileHeader& header) {
         return "format version " + std::to_string(header.version) + "; this build reads "
              + std::to_string(kOldestReadableLogFormatVersion) + " to " + std::to_string(kLogFormatVersion);
     }
-    if (header.frame_size != sizeof(TelemetryFrame)) {
+    // The size the header's version implies, not this build's: a version-2
+    // file says 104 and is right to.
+    if (header.frame_size != frame_size_for(header.version)) {
         return "frame size " + std::to_string(header.frame_size) + " in the header, "
-             + std::to_string(sizeof(TelemetryFrame)) + " in this build";
+             + std::to_string(frame_size_for(header.version)) + " for version "
+             + std::to_string(header.version) + " in this build";
     }
     if (header.event_size != sizeof(FaultEvent)) {
         return "event size " + std::to_string(header.event_size) + " in the header, "
@@ -42,9 +46,8 @@ bool header_is_valid(const LogFileHeader& header) {
     return header_problem(header).empty();
 }
 
-std::array<uint8_t, kFrameMessageBytes> frame_message(const TelemetryFrame& frame) {
+std::array<uint8_t, kFrameMessageBytes> frame_message(const TelemetryFrame& frame, const LogFileHeader& header) {
     std::array<uint8_t, kFrameMessageBytes> out{};
-    const LogFileHeader header = make_log_header();
     std::memcpy(out.data(), &header, sizeof(header));
     out[sizeof(header)] = static_cast<uint8_t>(RecordType::FRAME);
     std::memcpy(out.data() + sizeof(header) + 1, &frame, sizeof(frame));

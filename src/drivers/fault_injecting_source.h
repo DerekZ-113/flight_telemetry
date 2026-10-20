@@ -18,6 +18,10 @@
 // Minimal on purpose. Three injection modes cover the fault model's three
 // detection strategies. Scripted schedules and randomized sweeps come with
 // the Sprint 2 harness.
+// The wrapped source's sequence number passes through untouched (a fault
+// is in a channel, not in the stream, REQ-LOG-008), and so does what the
+// frame states of itself (NEW_VEHICLE); a held or failed channel keeps its
+// whole reading, the presence bits of its optional fields included.
 class FaultInjectingSource : public DataSource {
 public:
     // Takes ownership of `inner`. The caller passes std::move(ptr) and is

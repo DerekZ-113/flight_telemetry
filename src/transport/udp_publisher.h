@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 
+#include "logging/log_format.h"
 #include "telemetry_frame.h"
 #include "transport/publisher.h"
 
@@ -10,7 +11,7 @@
 // can never hold up the processing loop (REQ-TRANS-003).
 //
 // One frame is one datagram, laid out as the same one-record log file the
-// ZeroMQ publisher sends (frame_message, log_format.h): 121 bytes, under
+// ZeroMQ publisher sends (frame_message, log_format.h): 137 bytes, under
 // any MTU, so a frame is never fragmented and arrives whole or not at all.
 // A datagram socket has no connection, no acknowledgement, and no
 // retransmission: a frame that could only be delivered after the next one
@@ -39,8 +40,10 @@ public:
     // cannot create, or a destination the kernel cannot route leaves ok()
     // false with the reason in error(); nothing throws. The destination is
     // the configuration file's `transport.udp` keys, or the --udp argument
-    // for one run (REQ-CFG-001); main hands it in either way.
-    UdpPublisher(const std::string& host, int port);
+    // for one run (REQ-CFG-001); main hands it in either way. `header` is
+    // the one every datagram carries (REQ-LOG-007), the logger's; a
+    // publisher nobody told says UNKNOWN.
+    UdpPublisher(const std::string& host, int port, LogFileHeader header = make_log_header());
     ~UdpPublisher() override;
 
     // The descriptor has one owner; a copy would close it twice.
@@ -54,9 +57,9 @@ public:
     // frame was not sent; stats() says how often that has happened.
     bool publish(const TelemetryFrame& frame) override;
 
-    // The eight-byte session status (REQ-TRANS-004) as one datagram,
+    // The nineteen-byte session status (REQ-TRANS-004) as one datagram,
     // counted apart from frames.
-    bool publish_status(RunMode mode, StreamState state) override;
+    bool publish_status(const SessionStatus& status) override;
 
     const PublishStats& stats() const override { return stats_; }
 
@@ -66,6 +69,7 @@ private:
     bool send_bytes(const uint8_t* data, size_t size);
 
     int fd_ = -1;
+    LogFileHeader header_;
     bool ok_ = false;
     std::string error_;
     PublishStats stats_;

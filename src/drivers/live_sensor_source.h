@@ -23,12 +23,13 @@
 // completed, once a second, and the fix is held with gps_read_ok false on
 // the cycles between, which is exactly the simulator's 1 Hz schedule and
 // the shape the freshness rule was written for (REQ-PROC-006). Without a
-// receiver (sensors.gps.enabled false) the GPS fields stay zero and the
-// channel is never fresh, so the detector reports it NO_DATA and then
-// DEGRADED, the truthful report of an absent sensor. Raw fields and
-// read_ok only, status NOMINAL: the same contract as the simulator, so the
-// detector and the processor cannot tell the two apart (design.md
-// section 3).
+// receiver (sensors.gps.enabled false) the GPS fields stay zero, the
+// channel is never fresh, and the source reports it NOT_AVAILABLE on every
+// frame (REQ-FAULT-007): a sensor that was never fitted is a fact of the
+// configuration, not a failure, so the detector leaves it alone. Raw fields
+// and read_ok only, status NOMINAL for the channels it provides: the same
+// contract as the simulator, so the detector and the processor cannot tell
+// the two apart (design.md section 3).
 //
 // A failed read holds the channel's fields at the last good values and
 // clears that channel's read_ok. That is exactly what FaultInjectingSource

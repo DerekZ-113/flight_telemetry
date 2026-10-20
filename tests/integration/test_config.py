@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONFIG_ARGS, SHIPPED_CONFIG, run_published
+from conftest import CONFIG_ARGS, SHIPPED_CONFIG, assert_replay_identical, run_published
 from pipeline.frame_format import FRAME_FIELDS
 from pipeline.log_reader import read_log
 from test_transport import assert_byte_identical_to_log, make_receiver, transport_summary
@@ -24,7 +24,7 @@ from test_transport import assert_byte_identical_to_log, make_receiver, transpor
 COMPUTED_FIELDS = ("baro_altitude_m", "pitch_deg", "roll_deg", "fused_altitude_m", "vertical_speed_mps",
                    "baro_status", "imu_status", "gps_status",
                    "baro_altitude_validity", "pitch_validity", "roll_validity",
-                   "fused_altitude_validity", "vertical_speed_validity")
+                   "fused_altitude_validity", "vertical_speed_validity", "voter_status")
 RAW_FIELDS = tuple(name for name in FRAME_FIELDS if name not in COMPUTED_FIELDS)
 
 
@@ -109,7 +109,7 @@ def test_shipped_config_is_recorded_and_replayed(telemetry_bin, tmp_path, sim_se
     completed = run(telemetry_bin, tmp_path, "--replay", "logs/telemetry_000.bin", "--cycles", "500", timeout=120)
     assert completed.returncode == 0, completed.stderr
     assert "Configuration: logs/telemetry_config.yaml (recorded with logs/telemetry_000.bin)" in completed.stdout
-    assert (logs / "replay_000.bin").read_bytes() == sim_session.log.read_bytes()
+    assert_replay_identical(logs / "replay_000.bin", sim_session.log)
     assert (logs / "replay_config.yaml").read_bytes() == SHIPPED_CONFIG.read_bytes()
 
 

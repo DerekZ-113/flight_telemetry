@@ -9,10 +9,11 @@
 
 // DataSource backed by the SimulatedDataGenerator (REQ-SENS-006).
 //
-// Adds the one thing the generator deliberately lacks: a clock. A real
-// sensor driver is polled at a fixed rate and each reading carries the
-// time it was taken. This class models that by advancing its own timestamp
-// by interval_ms on every read_frame() call.
+// Adds the two things the generator deliberately lacks: a clock and a
+// count. A real sensor driver is polled at a fixed rate and each reading
+// carries the time it was taken. This class models that by advancing its
+// own timestamp by interval_ms on every read_frame() call, and numbers
+// each frame as every source does (REQ-LOG-008).
 class SimulatedSource : public DataSource {
 public:
     // interval_ms is the simulated sample period. 20 ms models a 50 Hz

@@ -18,7 +18,7 @@ from typing import Callable, NamedTuple
 
 import pytest
 
-from pipeline.frame_format import FaultEvent, Frame, SessionStatus
+from pipeline.frame_format import HEADER, RUN_MODE_NAMES, FaultEvent, Frame, SessionStatus, parse_header
 from pipeline.receiver import FrameReceiver
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -67,6 +67,28 @@ def sim_session(telemetry_bin: Path, tmp_path_factory: pytest.TempPathFactory) -
     return Session(directory, log, directory / "logs" / "replay_000.bin",
                    directory / "logs" / "telemetry_jitter.csv", stdout, replay_stdout,
                    directory / "logs" / "telemetry_config.yaml", directory / "logs" / "replay_config.yaml")
+
+
+# --- identity at file level (REQ-LOG-003, REQ-LOG-007; TC-004) ---------------------------------
+
+RUN_MODE_OFFSET = 10        # LogFileHeader::run_mode: the one header byte a replay writes differently
+RUN_MODE_REPLAY = 3         # RunMode::REPLAY
+
+
+def assert_replay_identical(replay_log: Path, original_log: Path) -> None:
+    """A replay's log against the log it replayed, at file level, since format version 3: every
+    record byte-identical (REQ-LOG-003), and the header too but for the run mode, which names the
+    session that wrote each file, REPLAY in the replay's and the recording's own mode in the
+    original's, while the source mode is carried forward (REQ-LOG-007). A replay of a replay
+    differs nowhere. `cmp -l` lists the one byte; `cmp a b 16 16` is silent."""
+    replay, original = replay_log.read_bytes(), original_log.read_bytes()
+    assert len(replay) == len(original), f"{replay_log.name}: {len(replay)} bytes, {original_log.name}: {len(original)}"
+    assert replay[HEADER.size:] == original[HEADER.size:], "a record differs"
+    differing = [i for i in range(HEADER.size) if replay[i] != original[i]]
+    assert differing in ([RUN_MODE_OFFSET], []), f"header bytes {differing} differ; only the run mode may"
+    replayed, recorded = parse_header(replay), parse_header(original)
+    assert replayed.run_mode == RUN_MODE_REPLAY, RUN_MODE_NAMES.get(replayed.run_mode, replayed.run_mode)
+    assert replayed.source_mode == recorded.source_mode, "the replay must carry the recording's source mode forward"
 
 
 # --- the transport tests' harness (TC-005, TC-010 steps 6 and 7) -----------------------------

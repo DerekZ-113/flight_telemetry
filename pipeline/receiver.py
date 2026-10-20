@@ -24,15 +24,19 @@ socket acknowledges nothing: a full receive buffer or a packet lost on the
 wire is invisible to the sender. Consecutive frame timestamps should differ
 by one period; a larger step means frames were missed, a step of zero or
 less means a frame arrived out of order (a datagram can), and both counts
-are reported at exit. The UDP mode is standard library only, so it runs on
-the Pi without pyzmq.
+are reported at exit. Each frame also carries its source's sequence number
+(REQ-LOG-008, since format version 3), printed beside the time; the counts
+stay on timestamps until the voter consumes it (FTS-DD-001 Section 12). The
+UDP mode is standard library only, so it runs on the Pi without pyzmq.
 
 The session status (REQ-TRANS-004) rides the same socket: the binary says which
-mode its frames are in (LIVE, SIMULATED, REPLAY) before the first frame and
-about once a second after it, and says ENDED after the last. The receiver
-reads it like any record, keeps the latest in `session`, prints it, and ends
-on ENDED at once instead of waiting a quiet timeout, so a finished publisher
-no longer looks like a lost link.
+mode it runs in (LIVE, SIMULATED, REPLAY, ADSB) and, since status version 3, the
+mode its frames were produced in (a replay names its recording's) before the first frame,
+about once a second after it and at once when the aircraft an ADS-B run
+presents changes, and says ENDED after the last. The receiver reads it like
+any record, keeps the latest in `session`, prints it with the aircraft's
+identity when there is one, and ends on ENDED at once instead of waiting a
+quiet timeout, so a finished publisher no longer looks like a lost link.
 """
 from __future__ import annotations
 
@@ -205,14 +209,15 @@ class FrameReceiver:
 
 
 def format_frame(frame: Frame) -> str:
-    """One line per frame: each computed value with its validity beside it (REQ-PROC-007), then
-    the channel statuses. A consumer reads the name next to the number, never the number alone."""
+    """One line per frame: the time and the source's sequence number (REQ-LOG-008), each computed
+    value with its validity beside it (REQ-PROC-007), then the channel statuses. A consumer reads the
+    name next to the number, never the number alone."""
     status = " ".join(
         f"{name}={frame_format.STATUS_NAMES.get(value, value)}"
         for name, value in (("baro", frame.baro_status), ("imu", frame.imu_status), ("gps", frame.gps_status))
     )
     validity = frame_format.VALIDITY_NAMES
-    return (f"t={frame.timestamp_ms:7d} ms  "
+    return (f"t={frame.timestamp_ms:7d} ms  seq={frame.sequence:7d}  "
             f"alt {frame.fused_altitude_m:8.2f} m [{validity.get(frame.fused_altitude_validity, frame.fused_altitude_validity)}]  "
             f"vs {frame.vertical_speed_mps:6.2f} m/s [{validity.get(frame.vertical_speed_validity, frame.vertical_speed_validity)}]  "
             f"pitch {frame.pitch_deg:6.2f}  roll {frame.roll_deg:6.2f} deg "
@@ -220,8 +225,21 @@ def format_frame(frame: Frame) -> str:
             f"{status}")
 
 
+def format_identity(identity: tuple[str, str] | None) -> str:
+    """The selected aircraft by callsign and address, or none."""
+    if identity is None:
+        return "none"
+    icao24, callsign = identity
+    return f"{callsign or '-'} ({icao24})"
+
+
 def format_session(status: SessionStatus) -> str:
-    return f"session: mode={status.mode} state={status.state}"
+    line = f"session: mode={status.mode} state={status.state}"
+    if status.source_mode != status.mode:   # a replay's: the recording's source (REQ-LOG-007)
+        line += f" source={status.source_mode}"
+    if status.mode == "ADSB":
+        line += f" aircraft={format_identity(status.identity)}"
+    return line
 
 
 def format_event(event: FaultEvent) -> str:
@@ -281,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             pass
         session = (f"session {receiver.session.mode} {receiver.session.state.lower()}"
+                   + (f" source {receiver.session.source_mode}"
+                      if receiver.session.source_mode != receiver.session.mode else "")
+                   + (f" aircraft {format_identity(receiver.session.identity)}" if receiver.session.mode == "ADSB" else "")
                    if receiver.session is not None else "no session status received")
         print(f"received {receiver.received} frames, gaps {receiver.gaps} frames, "
               f"out of order {receiver.out_of_order}; {session}", flush=True)

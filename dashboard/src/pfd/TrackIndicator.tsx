@@ -1,5 +1,5 @@
 // The track indicator (REQ-DISP-002, FTS-DS-001 §4.5): the GPS course over
-// ground (the frame's heading_deg) on the top arc of a compass rose, turned
+// ground (the frame's course_deg) on the top arc of a compass rose, turned
 // so the current track sits under a lubber line fixed to the case, with the
 // readout above it. It is labelled TRK and never HDG: there is no
 // magnetometer, and a course says where the aircraft moves, not where its

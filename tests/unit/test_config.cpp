@@ -130,6 +130,23 @@ TEST(ConfigTest, ShippedFileEqualsDefaults) {
     EXPECT_EQ(c.simulation.noise.latitude_sigma_deg, d.simulation.noise.latitude_sigma_deg);
     EXPECT_EQ(c.simulation.noise.longitude_sigma_deg, d.simulation.noise.longitude_sigma_deg);
     EXPECT_EQ(c.simulation.noise.gps_altitude_sigma_m, d.simulation.noise.gps_altitude_sigma_m);
+
+    // The optional block (REQ-CFG-001): the shipped file carries it, so
+    // its ten keys equal AdsbConfig's defaults; a bare TelemetryConfig has
+    // no block, the recorded-configuration case.
+    EXPECT_FALSE(d.adsb.has_value());
+    ASSERT_TRUE(c.adsb.has_value());
+    const AdsbConfig a{};
+    EXPECT_EQ(c.adsb->box.lat_min, a.box.lat_min);
+    EXPECT_EQ(c.adsb->box.lat_max, a.box.lat_max);
+    EXPECT_EQ(c.adsb->box.lon_min, a.box.lon_min);
+    EXPECT_EQ(c.adsb->box.lon_max, a.box.lon_max);
+    EXPECT_EQ(c.adsb->reference.latitude, a.reference.latitude);
+    EXPECT_EQ(c.adsb->reference.longitude, a.reference.longitude);
+    EXPECT_EQ(c.adsb->poll_interval_ms, a.poll_interval_ms);
+    EXPECT_EQ(c.adsb->switch_margin_m, a.switch_margin_m);
+    EXPECT_EQ(c.adsb->gone_after_polls, a.gone_after_polls);
+    EXPECT_EQ(c.adsb->timeout_ms, a.timeout_ms);
 }
 
 // The same text through the in-memory entry point, which every test
@@ -249,6 +266,8 @@ TEST(ConfigTest, EverySectionIsRequired) {
         {"\n  udp", "transport.udp"},
         {"\nsimulation", "simulation"},
         {"\n  noise", "simulation.noise"},
+        {"\n  box", "adsb.box"},               // required inside the optional block
+        {"\n  reference", "adsb.reference"},
     };
     for (const auto& [marker, path] : cases) {
         const std::string text = edit(shipped_text(), std::string(marker) + ":", std::string(marker) + "x:");
@@ -479,10 +498,10 @@ TEST(ConfigTest, SeaLevelPositive) {
 }
 
 TEST(ConfigTest, MaxFileBytesAtLeastOneRecord) {
-    static_assert(kFrameMessageBytes == 121, "the message below names the record size");
-    expect_one_problem(load_edited("max_file_bytes: 1048576", "max_file_bytes: 120"),
-                       "logging.max_file_bytes: must be at least 121 (got 120)");
-    expect_accepted(load_edited("max_file_bytes: 1048576", "max_file_bytes: 121"));
+    static_assert(kFrameMessageBytes == 137, "the message below names the record size");   // 121 until format version 3
+    expect_one_problem(load_edited("max_file_bytes: 1048576", "max_file_bytes: 136"),
+                       "logging.max_file_bytes: must be at least 137 (got 136)");
+    expect_accepted(load_edited("max_file_bytes: 1048576", "max_file_bytes: 137"));
 }
 
 // The UDP host is checked with the publisher's own test, and whether or
@@ -540,7 +559,7 @@ TEST(ConfigTest, SigmasPositive) {
 // coverage preview found ten such branches. One key per type is the
 // floor; every key is the requirement's own word, "each". (REQ-CFG-002)
 TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
-    enum class Rule { Whole, Number, Positive, Fraction, Switch, Text };
+    enum class Rule { Whole, Number, Positive, Fraction, Switch, Text, Range, NonNegative };
     struct Key {
         const char* marker;   // text found once in the shipped file, starting in the key's line
         const char* value;    // the value as written there
@@ -582,7 +601,7 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"sea_level_pressure_hpa: 1013.25", "1013.25", "processing.sea_level_pressure_hpa", Rule::Positive},
         {"directory: logs", "logs", "logging.directory", Rule::Text},
         {"max_file_bytes: 1048576", "1048576", "logging.max_file_bytes", Rule::Whole, "120",
-         "must be at least 121 (got 120)"},
+         "must be at least 137 (got 120)"},
         {"enabled: false\n    endpoint", "false", "transport.zmq.enabled", Rule::Switch},
         {"endpoint: tcp://127.0.0.1:5555", "tcp://127.0.0.1:5555", "transport.zmq.endpoint", Rule::Text},
         {"enabled: false\n    host", "false", "transport.udp.enabled", Rule::Switch},
@@ -599,8 +618,26 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"latitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.latitude_sigma_deg", Rule::Positive},
         {"longitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.longitude_sigma_deg", Rule::Positive},
         {"gps_altitude_sigma_m: 2.0", "2.0", "simulation.noise.gps_altitude_sigma_m", Rule::Positive},
+        // The optional block's ten keys, required when the block is present (REQ-CFG-001).
+        {"lat_min: 37.45", "37.45", "adsb.box.lat_min", Rule::Range, "-90.1", "must be -90 to 90 (got -90.1)", "90.1",
+         "must be -90 to 90 (got 90.1)"},
+        {"lat_max: 37.75", "37.75", "adsb.box.lat_max", Rule::Range, "-90.1", "must be -90 to 90 (got -90.1)", "90.1",
+         "must be -90 to 90 (got 90.1)"},
+        {"lon_min: -122.55", "-122.55", "adsb.box.lon_min", Rule::Range, "-180.1", "must be -180 to 180 (got -180.1)",
+         "180.1", "must be -180 to 180 (got 180.1)"},
+        {"lon_max: -122.10", "-122.10", "adsb.box.lon_max", Rule::Range, "-180.1", "must be -180 to 180 (got -180.1)",
+         "180.1", "must be -180 to 180 (got 180.1)"},
+        {"latitude: 37.6213", "37.6213", "adsb.reference.latitude", Rule::Range, "-90.1", "must be -90 to 90 (got -90.1)",
+         "90.1", "must be -90 to 90 (got 90.1)"},
+        {"longitude: -122.3790", "-122.3790", "adsb.reference.longitude", Rule::Range, "-180.1",
+         "must be -180 to 180 (got -180.1)", "180.1", "must be -180 to 180 (got 180.1)"},
+        {"poll_interval_ms: 5000", "5000", "adsb.poll_interval_ms", Rule::Whole, "999", "must be 1000 to 3600000 (got 999)",
+         "3600001", "must be 1000 to 3600000 (got 3600001)"},
+        {"switch_margin_m: 2000", "2000", "adsb.switch_margin_m", Rule::NonNegative, "-1", "must be at least 0 (got -1)"},
+        {"gone_after_polls: 2", "2", "adsb.gone_after_polls", Rule::Whole, "0", "must be at least 1 (got 0)"},
+        {"timeout_ms: 20000", "20000", "adsb.timeout_ms", Rule::Whole, "0", "must be at least 1 (got 0)"},
     };
-    EXPECT_EQ(std::size(keys), 38u);   // the file's key count, as the documents state it
+    EXPECT_EQ(std::size(keys), 48u);   // the file's key count, as the documents state it: 38, and the optional block's 10
 
     const std::string shipped = shipped_text();
     for (const Key& key : keys) {
@@ -624,7 +661,8 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         std::string asks;   // what the rule asks for, in its own words
         switch (key.rule) {
             case Rule::Whole: asks = "must be a whole number"; break;
-            case Rule::Number: case Rule::Positive: case Rule::Fraction: asks = "must be a finite number"; break;
+            case Rule::Number: case Rule::Positive: case Rule::Fraction: case Rule::Range: case Rule::NonNegative:
+                asks = "must be a finite number"; break;
             case Rule::Switch: asks = "must be true or false"; break;
             case Rule::Text: asks = "must be text"; break;
         }
@@ -650,6 +688,15 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
                 expect(with_value("-0.1"), path + ": must be 0 to 1 (got -0.1)");
                 expect(with_value("1.1"), path + ": must be 0 to 1 (got 1.1)");
                 break;
+            case Rule::Range:
+                expect(with_value(".nan"), path + ": must be a finite number (got \".nan\")");
+                expect(with_value(key.below), path + ": " + key.below_report);
+                expect(with_value(key.above), path + ": " + key.above_report);
+                break;
+            case Rule::NonNegative:
+                expect(with_value(".nan"), path + ": must be a finite number (got \".nan\")");
+                expect(with_value(key.below), path + ": " + key.below_report);
+                break;
             case Rule::Switch:
                 expect(with_value("yes"), path + ": must be true or false (got \"yes\")");
                 break;
@@ -666,6 +713,45 @@ TEST(ConfigTest, UartTimeoutMustExceedGpsInterval) {
     expect_one_problem(load_edited("gps_interval_ms: 1000", "gps_interval_ms: 2000"),
                        "fault.uart_timeout_ms: must exceed simulation.gps_interval_ms (2000 against 2000)");
     expect_accepted(load_edited("gps_interval_ms: 1000", "gps_interval_ms: 1999"));
+}
+
+// TC-016 step 7, continued (2026-10-15): the ADS-B channel's timeout must
+// outlast the poll interval as the UART timeout outlasts the fix period.
+TEST(ConfigTest, AdsbTimeoutMustExceedPollInterval) {
+    expect_one_problem(load_edited("timeout_ms: 20000", "timeout_ms: 5000"),
+                       "adsb.timeout_ms: must exceed adsb.poll_interval_ms (5000 against 5000)");
+    expect_accepted(load_edited("timeout_ms: 20000", "timeout_ms: 5001"));
+}
+
+// TC-016 step 6, continued: the box's edges are ordered, as the pressure
+// bounds are, a rule inside the section.
+TEST(ConfigTest, AdsbBoxEdgesMustBeOrdered) {
+    expect_one_problem(load_edited("lat_max: 37.75", "lat_max: 37.45"),
+                       "adsb.box.lat_max: must exceed lat_min (37.45 against 37.45)");
+    expect_one_problem(load_edited("lon_max: -122.10", "lon_max: -122.55"),
+                       "adsb.box.lon_max: must exceed lon_min (-122.55 against -122.55)");
+    expect_accepted(load_edited("lat_max: 37.75", "lat_max: 37.4501"));
+}
+
+// TC-016 step 21. The adsb block is the one a file may omit (REQ-CFG-001):
+// a configuration recorded before the block existed replays as recorded,
+// every other key read as before. Present, it must be a mapping and every
+// key inside it is required like any other.
+TEST(ConfigTest, AdsbBlockIsOptional) {
+    const std::string shipped = shipped_text();
+    const size_t at = shipped.find("\nadsb:");
+    ASSERT_NE(at, std::string::npos);
+    const std::string without_block = shipped.substr(0, at + 1);
+    const ConfigLoad without = load_config_text(without_block, "test.yaml");
+    expect_accepted(without);
+    EXPECT_FALSE(without.config.adsb.has_value());
+    EXPECT_EQ(without.config.timing.period_ms, 20u);
+    EXPECT_EQ(without.config.simulation.noise.gps_altitude_sigma_m, 2.0f);
+
+    expect_one_problem(load_config_text(without_block + "adsb: 5\n", "test.yaml"),
+                       "adsb: must be a mapping (got \"5\")");
+    expect_one_problem(load_config_text(without_line(shipped, "gone_after_polls: 2"), "test.yaml"),
+                       "adsb.gone_after_polls: missing");
 }
 
 // TC-018 step 19: the receiver's baud rate is one of the six termios names.

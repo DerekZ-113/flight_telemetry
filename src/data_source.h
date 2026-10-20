@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "telemetry_frame.h"
 
 // Abstract interface for anything that can produce telemetry frames:
@@ -15,7 +17,13 @@
 // baro_altitude_m, pitch/roll, fused_altitude_m, and vertical_speed_mps
 // are left at 0.0 for the pipeline to fill. If a source computed them
 // itself, replay could never verify the pipeline, because the work would
-// already be done before the pipeline ran.
+// already be done before the pipeline ran. Statuses are left NOMINAL for
+// the detector to judge, with one exception (REQ-FAULT-007): a channel the
+// source has no sensor for is reported NOT_AVAILABLE on every frame, a
+// fact of the configuration, which the detector then leaves alone. Since
+// format version 3 a source also states facts about the frame itself: its
+// sequence number, from next_sequence() below, and the flags byte's bits
+// (FrameFlag), which the detector and the processor read and never write.
 class DataSource {
 public:
     // Virtual destructor. Callers own sources through DataSource pointers
@@ -40,4 +48,19 @@ public:
     // true and only a replay overrides it. A caller that never asks gets the
     // source's own fallback (a replay: its last frame again).
     virtual bool has_next() { return true; }
+
+protected:
+    // The source's own count of its frames, from zero for the run
+    // (REQ-LOG-008): a source that produces frames calls this once per
+    // read_frame() and stamps frame.sequence with it. A raw fact of the
+    // stream, so the log records it and a replay reproduces it from the
+    // log, which is why LogReplaySource never calls this and
+    // FaultInjectingSource passes its inner source's count through. The
+    // loop never numbers frames: a number the run assigned would not
+    // replay. Four bytes wrap after 2.7 years at 50 Hz, and unsigned
+    // arithmetic defines the wrap.
+    uint32_t next_sequence() { return sequence_++; }
+
+private:
+    uint32_t sequence_ = 0;
 };

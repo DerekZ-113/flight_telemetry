@@ -3,7 +3,7 @@
 > **Document ID:** FTS-VR-001
 > **Version:** 0.1.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-15
+> **Last Updated:** 2026-10-18
 > **Related:** FTS-TP-001 (test plan), FTS-TM-001 (traceability), FTS-SRD-001 (requirements)
 
 This document records the outcome of running the test plan: which tests ran, on what platform, what structural coverage they achieved, and what was excluded from coverage and why. FTS-TP-001 says what should happen; this document says what did. Each entry is a snapshot of one commit; the latest entry is the current state.
@@ -1377,3 +1377,249 @@ Reserved for the CI run on the branch's head: the C++ job's per-scope table on G
 - TC-025 step 8: the demo replaying to a Chrome tab, the tab in the background for two minutes, the lag on return and whether LAG flagged and cleared, the bridge's share; Derek's hand step, into §17.5.
 - On the Pi: TC-021 step 9 and a paced replay's lateness on `clock_nanosleep` (Entry 16 §16.8); the bench's TC-014 step 13, which decides the roll sign's mapping in the driver.
 - Parked in FTS-DD-001 §12 with this entry: the `heading_deg` rename (with the fix-quality byte and the sequence number); the track threshold until a fix capture; the receiver's out-of-order counter across runs; the rotated replay, decided for this demo and parked for a longer one.
+
+## Entry 18 — 2026-10-15, ADS-B Phase A: real SFO arrivals through the same pipeline, from the OpenSky Network API (macOS preview, and the live run)
+
+Seven requirements (REQ-SENS-008 to REQ-SENS-011, REQ-FAULT-007, REQ-CFG-004, REQ-DISP-007; SRD 0.11.0 → 0.12.0, 47 → 54 statements) and eight amended (REQ-PROC-003, REQ-PROC-004, REQ-TRANS-004, REQ-DISP-001, REQ-DISP-004, REQ-FAULT-001, REQ-FAULT-006, REQ-CFG-001), seven fault entries (FAULT-012 to FAULT-018; FTS-FM-001 0.4.0 → 0.5.0), four test cards (TC-027 to TC-030) and six amended, FTS-DS-001 0.1.0 → 0.2.0, nine new C++ modules and the project's one thread, a fourth channel state, the session status at version 2, the ADS-B run mode, the bridge's identity and the page's; ten commits on `claude/ads-b-phase-a-opensky-87da4f`, stacked on the PFD branch at `dc989d6`, off `main` until after the v0.1.0 tag, and an eleventh the same night for §18.7, the control run of §18.4, the signed archive of §18.6 and the replayed tape's datum (design §12).
+
+### 18.1 What was built
+
+- Documents (commit 1): the SRD statements above; FTS-FM-001's *External Data Source Failures* (FAULT-012 the service unreachable or in error, 013 the token refused or expired, 014 the credit budget, 015 the selected aircraft gone, 016 an incomplete vector, 017 a malformed response) and FAULT-018 (a channel the source does not provide) under *Start-up and validity*; TC-027 (the client), TC-028 (selection), TC-029 (the source, the run, the live run as its hand step), TC-030 (the display); FTS-DS-001 §2.1, §2.2, §3, §4.1, §4.2, §5, §6 and §8; FTS-DD-001 §3, §7, §9, §10, §11.3 and §12; FTS-NP-001's sentence on the birth source's variance. The OpenSky terms of use, read the same day: non-profit research and education, no redistribution, de-identified publications, the citation (README, *Data sources*).
+- `src/processing/processor.cpp` (commit 2): the Kalman filter born from the first fresh reading of either altitude source, the barometer first, with that source's measurement variance as its initial altitude variance; `baro_ever_fresh_` so a NOMINAL barometer that never read contributes nothing to the validity (REQ-PROC-003, REQ-PROC-004, REQ-PROC-007).
+- `src/drivers/adsb_config.h`, `src/config/telemetry_config.*`, `config/telemetry_config.yaml` (commit 3): the optional `adsb` block, ten keys, 38 → 48, with the box's ordering rules and the timeout above the interval; a file without the block is refused only by `--adsb` (REQ-CFG-001, REQ-CFG-002).
+- `ChannelStatus::NOT_AVAILABLE` (commit 4): the one status a source asserts; the detector leaves it alone, the replay's strip keeps it, the live source reports it for the GPS without a receiver, `frame_format.py`, `feed.ts`, `instrumentState.ts` (the `unavailable` cause), the outlined flag (REQ-FAULT-007, REQ-FAULT-006, REQ-DISP-001).
+- `src/drivers/http_client.*`, `curl_http_client.*`, `opensky_json.*`, `opensky_client.*` (commit 5): the HTTP seam and libcurl behind it (the timeouts, the body cap, no redirects, never verbose), the parsers that never throw, the credentials file by path and key with the mode check, the OAuth2 client on the Clock seam; `tests/unit/fake_http_client.*`, `opensky_examples.h` (synthetic, nothing from the service); CMake: `CURL::libcurl`, nlohmann/json 3.12.0 by release archive and SHA-256, CMP0135 NEW, Threads, `-fprofile-update=atomic`; CI's apt line (REQ-SENS-008, REQ-CFG-004).
+- `src/drivers/aircraft_selector.*` (commit 6): the nearest descending airborne aircraft to the reference point, the margin, the miss tolerance, every change with its reason (REQ-SENS-009).
+- `src/timing/periodic_worker.*`, `src/drivers/adsb_source.*`, `src/drivers/selection_log.*` (commit 7): the thread, the slot, sample-and-hold, the absent channels, the switch records at the frame's timestamp, the CSV (REQ-SENS-008, REQ-SENS-010, REQ-SENS-011).
+- `src/transport/session_message.*`, both publishers, `src/main.cpp`, `pipeline/frame_format.py`, `receiver.py`, `bridge.py` (commit 8): the status at version 2 with the identity, `--adsb`, `--adsb-credentials`, `--adsb-origin`, the `ADSB` mode, the status after the read and at once on a change, the detector's timeout by mode and for a replayed ADS-B log, the `ADS-B:` exit line, the receiver's identity, the bridge's identity and `--hide-identity` (REQ-TRANS-004, REQ-CFG-004, REQ-FAULT-001, REQ-DISP-007).
+- `dashboard/src/feed.ts`, `useTelemetryFeed.ts`, `pfd/Pfd.tsx`, `pfd/AltitudeTape.tsx`, `App.tsx` (commit 9): `ADS-B` plain with the identity after it, `REPLAY · ID UNAVAILABLE`, `ft HAE`, the trail cleared on a change, the attribution line (REQ-DISP-007, REQ-DISP-004).
+- Tests: unit +72 (`test_kalman` +3, `test_validity` +2, `test_config` +3, `test_telemetry_frame` +1, `test_fault_detection` +1, `test_live_sensor_source` +1, `test_replay` +1, `test_opensky_json` 9, `test_opensky_client` 14, `test_curl_http_client` 8, `test_aircraft_selector` 11, `test_periodic_worker` 4, `test_adsb_source` 12, `test_selection_log` 2, `test_session_message` +1); pytest +16 (`test_adsb.py` 13 over a local stand-in for the service, `test_bridge.py` +3; `test_session_status.py` rewritten for the nineteen bytes); page +7.
+
+### 18.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 395 of 395 (323 before), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 131 of 131 in 126 s (115 before); the ADS-B run over the local stand-in: 12 polls in 12 s, 11 readings, one 401 repaired, one 429 honoured, two switches, the replay byte-identical, no secret or token in anything written |
+| Page (Vitest 4.1, jsdom) | 73 of 73 in 12 files (66 before); `npm run build` clean |
+| cppcheck 2.21.0 | 0 findings with CI's flags, after five style findings in commit 5's first draft (`variableScope`, `useStlAlgorithm` twice, `functionStatic`, `knownConditionTrueFalse`) were fixed, not suppressed |
+| Mutations | commit 5: four (the 401 repair, the row length, the bearer header, the expiry margin), each caught by one to three tests; commit 7: nine, eight caught at once, the ninth in §18.5 |
+| The seed-42 500-frame log | `6d43f343…` unchanged after the Kalman birth, the fourth status and the status after the read; replay identical |
+| The live run (TC-029 step 19) | §18.4 |
+
+Red first where a header or a function was missing; the one expectation the plan did not name that changed is the PFD's replay label, `REPLAY` → `REPLAY · ID UNAVAILABLE` (REQ-DISP-007 itself).
+
+### 18.3 Coverage preview
+
+Not run on the Mac this session: the pytest suite's ADS-B run would have to be re-run on an instrumented build, and §18.7 takes the CI figures on GCC. Lines expected to show exception-unwind edges, marked with the project's marker and listed here for §18.7: `src/timing/periodic_worker.cpp` (the `wait_for` line, a call that can throw on a loop condition) and `src/main.cpp` (the replay probe's `probe.next(first)` line). The one conditional with string temporaries in the new code, `describe()` in `main.cpp`, was written as statements instead.
+
+### 18.4 The live run
+
+`./build/telemetry --adsb --cycles 15000 --zmq tcp://127.0.0.1:5555` from a scratch directory with `--config` naming the shipped file, 2026-10-15 21:24 to 21:29 PDT (the evening arrival bank; the plan said daytime for traffic density, and the evening sufficed: 46 aircraft in the box and 5 candidates on the last response), the bridge on the loopback and the page in the desktop app's browser pane; FlightAware beside it for the hand check. The credentials file at the default path was read by the binary alone and its path printed once.
+
+| Item | Observed |
+|---|---|
+| The first selection | `UAL2080 (a441ac)` at frame 0, 7.2 km from the reference point, descending on the 28R final at 720 ft HAE, GS 150 kt, TRK 298°; FlightAware: United 2080, Kahului to San Francisco, a 737 MAX 8, landed 21:27 PDT, gate E3 |
+| The switches (the console, `telemetry_adsb.csv`) | eight: t=41.5 s `nearer` to `WJA1504 (c05da4)` at 2.4 km (§18.5); t=77.8 s `nearer` back to UAL2080 at 1.2 km; t=98.5 s `landed` → `UAL2817 (a12b2d)` 2.2 km; t=124.4 s `landed` → WJA1504 8.9 km; t=134.8 s `nearer` → `UAL276 (a12797)` 8.2 km; t=243.7 s `landed` → `QXE2112 (a817b1)` 2.4 km; t=285.2 s `landed` → `JBU933 (acca19)` 3.1 km; each row's timestamp is the first frame carrying the new aircraft |
+| The `ADS-B:` line | 58 polls, all ok (0 auth, 0 token refused or unavailable, 0 rate-limited, 0 http, transport or malformed), 1 token request, 50 readings, 8 selection changes, 46 aircraft and 5 candidates in the last response, 0 rows skipped, 58 reports taken, 0 overwritten, position age min/mean/max 0 / 1.14 / 3 s, last HTTP 200 |
+| The log | 15,000 frames in two files (rotation at 1 MiB: 9,986 and 5,014 frames), no fault event; every frame `baro=NOT_AVAILABLE imu=NOT_AVAILABLE gps=NOMINAL`, the attitude and barometric altitude NO_COMPUTED_DATA and the fused fields NORMAL on all 15,000; the Validity line says so |
+| The statuses | 310 on the ZeroMQ transport: 300 periodic, 7 at switches not on a second's boundary, 3 ENDED |
+| Timing | 15,000 cycles at 20 ms, jitter min/mean/max 19 / 5,383 / 12,842 µs (p50 6.0, p90 8.1, p99 9.7 ms), 0 missed, with the thread, the publisher and every frame printed to a file. The control the same night (§18.5): the simulator for 15,000 cycles on the same Mac with the bridge, the page and the ZeroMQ publisher up and every frame printed to a file as in the live run, 25 / 3,376 / 14,977 µs (p50 3.9, p90 4.4, p99 4.9 ms), 0 missed. Neither Mac number judges REQ-TIME-003, which is the Pi's `clock_nanosleep` figure (Entry 8, TC-009 step 7, under 1 ms); they measure the macOS `nanosleep` fallback under the demo's load |
+| The PFD | `ADS-B · UAL2080` plain in the strip and the bar, RUNNING, the attitude indicator under the outlined `ATT` no-source flag with no cause in the strip, `ALT ft HAE` reading 720 then 420 on short final and −70 at touchdown, VS −400 to −850 fpm on final, GS 150 then 144 kt, TRK 298° under the rose, the ground track a line to the north-west; later `ADS-B · UAL276`; BARO and IMU `NOT_AVAILABLE held`, GPS `NOMINAL held` between polls; `Traffic data: The OpenSky Network (opensky-network.org)` at the foot |
+| The datum (plan flag 6) | the GNSS altitude at touchdown −22.9 m (−75 ft, the broadcast's 25 ft quantization) against SFO's 4 m above mean sea level: a geoid offset of about −27 m, the −32 m the design expected within one quantum; an aircraft on the runway reads below zero on the tape, as FTS-DS-001 §4.2 says |
+| The replay | the first file replayed unpaced from beside its record: byte-identical (`2971db60…`), the `Replay input:` line naming an ADS-B run by its first frame and the GPS timeout; replayed paced to the bridge and the page: `REPLAY · ID UNAVAILABLE` boxed in amber, `ALT ft`, the instruments live, no attribution line |
+
+### 18.5 Decisions taken, and deviations from the plan
+
+- **The Kalman birth from either source (flag 3, approved).** No recorded log replays differently: the simulator and the scripted flight read the barometer on frame 0 (the seed-42 hash and the demo's bytes are unchanged), no bench log exists (Entry 14 §14.7), and the one log that would differ is a bench log whose barometer failed its first reads while the receiver already had a fix. In ADS-B mode the filter is born from the first GPS reading, at that reading's value (`fused_altitude_m == gps_altitude_m` on frame 0 in the pytest).
+- **NOT_AVAILABLE built, not parked (flag 8).** The size rule held: the enumerator, three skips in the detector, two lines in the sources, the strip, the names and one verdict on the page.
+- **The replay of an ADS-B log takes the ADS-B channel timeout, decided from the log's first frame.** Not in the plan. Without it a 5 s poll interval replays as a 2 s UART timeout the run never had, and the replay is not byte-identical; the mode is not in the log, so `main` reads the barometer and IMU statuses of the first frame, which only the ADS-B source writes NOT_AVAILABLE, and says so on the `Replay input:` line. Design §12 parks the honest fix, a mode byte in the next format version.
+- **A mutation found a flaw.** Commit 7's ninth mutation, a replaced report's switches dropped, was uncaught; the test written for it found that every switch in a merged report was stamped with the last poll's number, fixed by letting each switch carry its own poll (`SwitchRecord` in the report).
+- **The status moved after the read.** The periodic status was published before `read_frame()`; it now follows it, so a status carries the identity of the frame it precedes; the pytest's positions among the frames are unchanged.
+- **The live run in the evening.** 21:24 PDT, not daytime; recorded as such.
+- **Finding: the selection measures horizontal distance only.** At t=41.5 s `WJA1504`, descending through 3,498 m HAE on an arrival route 2.4 km from the reference point (TRK 140°, GS 122 kt), displaced `UAL2080` on short final for 36 s by the nearest-descending rule, which is judged on the ground distance; the fused altitude followed it from 152 m to 2,934 m and back, with vertical speeds of +152 and −154 m/s in the log. An altitude term, a ceiling on candidates or a slant distance, is the fix; it changes REQ-SENS-009's words and adds a tunable, so it is parked in design §12 for Phase B.
+- **Finding: a switch is a discontinuity the filter is not told about.** The identity is not in the frame, so the Kalman filter takes a new aircraft's altitude as a step of the old one's and reports vertical speeds of ±60 to ±185 m/s for a few polls after every switch (−64 m/s at the landing switch at t=98.5 s), pegging the vertical speed indicator until the hold's growing covariance lets the new readings win; between polls on one aircraft the indicator read −400 to −850 fpm on final, plausible. The fix, a re-birth at a switch, needs the identity in the frame or a discontinuity flag; parked in design §12 with the vertical rate.
+- **The selection's hand check passed:** every aircraft the strip named was a real arrival; the identities are in the run's record under `logs/` only and are de-identified in anything published.
+- **The jitter on this Mac, and what moved it.** The live run's 5.4 ms mean against the Pi's sub-millisecond bar needed a control before it could stand in this record: the simulator for the same 15,000 cycles on the same Mac, the bridge, the page and the publisher up, every frame printed to a file, so the only difference is the source. The control's median is 3.9 ms, the macOS `nanosleep` slack Entry 8 first measured (a 5-cycle run: mean 3.6 ms), and its spread is narrow (p90 4.4 ms, sd 1.2 ms); the ADS-B run's median is 6.0 ms with twice the spread (p90 8.1 ms, sd 2.4 ms), and both are flat minute by minute (5.5, 5.3, 5.3, 5.3, 5.5 ms against 3.4, 3.4, 3.4, 3.5, 3.2 ms). The maxima are the same slack on both (12.8 and 15.0 ms). So the ADS-B source does move the loop's jitter on this Mac, by about 2 ms at the median, and not through the HTTP work, which runs for a few milliseconds every 5 s and would show as outliers, not as a flat shift: a second thread parked in a timed wait changes how macOS coalesces the main thread's sleeps, and the loop's `nanosleep` fallback inherits the coarser slack. The mechanism is a reading of the shape, not a measurement of the kernel; the measurement that matters is TC-009 step 7 with `--adsb` on the Pi, whose `clock_nanosleep` with `TIMER_ABSTIME` is what REQ-TIME-003 is judged on, and it is open below. Both runs missed no cycle.
+
+### 18.6 Library and toolchain facts this entry rests on
+
+- libcurl 8.7.1 from the macOS SDK (`find_package(CURL)` with no Homebrew package; the runner takes `libcurl4-openssl-dev`); `CURLOPT_PROTOCOLS_STR`, `CURLOPT_NOSIGNAL`, the write callback's short return as `CURLE_WRITE_ERROR` (23) for the body cap; never `CURLOPT_VERBOSE`.
+- nlohmann/json 3.12.0 by `URL` and `URL_HASH SHA256=42f6e95c…` (the release's `json.tar.xz`, 114,576 bytes): the digest was computed from the first fetch and pins every later one to the same bytes. The pin was tied to the release itself the same night, after the push: GnuPG 2.5.24 installed with Homebrew, the maintainer's public key taken from the location the project's README names (keybase.io/nlohmann, fingerprint `797167AE41C0A6D9232E48457F3CEA63AE251B69`, the README's), imported into a scratch keyring, and the release's detached signature `json.tar.xz.asc` verified against a fresh download of the archive: a good signature by that key, made 2025-04-07, over bytes whose SHA-256 equals the pin and CMake's own copy. `json::parse(text, nullptr, false)` for a parse that never throws; CMake's CMP0135 set NEW under `if(POLICY …)` so a CMake older than 3.24 is untouched.
+- `std::condition_variable::wait_for` with a predicate as the worker's one wait; `std::count_if` over a static member function; C++17's guaranteed elision lets a test return a source that owns a thread and a mutex by value.
+- The OpenSky REST API: OAuth2 client credentials at `auth.opensky-network.org`, tokens of 1,800 s, one credit per call for this box, `X-Rate-Limit-Retry-After-Seconds` on 429, state vectors of 17 elements (18 with `extended=1`), the position time nulled past 15 s.
+- The FlightAware page in the desktop app's browser pane for the hand check; Vite 8.3's dev server in the same pane through `.claude/launch.json`.
+
+### 18.7 Measurement of record
+
+CI run 38852667084 on `4dabebd`, the branch's head, on the draft pull request (number 2, to `main`, stacked on the PFD branch), 2026-10-16 04:50 to 04:54 UTC, the first run on the branch; both jobs green.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 395 of 395 in 11.4 s |
+| pytest (Python 3.13, against the instrumented binary) | 131 of 131 in 127.8 s, the ADS-B run over the local stand-in among them |
+| lcov over `src/` | lines 98.1% (2,747 of 2,799), functions 97.1% (301 of 310), branches 92.7% (1,286 of 1,387) |
+| cppcheck (the runner's package), 38 files | 0 findings |
+| `page` job (Node 22, Vitest with coverage, `npm run build`) | 73 of 73 in 12 files; statements 99.09%, branches 98.91%, functions 97.67%, lines 99.68%; the build clean in 93 ms; 18 s for the job |
+| Wall time | the C++ job 4 min 2 s; the page job 18 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside the last Mac preview taken, Entry 17's:
+
+| Scope | Record (GCC) | Entry 17 preview (clang) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 97.9% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 86.1% | 80% |
+| transport | 88.8% | 92.1% | 80% |
+| replay | 95.0% | 100.0% | 80% |
+| drivers | 89.0% | 95.8% | 70% |
+| overall | 92.7% | 96.1% | 80% |
+
+The new and changed files on GCC:
+
+| File | Lines | Branches |
+|---|---|---|
+| `timing/periodic_worker.cpp` | 39 of 39 | 4 of 4 |
+| `drivers/adsb_source.cpp` | 146 of 147 | 48 of 52 |
+| `drivers/selection_log.cpp` | 20 of 20 | 6 of 6 |
+| `drivers/aircraft_selector.cpp` | 79 of 79 | 55 of 64 |
+| `drivers/opensky_client.cpp` | 151 of 164 | 95 of 108 |
+| `drivers/opensky_json.cpp` | 145 of 150 | 108 of 130 |
+| `drivers/curl_http_client.cpp` | 90 of 97 | 26 of 32 |
+| `drivers/http_client.cpp` | 6 of 6 | 3 of 4 |
+| `transport/session_message.cpp` | 48 of 48 | 32 of 36 |
+| `config/telemetry_config.cpp` | 481 of 481 | 242 of 242 |
+| `processing/processor.cpp`, `processing/fault_detector.cpp` | 77 of 77, 149 of 149 | 60 of 60, 70 of 70 |
+| `replay/log_replay_source.cpp` | 44 of 44 | 19 of 20 |
+| `drivers/live_sensor_source.cpp` | 74 of 74 | 30 of 30 |
+
+The two lines §18.3 named: the worker's marked `wait_for` line contributes no branch after lcov's exception filter, so the file's four branches are the two `running_` tests, and the loop's own decision rests on the two tests that stop a wait early and on time; `main.cpp` is outside lcov's scope on the runner, as it has been since Entry 5, so its probe line is not measured.
+
+The drivers scope's fall from Entry 17's 95.8% to 89.0% is the ADS-B source's parsers and clients, whose untaken branches are of three kinds. First, exception-unwind edges on lines the marker rule names but which carry no marker yet: `aircraft_selector.cpp:103` and `http_client.cpp:6` (a `find_if` over an iterator range), `opensky_client.cpp:27` (a string temporary in a conditional) and `opensky_json.cpp:121` (a range-for over the document's array); these four lines take the marker in the next commit that touches their files, and are listed here as the rule asks. Second, legs of short-circuit chains no fixture produces: `AircraftSelector::usable`'s absences of latitude, longitude, velocity, track and position time (the examples null only the geometric altitude, besides `on_ground`), `candidate`'s null vertical rate, the per-field row guards in `opensky_json.cpp` (`index >= row.size()`, which the 13-element row meets at the length check instead), `hex_value`'s never-false digit tests and `operator==`'s callsign leg in `session_message.cpp`, and four legs of the slot's and the freshness rule's chains in `adsb_source.cpp` that no scripted sequence reaches (a vector whose aircraft is not the one selected, a replaced report carrying a vector the new one lacks). Third, failure paths no test provokes: libcurl's global init and handle allocation failing (`curl_http_client.cpp:65`, `:70`, `:97`), a token endpoint refusing or vanishing after a 401 inside one poll (`opensky_client.cpp:158`, `:164`), and an origin override with no path (`:80`). The transport scope's 88.8% is the publishers' send-failure legs of earlier entries, unchanged; the replay scope's one untaken leg is the strip's NOT_AVAILABLE ternary on the GPS line, which `ReplayTest.NotAvailableSurvivesTheStrip` exercises on the other two channels.
+
+### 18.8 Open
+
+- Yours: the link to the published work for the OpenSky Network (its terms ask for it); the demo video's ADS-B segment with the bridge's `--hide-identity`.
+- TC-009 step 7 with `--adsb` on the Pi: whether the worker thread moves `clock_nanosleep`'s jitter as it moves the Mac's `nanosleep` slack (§18.5).
+- The four exception-edge lines of §18.7 without a marker (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) take it in the next commit that touches their files.
+- Phase B (design §12): the vertical rate as the filter's third measurement and the pressure altitude, the mode in the log, the selection's altitude term, the re-birth on a switch, all with format version 3.
+- Entry 17's open items stand: §17.7 from the CI run, TC-025 step 8, the Pi.
+
+## Entry 19 — 2026-10-15 and 16, Format version 3: the run mode in the header, the sequence number, the new-vehicle flag and the re-birth, the ADS-B vertical rate and pressure altitude, the fix quality, the voter's status (macOS preview)
+
+Three requirements (REQ-LOG-007, REQ-LOG-008, REQ-PROC-008; SRD 0.12.0 → 0.13.0, 54 → 57 statements) and five amended (REQ-SENS-005, REQ-SENS-008, REQ-LOG-005, REQ-TRANS-004, REQ-DISP-007), FTS-FM-001 0.5.0 → 0.6.0, FTS-DS-001 0.2.0 → 0.3.0, TC-031 and nine cards amended (TC-004, TC-008, TC-017, TC-021, TC-022, TC-023, TC-026, TC-029, TC-030), one new header pair (`src/run_mode.h`), the frame from 104 to 120 bytes with version 2 as its prefix, the session status at version 3; eight commits on `claude/ads-b-phase-a-opensky-87da4f` after Entry 18's eleven, off `main` until after the v0.1.0 tag. The voter's status field was assigned on Derek's amendment the evening of 2026-10-15, before commit 2 was committed, so the voter never needs a format version 4.
+
+### 19.1 What was built
+
+- Documents (commit 1): the SRD statements above; FAULT-015's re-birth and FAULT-003's bytes in place; FTS-DS-001 §3, §4.2, §4.5 and §5 by source mode; FTS-DD-001 §3, §7 (the flags byte), §9 (the version-3 layout, the header's two modes, the prefix rule, the status at version 3), §11.1, §11.2 and §12 (five bullets decided, the 2D-fix bullet amended); TC-031, seventeen steps.
+- `src/telemetry_frame.*`, `src/run_mode.*`, `src/logging/*`, `src/replay/log_replay_source.cpp`, both publishers, `src/main.cpp` (commit 2): `sequence` at 52, `course_deg` at 80, `flags` at 103 (`FrameFlag`: NEW_VEHICLE, VERTICAL_RATE, PRESSURE_ALTITUDE, FIX_QUALITY), the tail `gps_vertical_rate_mps` 104, `gps_pressure_altitude_m` 108, `gps_fix_quality` 112, `gps_satellites` 113, `voter_status` 114 (`VoterStatus`: VOTED, LANE_1_FAULTED to LANE_3_FAULTED, NO_MAJORITY; zero, no voter ran), `reserved_d` 116; `RunMode` with UNKNOWN as its zero; the header's `run_mode` and `source_mode`, `frame_size_for`, the prefix read, the header handed to the logger and both publishers; the replay's source mode from its input's header, the first-frame rule of Entry 18 §18.5 deleted (REQ-LOG-005, REQ-LOG-007).
+- `pipeline/frame_format.py`, `log_reader.py`, `receiver.py`, `tests/integration/synthetic_log.py`, the page's types (commit 3): `FRAME` at 120 and `FRAME_V2` as its prefix, one `Frame` shape for every version, the header's modes, the name tables, the summary's header and sequence lines, `seq=` on the receiver's line, `course_deg` on the page; the file-level identity stated by its one header byte (§19.5) (REQ-LOG-005, REQ-LOG-007, REQ-TEST-002).
+- `src/data_source.h` and the three sources, the injector (commit 4): `next_sequence()`, the count from zero; the live source's GGA quality and satellites under FIX_QUALITY, held with the fix; the simulator's 1 and 8 on every frame; a held GPS reading held whole by the injector (REQ-LOG-008, REQ-SENS-005).
+- `src/transport/session_message.*`, the publishers, `main.cpp`, the Python status, the receiver, the bridge, the page (commit 5): `SessionStatus`, the source mode in byte 7 at version 3; the tape's `ft HAE`, a replay's `ID UNAVAILABLE` and the attribution by the source mode (REQ-TRANS-004, REQ-DISP-007, REQ-LOG-007).
+- `src/drivers/adsb_source.cpp`, `src/processing/processor.*` (commit 6): NEW_VEHICLE on the first frame of a newly selected aircraft; the re-birth before the gates (REQ-PROC-008).
+- `src/drivers/adsb_source.*` (commit 7): the vertical rate and the pressure altitude with their presence bits, held with the vector (REQ-SENS-008).
+- Tests: unit +17, 395 → 412 (`test_telemetry_frame` +2, `test_logging` +3, `test_replay` +3, `test_simulated_data` +1, `test_live_sensor_source` +2, `test_adsb_source` +3, `test_fault_detection` +1, `test_kalman` +1, `test_validity` +1); pytest +11, 131 → 142 (`test_log_reader` +5, `test_adsb` +2, `test_validity` +1, `test_replay_identity` +1, `test_session_status` +1, `test_bridge` +1); page 73, unchanged in number, its label, datum and attribution tests extended by source mode.
+
+### 19.2 Test results (preview)
+
+| Check | Result |
+|---|---|
+| Google Test | 412 of 412 (395 before), `-DWARNINGS_AS_ERRORS=ON` on clang, zero warnings |
+| pytest | 142 of 142 in 127 s (131 before) |
+| Page (Vitest 4.1, jsdom) | 73 of 73 in 12 files; `npm run build` clean |
+| cppcheck 2.21.0 | 0 findings with CI's flags at every commit |
+| The byte checks | §19.4 |
+
+Red first at every commit: commit 2's tests failed to compile against the old layout; commit 3's suite could not import the twin's new names and the page's track read `rotate(0)`; commit 4's ten, commit 5's three layers, commit 6's five and commit 7's six failed before their code. The expected values that changed beyond the plan's list are in §19.5.
+
+### 19.3 Coverage preview
+
+Not run on the Mac; §19.7 takes the CI figures on GCC. No new conditional line combines a decision with a string temporary, a standard-library call that can throw, or an iterator range: `has_flag` in `processor.cpp` is tested in a function that holds no object with a destructor, the ADS-B source's `set_flag` calls sit on lines of their own, and `optional::has_value()` cannot throw. Any exception edge the record shows goes into §19.7 under the marker rule. One outcome no test reached was pinned before it could show: `frame_size_for` answering 0 for a version neither twin defines (commit 3).
+
+### 19.4 The byte checks
+
+| Item | Observed |
+|---|---|
+| The seed-42 500-frame session (TC-031 step 17) | `7720966cb87473bc429f975794ffb4fdfcba1652b7c1a0bec54bc15da2f15ae3` (format version 2: `6d43f343…`, Entry 12 §12.4). Against the kept version-2 reference, frame by frame by a script: the first 104 bytes of every frame identical but offsets 52 and 53, the sequence, the frame's index (498 and 244 frames: frames 0 and 256 share byte 52's zero, and only frames 256 to 499 have a second byte), and 103, `08`, the FIX_QUALITY bit (all 500); the tail `00 00 00 00 00 00 00 00 01 08 00 00 00 00 00 00` on every frame, quality 1 and 8 satellites; no event in either; the sequence equal to the frame's index on all 500. The bytes moved at commit 2 only in the header and the zero tail (`c23357c4…`) and at commit 4 as above; commits 5 to 7 change no byte of a simulated log |
+| Its replay | `703f621cca12153e267be4794a28dd28a8be4df58a929d8ce40c1c9a55b01269`: every record identical to the session's; the header differing in byte 10 alone, the run mode, SIMULATED (2) against REPLAY (3), the source mode SIMULATED in both; `cmp -l` prints `11 2 3` and `cmp` from offset 16 prints nothing |
+| A version-2 log replayed (TC-031 step 13) | the version-2 reference itself, beside its record: `Replay input:` names format version 2, run mode UNKNOWN, source mode UNKNOWN and the version-3 replay log; the replay's header REPLAY over UNKNOWN; every frame's first 104 bytes equal to the reference's, the sequence 0 and the tail zero; NORMAL on all 500 |
+| A version-1 log replayed | the same file with its header's version set to 1, the two versions sharing every byte position: the same result, byte for byte, the reader having set the version-1 frames' validity and former reserved bytes to what version 2 means by them |
+| The live run's log of Entry 18, replayed (version 2, kept under the scratchpad and never committed, its first file of 9,986 frames) | the source mode UNKNOWN by its header, so the GPS channel takes the UART timeout, 2,000 ms, against the run's 5 s polls: one COMM_TIMEOUT at about 2 s and the channel DEGRADED from there, never recovering, since every poll's reading is followed by more than 2 s of silence; the fused fields FAILURE_WARNING on 9,885 of 9,986 frames, where the run had no event and NORMAL throughout; frames 0 to 100 identical to the recording. The first-frame rule this replaces would have taken the ADS-B timeout. The remedy: `--config` naming a copy of the record with `fault.uart_timeout_ms` set to the ADS-B timeout, 20,000 ms, which replays all 9,986 frames byte for byte in their 104 bytes with no event; the `Configuration:` line says identity is not claimed, which is right, since the configuration differs. The only version-2 ADS-B logs are this run's |
+| The ADS-B stand-in run (pytest, TC-031 step 14) | NEW_VEHICLE on frames 0 and 151 (t = 0 and 3,025 ms), exactly the two rows of `telemetry_adsb.csv`; on each the fused altitude born at the GPS altitude, 480 m and 730 m, the vertical speed 0, both NORMAL; the largest vertical speed over the 600 frames 0.0 m/s across the 250 m step from TEST001 to TEST002, the kind of step the live run read as up to ±185 m/s (Entry 18 §18.5); the vertical rate −3.5 m/s and the pressure altitude 450 m then 700 m, both bits set, on every frame; no fix quality. Its replay: every record identical, the header REPLAY over the recording's ADSB, and every status's source mode ADSB |
+| The rotation | a frame record is now 121 bytes, so a 1 MiB file holds 8,665 frames where it held 9,986 (the live log's replay rotated into two files of 8,665 and 1,321); the demo's 7,500-frame recording is 907,516 bytes, still one file |
+
+### 19.5 Decisions taken, and deviations from the plan
+
+- **The voter's status (Derek's amendment, 2026-10-15).** `reserved_c` became `voter_status`, zero meaning no voter ran, with bits for the approved voter decisions; every writer puts zero; the replay's strip zeroes it as a verdict the voter will recompute, as it zeroes validity; `reserved_d` stays reserved. It traces to REQ-LOG-001 until the REQ-RED drafts enter the SRD (FTS-DD-001 §11.1).
+- **The run-mode byte and the file-level identity (found in commit 3).** REQ-LOG-007 records the run mode of the session that wrote each file, so a session's log and its replay's differ in exactly one header byte, the run mode, where four pytests compared whole files. The plan's deviation rule (an existing test's expected value changing) applied; Derek had asked to carry on, so it was built as approved: the four tests compare every record and the header but for that byte (`conftest.assert_replay_identical`), and TC-004, TC-026, TC-029, TC-031, design §9, README.md and CLAUDE.md say so. The alternative, dropping the run-mode byte, which nothing reads, would have restored whole-file identity at the cost of REQ-LOG-007's words; on 2026-10-16 Derek continued with the byte as built. REQ-LOG-003 claims identical processing outputs, which are the records; it holds.
+- **The attribution follows the source mode (commit 5).** Not in the plan. With the datum moved to the source mode, a replayed ADS-B recording would have shown the network's data under `ft HAE` without the attribution the data license requires; under the standing instruction to attribute OpenSky as its terms require, the attribution follows the source mode too (FTS-DS-001 §8, TC-030 step 7).
+- **The injector holds a GPS reading whole (commit 4).** The plan said only that the sequence passes through. A held or failed GPS now holds the fix quality, the satellites and the two ADS-B fields with their presence bits, as the live source holds its last fix; NEW_VEHICLE and the sequence pass through.
+- **A new vehicle gets a new attitude filter (commit 6).** `ComplementaryFilter::reset()` keeps the angles for an outage's re-seed (design §6), which on a new vehicle would have shown the old one's pitch under NO_COMPUTED_DATA; a new object reads 0, as REQ-PROC-007 asks of a field that never existed.
+- **The matrix summary after commit 2** counted REQ-LOG-007 as Not started while its row said Partial; commit 3 corrected it.
+- **The first-frame rule deleted (decision 3).** §19.4 shows the cost for the one kind of log it served and the remedy.
+- **The receiver prints the source mode only where it differs from the run mode**, so TC-021's `session: mode=SIMULATED state=ENDED` line is unchanged.
+
+### 19.6 Library and toolchain facts this entry rests on
+
+- Python's `struct.Struct.format` is a `str`, so the prefix rule is asserted at import as `FRAME.format.startswith(FRAME_V2.format)`; numpy's `align=True` dtype is 120 bytes, a multiple of the 8-byte alignment; `np.frombuffer` reads an older file's frames packed to version 3.
+- C++17 aggregates keep aggregate initialization with default member initializers (`SessionStatus{mode, source, state, identity}`); the 120-byte frame stays standard-layout, so `offsetof` pins every field.
+- macOS's BSD `cmp`: `-l` prints one line per differing byte, its 1-based position and the two values in octal; `cmp a b 16 16` skips 16 bytes of each.
+
+### 19.7 Measurement of record
+
+CI run 39175951717 on `5bbb79e`, the branch's head, on the draft pull request (number 2, to `main`, stacked on the PFD branch), 2026-10-18 23:18 to 23:22 UTC, the one push that carried the topic's eight commits (`fe62737..5bbb79e`); both jobs green.
+
+| Check | Result |
+|---|---|
+| Google Test (GCC, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 412 of 412 in 13.9 s; no warning in the build |
+| pytest (Python 3.13, against the instrumented binary) | 142 of 142 in 131.2 s, the ADS-B run over the local stand-in among them |
+| lcov over `src/` | lines 98.2% (2,809 of 2,861), functions 97.2% (307 of 316), branches 93.0% (1,320 of 1,420) |
+| cppcheck (the runner's package, 2.13.0), 39 files | 0 findings |
+| `page` job (Node 22, Vitest with coverage, `npm run build`) | 73 of 73 in 12 files; statements 99.09%, branches 98.93%, functions 97.7%, lines 99.68%; the build clean in 134 ms; 21 s for the job |
+| Wall time | the C++ job 3 min 56 s; the page job 21 s |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh` (thresholds from FTS-TP-001 §6.3), beside Entry 18's record, the last measurement taken, since §19.3 took no Mac preview:
+
+| Scope | Record (GCC) | Entry 18 record (GCC) | Threshold |
+|---|---|---|---|
+| processing | 100.0% | 100.0% | 90% |
+| config | 100.0% | 100.0% | 90% |
+| timing | 100.0% | 100.0% | 80% |
+| logging | 100.0% | 100.0% | 80% |
+| transport | 88.8% | 88.8% | 80% |
+| replay | 95.0% | 95.0% | 80% |
+| drivers | 89.2% | 89.0% | 70% |
+| overall | 93.0% | 92.7% | 80% |
+
+The files the eight commits added or changed, on GCC (`main.cpp` outside lcov's scope, as since Entry 5; the other changed headers in the report carry no branch, and every line of theirs ran):
+
+| File | Lines | Branches | Branches at Entry 18 |
+|---|---|---|---|
+| `run_mode.cpp` (new) | 8 of 8 | 6 of 6 | — |
+| `telemetry_frame.cpp` | 34 of 34 | 21 of 21 | 10 of 10 |
+| `logging/log_format.h` (`frame_size_for`, new in the report) | 3 of 3 | 6 of 6 | — |
+| `logging/log_format.cpp`, `logging/binary_logger.cpp` | 34 of 34, 51 of 51 | 12 of 12, 12 of 12 | the same |
+| `logging/log_reader.cpp` | 74 of 75 | 18 of 18 | 18 of 18 |
+| `replay/log_replay_source.cpp` | 44 of 44 | 19 of 20 | 19 of 20 |
+| `processing/processor.cpp` | 85 of 85 | 62 of 62 | 60 of 60 |
+| `drivers/adsb_source.cpp` | 157 of 158 | 54 of 58 | 48 of 52 |
+| `drivers/live_sensor_source.cpp` | 79 of 79 | 32 of 32 | 30 of 30 |
+| `drivers/fault_injecting_source.cpp` | 72 of 72 | 16 of 16 | 16 of 16 |
+| `drivers/simulated_data.cpp`, `drivers/simulated_source.cpp`, `drivers/motion_profile.cpp` | 82 of 82, 12 of 12, 37 of 37 | 14 of 16, 3 of 4, 7 of 8 | the same |
+| `transport/session_message.cpp` | 42 of 42 | 32 of 36 | 32 of 36 |
+| `transport/udp_publisher.cpp`, `transport/zmq_publisher.cpp` | 53 of 54, 40 of 40 | 29 of 32, 10 of 12 | the same |
+
+The record reconciles with Entry 18's branch by branch. The eight commits added 33 branches and every one is taken: the switches of the name functions in `telemetry_frame.cpp` (11) and `run_mode.cpp` (6), `frame_size_for`'s two conditionals (6), the processor's NEW_VEHICLE test (2), the live source's fix-quality hold (2), and the ADS-B source's new-vehicle flag and two presence bits (6); 1,387 and 33 make the 1,420. The one taken branch beyond them is a leg §18.7 listed as untaken, `AircraftSelector::candidate`'s absent vertical rate (`aircraft_selector.cpp:46`, taken twice), which commit 7's `AdsbSourceTest.VerticalRateAndPressureAltitudeAreRawFieldsWithPresenceBits` reaches by scripting the kept aircraft's vector without one; the selector's file is unchanged. The drivers scope rises from 89.0% to 89.2% on these: the two sources' eight new branches and the selector's leg. The commits' 62 new lines and 6 new functions all ran, so the 52 unrun lines and 9 unhit functions are Entry 18's, the same counts file by file.
+
+No untaken branch and no unrun line sits on a line the commits changed: a script read the report's source pages for the sixteen source files they touched under lcov's scope and the eight changed headers the report covers, and set every untaken branch and unrun line against the lines `git diff fe62737 5bbb79e` changed in them. So §19.3's statement holds on GCC: the topic added no exception edge, and no line of it takes the marker. In the files it touched, the untaken branches are Entry 18's counts file by file, every one on a line the topic left alone. The four exception-edge lines §18.7 named (`aircraft_selector.cpp:103`, `http_client.cpp:6`, `opensky_client.cpp:27`, `opensky_json.cpp:121`) still carry no marker, since no commit of this topic touched their files; they stay open (§19.8).
+
+One correction to Entry 18, made with this record: §18.7's cppcheck row read 40 files, where its run's log reads `38/38 files checked`, the 38 `.cpp` files of that tree; it reads 38 now. This run's 39 are those and `run_mode.cpp`.
+
+### 19.8 Open
+
+- Phase B (design §12): the vertical rate, recorded since commit 7, as the filter's third measurement; the pressure altitude; the selection's altitude term.
+- FAULT-003b: the detector's judgment of the fix quality and the satellite count the frame now carries.
+- The voter (design §11.1), whose status field waits for it.
+- The demo's recording at version 3 (FTS-DS-001 §7): its hash is recorded when it is made.
+- Entry 18's open items stand: the OpenSky publication link, TC-009 step 7 with `--adsb` on the Pi, the four exception-edge lines; and Entry 17's: §17.7, TC-025 step 8, the Pi.

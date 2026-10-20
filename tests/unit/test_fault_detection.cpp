@@ -688,6 +688,68 @@ TEST(FaultInjectingSourceTest, FailReadsImuAndGps) {
     EXPECT_EQ(b.accel_x, a.accel_x);
     EXPECT_EQ(b.latitude, a.latitude);
     EXPECT_NE(b.pressure_hpa, a.pressure_hpa);
+    // The inner source's count passes through: a fault is in a channel,
+    // not in the stream (REQ-LOG-008, TC-031 step 5).
+    EXPECT_EQ(a.sequence, 0u);
+    EXPECT_EQ(b.sequence, 1u);
+}
+
+namespace {
+
+// A source that hands out the frames it was given, in order: the injector
+// on fields the simulator never varies.
+class FrameList : public DataSource {
+public:
+    explicit FrameList(std::vector<TelemetryFrame> frames) : frames_(std::move(frames)) {}
+    TelemetryFrame read_frame() override { return frames_.at(next_++); }
+
+private:
+    std::vector<TelemetryFrame> frames_;
+    size_t next_ = 0;
+};
+
+}  // namespace
+
+// The GPS channel's reading is the position, the speed and the course and,
+// since format version 3, the receiver's fix quality and satellite count
+// and the ADS-B vertical rate and pressure altitude, with the bits that say
+// each is present (REQ-SENS-005, REQ-SENS-008): a held GPS is held whole,
+// as the live source holds its last fix. What the frame says of itself
+// passes through: the source's count (REQ-LOG-008) and NEW_VEHICLE
+// (REQ-PROC-008).
+TEST(FaultInjectingSourceTest, HeldGpsIsTheWholeReading) {
+    TelemetryFrame first{};
+    first.latitude = 37.5;
+    first.course_deg = 90.0f;
+    first.gps_vertical_rate_mps = -3.5f;
+    first.gps_pressure_altitude_m = 300.0f;
+    first.gps_fix_quality = 2;
+    first.gps_satellites = 9;
+    set_flag(first, FrameFlag::VERTICAL_RATE);
+    set_flag(first, FrameFlag::PRESSURE_ALTITUDE);
+    set_flag(first, FrameFlag::FIX_QUALITY);
+    TelemetryFrame second{};
+    second.timestamp_ms = 20;
+    second.sequence = 1;
+    second.latitude = 38.0;
+    second.course_deg = 180.0f;
+    set_flag(second, FrameFlag::NEW_VEHICLE);
+    FaultInjectingSource source(std::make_unique<FrameList>(std::vector<TelemetryFrame>{first, second}));
+    source.read_frame();
+    source.hold_values(Channel::GPS, true);
+    const TelemetryFrame held = source.read_frame();
+    EXPECT_EQ(held.latitude, 37.5);
+    EXPECT_EQ(held.course_deg, 90.0f);
+    EXPECT_EQ(held.gps_vertical_rate_mps, -3.5f);
+    EXPECT_EQ(held.gps_pressure_altitude_m, 300.0f);
+    EXPECT_EQ(held.gps_fix_quality, 2u);
+    EXPECT_EQ(held.gps_satellites, 9u);
+    EXPECT_TRUE(has_flag(held, FrameFlag::VERTICAL_RATE));
+    EXPECT_TRUE(has_flag(held, FrameFlag::PRESSURE_ALTITUDE));
+    EXPECT_TRUE(has_flag(held, FrameFlag::FIX_QUALITY));
+    EXPECT_TRUE(has_flag(held, FrameFlag::NEW_VEHICLE));   // the frame's own fact, through
+    EXPECT_EQ(held.sequence, 1u);                           // the inner source's count, through
+    EXPECT_EQ(held.timestamp_ms, 20u);
 }
 
 TEST(FaultInjectingSourceTest, HoldValuesImuAndGps) {
@@ -746,4 +808,70 @@ TEST(FaultDetectionTest, EventReservedIsZero) {
             EXPECT_EQ(bytes[i], 0) << "event " << e << " byte " << i;
         }
     }
+}
+
+// TC-017 step 17 (REQ-FAULT-007, FAULT-018). A channel the source reports
+// NOT_AVAILABLE is a fact, not a reading: the detector leaves the status as
+// the source set it, runs no timeout, stuck or range check on it, and
+// records no event, for ten seconds and whichever channel it is, while the
+// other two are judged as before. A barometer that then goes silent beside
+// an absent GPS still times out with its event: the neighbour's rules are
+// untouched.
+TEST(FaultDetectionTest, NotAvailableChannelIsLeftAloneWithNoEvent) {
+    for (const Channel absent : {Channel::GPS, Channel::BARO, Channel::IMU}) {
+        FaultDetector d;
+        uint64_t ts = 0;
+        for (int i = 0; i < 500; i++, ts += kDtMs) {
+            TelemetryFrame f = healthy_frame(ts);
+            switch (absent) {
+                case Channel::GPS:
+                    f.gps_status = ChannelStatus::NOT_AVAILABLE;
+                    f.gps_read_ok = false;
+                    f.latitude = 0.0;
+                    break;
+                case Channel::BARO:
+                    f.baro_status = ChannelStatus::NOT_AVAILABLE;
+                    f.baro_read_ok = false;
+                    f.pressure_hpa = 0.0f;   // out of range, were it a reading
+                    break;
+                case Channel::IMU:
+                    f.imu_status = ChannelStatus::NOT_AVAILABLE;
+                    f.imu_read_ok = false;
+                    f.accel_x = f.accel_y = f.accel_z = 0.0f;   // stuck, were they readings
+                    f.gyro_x = f.gyro_y = f.gyro_z = 0.0f;
+                    break;
+            }
+            const TelemetryFrame out = d.check(f);
+            EXPECT_EQ(status_of(out, absent), ChannelStatus::NOT_AVAILABLE) << channel_name(absent) << " frame " << i;
+            for (const Channel other : {Channel::BARO, Channel::IMU, Channel::GPS}) {
+                if (other != absent) {
+                    EXPECT_EQ(status_of(out, other), ChannelStatus::NOMINAL) << channel_name(other) << " frame " << i;
+                }
+            }
+        }
+        EXPECT_TRUE(d.take_events().empty()) << channel_name(absent);
+    }
+
+    FaultDetector d;
+    uint64_t ts = 0;
+    for (int i = 0; i < 20; i++, ts += kDtMs) {
+        TelemetryFrame f = healthy_frame(ts);
+        f.gps_status = ChannelStatus::NOT_AVAILABLE;
+        f.gps_read_ok = false;
+        d.check(f);
+    }
+    TelemetryFrame last{};
+    for (int i = 0; i < 30; i++, ts += kDtMs) {   // 600 ms of silence: past the 500 ms I2C timeout
+        TelemetryFrame f = healthy_frame(ts);
+        f.gps_status = ChannelStatus::NOT_AVAILABLE;
+        f.gps_read_ok = false;
+        f.baro_read_ok = false;
+        last = d.check(f);
+    }
+    EXPECT_EQ(last.baro_status, ChannelStatus::DEGRADED);
+    EXPECT_EQ(last.gps_status, ChannelStatus::NOT_AVAILABLE);
+    const std::vector<FaultEvent> events = d.take_events();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].channel, Channel::BARO);
+    EXPECT_EQ(events[0].type, FaultType::COMM_TIMEOUT);
 }

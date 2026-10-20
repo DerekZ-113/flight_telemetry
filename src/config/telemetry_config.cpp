@@ -243,6 +243,37 @@ public:
         return true;
     }
 
+    // A finite number from `min` to `max` inclusive: a latitude, a
+    // longitude (REQ-SENS-008's box and reference point).
+    bool read_number_in(const std::string& key, double min, double max, double& out) {
+        double parsed = 0.0;
+        const bool valid = read_finite(key, parsed);
+        if (!valid) {
+            return false;
+        }
+        if (parsed < min || parsed > max) {
+            problem(key, "must be " + show(min) + " to " + show(max) + " (got " + show(parsed) + ")");
+            return false;
+        }
+        out = parsed;
+        return true;
+    }
+
+    // A finite number at or above `min`: a distance that may be zero.
+    bool read_number_at_least(const std::string& key, double min, double& out) {
+        double parsed = 0.0;
+        const bool valid = read_finite(key, parsed);
+        if (!valid) {
+            return false;
+        }
+        if (parsed < min) {
+            problem(key, "must be at least " + show(min) + " (got " + show(parsed) + ")");
+            return false;
+        }
+        out = parsed;
+        return true;
+    }
+
     bool read_bool(const std::string& key, bool& out) {
         const std::optional<YAML::Node> node = value(key);
         if (!node.has_value()) {
@@ -290,6 +321,25 @@ public:
         const bool defined = found.IsDefined();
         if (!defined) {
             problem(key, "missing section");
+            return std::nullopt;
+        }
+        const bool map = found.IsMap();
+        if (!map) {
+            problem(key, "must be a mapping (" + describe(found) + ")");
+            return std::nullopt;
+        }
+        return Section(found, child_path(key), problems_);
+    }
+
+    // A block the schema allows a file to omit (the `adsb` block,
+    // REQ-CFG-001): nothing, and no problem, when the key is absent; a
+    // problem when it is present and not a mapping; the section
+    // otherwise, every key inside it then required like any other.
+    std::optional<Section> optional_section(const std::string& key) {
+        read_.push_back(key);
+        const YAML::Node found = node_[key];
+        const bool defined = found.IsDefined();
+        if (!defined) {
             return std::nullopt;
         }
         const bool map = found.IsMap();
@@ -559,6 +609,49 @@ ConfigLoad load_config_text(const std::string& text, const std::string& name) {
         s.finish();
     }
 
+    // The one block a file may omit (REQ-CFG-001): an ADS-B run requires
+    // it (main refuses --adsb without it, by name), no other run reads it,
+    // and a configuration recorded before the block existed replays as
+    // recorded. Present, every key inside it is required. The box's edges
+    // are ordered inside the section, as the pressure bounds are.
+    bool adsb_interval_ok = false;
+    bool adsb_timeout_ok = false;
+    std::optional<Section> adsb = top.optional_section("adsb");
+    if (adsb.has_value()) {
+        Section& s = *adsb;
+        AdsbConfig a;
+        std::optional<Section> box = s.section("box");
+        if (box.has_value()) {
+            Section& b = *box;
+            const bool lat_min_ok = b.read_number_in("lat_min", -90.0, 90.0, a.box.lat_min);
+            const bool lat_max_ok = b.read_number_in("lat_max", -90.0, 90.0, a.box.lat_max);
+            const bool lon_min_ok = b.read_number_in("lon_min", -180.0, 180.0, a.box.lon_min);
+            const bool lon_max_ok = b.read_number_in("lon_max", -180.0, 180.0, a.box.lon_max);
+            if (lat_min_ok && lat_max_ok && a.box.lat_max <= a.box.lat_min) {
+                const std::string against = show(a.box.lat_max) + " against " + show(a.box.lat_min);
+                b.problem("lat_max", "must exceed lat_min (" + against + ")");
+            }
+            if (lon_min_ok && lon_max_ok && a.box.lon_max <= a.box.lon_min) {
+                const std::string against = show(a.box.lon_max) + " against " + show(a.box.lon_min);
+                b.problem("lon_max", "must exceed lon_min (" + against + ")");
+            }
+            b.finish();
+        }
+        std::optional<Section> reference = s.section("reference");
+        if (reference.has_value()) {
+            Section& r = *reference;
+            r.read_number_in("latitude", -90.0, 90.0, a.reference.latitude);
+            r.read_number_in("longitude", -180.0, 180.0, a.reference.longitude);
+            r.finish();
+        }
+        adsb_interval_ok = s.read_int("poll_interval_ms", 1000, 3600000, a.poll_interval_ms);
+        s.read_number_at_least("switch_margin_m", 0.0, a.switch_margin_m);
+        s.read_int("gone_after_polls", 1, kNoMaximum, a.gone_after_polls);
+        adsb_timeout_ok = s.read_int("timeout_ms", 1, kNoMaximum, a.timeout_ms);
+        s.finish();
+        c.adsb = a;
+    }
+
     top.finish();
 
     // Rules between sections, each on the value the other constrains.
@@ -578,6 +671,12 @@ ConfigLoad load_config_text(const std::string& text, const std::string& name) {
             const std::string rule = "must be at least the processing rate, 1000 / timing.period_ms";
             top.problem("sensors.imu.sample_rate_hz", rule + " (" + against + ")");
         }
+    }
+    // The ADS-B channel's delivery period is the poll interval, so its
+    // timeout must outlast it as the UART timeout outlasts the fix period.
+    if (adsb_interval_ok && adsb_timeout_ok && c.adsb->timeout_ms <= c.adsb->poll_interval_ms) {
+        const std::string against = std::to_string(c.adsb->timeout_ms) + " against " + std::to_string(c.adsb->poll_interval_ms);
+        top.problem("adsb.timeout_ms", "must exceed adsb.poll_interval_ms (" + against + ")");
     }
 
     load.ok = load.problems.empty();

@@ -2,9 +2,12 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -29,9 +32,13 @@
 
 // The only place that knows concrete source types exist. Everything
 // below create_source() sees DataSource and nothing else.
+#include "drivers/adsb_source.h"
+#include "drivers/curl_http_client.h"
 #include "drivers/i2c_bus.h"
 #include "drivers/live_sensor_source.h"
 #include "drivers/motion_profile.h"
+#include "drivers/opensky_json.h"
+#include "drivers/selection_log.h"
 #include "drivers/serial_port.h"
 #include "drivers/simulated_source.h"
 #include "replay/log_replay_source.h"
@@ -75,7 +82,7 @@ void print_frame(const TelemetryFrame& frame) {
               << frame.longitude << std::endl;
     std::cout << "GPS Alt:      " << frame.gps_altitude_m << " m" << std::endl;
     std::cout << "Ground Speed: " << frame.ground_speed_mps << " m/s" << std::endl;
-    std::cout << "Heading:      " << frame.heading_deg << " deg" << std::endl;
+    std::cout << "Course:       " << frame.course_deg << " deg" << std::endl;
     std::cout << "Fused Alt:    " << frame.fused_altitude_m << " m ["
               << validity_name(frame.fused_altitude_validity) << "]" << std::endl;
     std::cout << "Vert Speed:   " << frame.vertical_speed_mps << " m/s ["
@@ -123,6 +130,71 @@ void print_gps_summary(const std::optional<GpsCounters>& counters, const std::op
                   << " satellites, UTC " << last_fix->utc_time;
     }
     std::cout << std::endl;
+}
+
+// The selected aircraft by callsign and address, or none (REQ-SENS-009).
+std::string describe(const std::optional<AircraftIdentity>& identity) {
+    if (!identity.has_value()) {
+        return "none";
+    }
+    std::string name = identity->callsign;
+    if (name.empty()) {
+        name = "(no callsign)";
+    }
+    return name + " (" + identity->icao24 + ")";
+}
+
+// One line per change of the selected aircraft (REQ-SENS-009): both
+// identities, the reason and the new aircraft's distance from the
+// reference point, at the timestamp of the first frame that carries it.
+// Formatted apart from std::cout, so the fixed precision does not stick
+// to the frames printed after it.
+void print_switch(const SwitchRecord& record) {
+    std::ostringstream line;
+    line << "[ADS-B] t=" << record.timestamp_ms << " ms " << describe(record.change.previous) << " -> "
+         << describe(record.change.current) << ": " << switch_reason_name(record.change.reason);
+    if (record.change.current.has_value()) {
+        line << ", " << std::fixed << std::setprecision(1) << record.change.distance_m / 1000.0
+             << " km from the reference point";
+    }
+    std::cout << line.str() << std::endl;
+}
+
+// One line for the ADS-B source at exit (REQ-SENS-008): every poll by its
+// outcome (FTS-FM-001 FAULT-012 to FAULT-014, FAULT-017), the token
+// requests, the readings delivered and the switches, the last response's
+// census, the delivered positions' ages, and the aircraft selected at the
+// end. Each poll counts in exactly one outcome; `auth` counts every 401
+// the states endpoint returned, repaired or not. Never a token, a
+// credential or a body (REQ-CFG-004).
+void print_adsb_summary(const AdsbCounters& counters, const std::optional<AircraftIdentity>& identity,
+                        const std::optional<AdsbReading>& last_reading, const std::filesystem::path& selection_path) {
+    const OpenSkyCounters& c = counters.client;
+    std::cout << "ADS-B:     " << c.polls << " polls (" << c.ok << " ok, " << c.auth << " auth, " << c.token_refused
+              << " token refused, " << c.token_unavailable << " token unavailable, " << c.unauthorized
+              << " unauthorized, " << c.rate_limited << " rate-limited, " << c.http_errors << " http errors, "
+              << c.transport_errors << " transport errors, " << c.malformed << " malformed), " << c.token_requests
+              << " token requests, " << counters.readings << " readings, " << counters.changes
+              << " selection changes, " << counters.aircraft << " aircraft and " << counters.candidates
+              << " candidates in the last response, " << c.rows_skipped << " rows skipped, " << counters.reports
+              << " reports taken, " << counters.overwritten << " overwritten";
+    if (counters.readings > 0) {
+        std::cout << ", position age min/mean/max = " << counters.age_min_s << " / "
+                  << counters.age_sum_s / static_cast<double>(counters.readings) << " / " << counters.age_max_s
+                  << " s";
+    }
+    if (c.last_http_status != 0 || c.last_error_code != 0) {
+        std::cout << ", last HTTP status " << c.last_http_status << ", last curl code " << c.last_error_code;
+    }
+    if (c.last_retry_after_s.has_value()) {
+        std::cout << ", last Retry-After " << *c.last_retry_after_s << " s";
+    }
+    std::cout << "; selected " << describe(identity);
+    if (last_reading.has_value()) {
+        std::cout << ", last position at " << last_reading->time_position << " (server time "
+                  << last_reading->server_time << ")";
+    }
+    std::cout << "  (" << selection_path.string() << ")" << std::endl;
 }
 
 // What the run saw of the validity bytes (REQ-PROC-007), for one line at
@@ -188,10 +260,16 @@ void print_event(const FaultEvent& event) {
 // length (TC-005 step 2 needs 200; the default stays the 5-cycle smoke
 // run, and a replay without it runs to the end of its log, REQ-LOG-006),
 // --motion <name> scripts the simulator's flight (REQ-SENS-007: a scenario
-// is a choice of run, not a key). Nothing else on the command line
-// overrides a key.
+// is a choice of run, not a key); --adsb swaps the source for the ADS-B
+// source (REQ-SENS-008), --adsb-credentials <file> names its credentials
+// file (REQ-CFG-004: a path is not a tunable and must never be a key) and
+// --adsb-origin <url> points the service's two endpoints at a test server.
+// Nothing else on the command line overrides a key.
 struct Options {
     bool live = false;
+    bool adsb = false;                            // the ADS-B source (REQ-SENS-008)
+    std::optional<std::string> adsb_credentials;  // the credentials file; the default is under $HOME (REQ-CFG-004)
+    std::optional<std::string> adsb_origin;       // a test server in place of the service's origin
     bool pace = false;                            // --replay at the log's recorded cadence (REQ-TIME-004)
     std::optional<std::string> motion;            // the simulator's scripted flight, by name (REQ-SENS-007)
     std::optional<std::string> config_path;
@@ -205,7 +283,7 @@ struct Options {
 };
 
 void print_usage() {
-    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name>] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
+    std::cerr << "usage: telemetry [--config <file>] [--live | --replay <log.bin> [--pace] | --motion <name> | --adsb [--adsb-credentials <file>] [--adsb-origin <url>]] [--zmq <endpoint>] [--udp <ipv4>:<port>] [--cycles <n>]\n"
               << "  --config <file>      the configuration (default " << kDefaultConfigPath
               << "; a replay reads the file recorded beside its log)\n"
               << "  --live               read the BMP280 and MPU6050 on the configured I2C bus (sensors.i2c_device) and, when\n"
@@ -214,6 +292,11 @@ void print_usage() {
               << "  --pace               with --replay: release each frame at its recorded time; lateness to logs/replay_jitter.csv\n"
               << "  --motion <name>      script the simulator's flight (" << MotionProfile::known_names()
               << ": 150 s of takeoff, climb, turn and descent); without it the simulator sits still\n"
+              << "  --adsb               present one aircraft on approach from the OpenSky Network (the adsb block of the configuration), paced\n"
+              << "  --adsb-credentials <file>\n"
+              << "                       with --adsb: the OpenSky credentials file, {\"clientId\", \"clientSecret\"}, mode 600\n"
+              << "                       (default $HOME/.config/flight_telemetry/opensky_credentials.json); never printed\n"
+              << "  --adsb-origin <url>  with --adsb: a server in place of the service's origin, e.g. http://127.0.0.1:8080 (the end-to-end test)\n"
               << "  --zmq <endpoint>     publish every processed frame, e.g. tcp://127.0.0.1:5555 (enables and overrides transport.zmq)\n"
               << "  --udp <ipv4>:<port>  publish every processed frame as one datagram, e.g. 127.0.0.1:5556 (enables and overrides transport.udp)\n"
               << "  --cycles <n>         frames to run (default " << kDefaultCycles
@@ -267,6 +350,12 @@ Options parse_args(int argc, const char* const argv[]) {
             options.pace = true;   // likewise; meaningful only with --replay, checked below
         } else if (flag == "--motion" && has_value) {
             options.motion = argv[++i];   // the simulator's script; refused with another source below
+        } else if (flag == "--adsb") {
+            options.adsb = true;          // the ADS-B source (REQ-SENS-008); refused with another source below
+        } else if (flag == "--adsb-credentials" && has_value) {
+            options.adsb_credentials = argv[++i];
+        } else if (flag == "--adsb-origin" && has_value) {
+            options.adsb_origin = argv[++i];
         } else {
             options.error = "unknown or incomplete argument: " + flag;
             return options;
@@ -274,6 +363,13 @@ Options parse_args(int argc, const char* const argv[]) {
     }
     if (options.live && options.replay_file.has_value()) {
         options.error = "--live and --replay each choose the source; pass one of them";
+    } else if (options.adsb && (options.live || options.replay_file.has_value() || options.motion.has_value())) {
+        options.error = std::string("--adsb chooses the ADS-B source; ") +
+                        (options.live ? "--live" : options.replay_file.has_value() ? "--replay" : "--motion") +
+                        " chooses another; pass one of them";
+    } else if (!options.adsb && (options.adsb_credentials.has_value() || options.adsb_origin.has_value())) {
+        options.error = std::string(options.adsb_credentials.has_value() ? "--adsb-credentials" : "--adsb-origin") +
+                        " belongs to the ADS-B source; pass --adsb with it";
     } else if (options.pace && !options.replay_file.has_value()) {
         options.error = "--pace paces a replay to its log's timestamps; pass --replay <log.bin> with it";
     } else if (options.motion.has_value() && (options.live || options.replay_file.has_value())) {
@@ -286,24 +382,55 @@ Options parse_args(int argc, const char* const argv[]) {
     return options;
 }
 
-// Factory: decides which concrete DataSource to build. Two command-line
+// Factory: decides which concrete DataSource to build. Three command-line
 // flags choose the source; the configuration supplies each source's
 // parameters (the bus and addresses, the IMU rate, the simulator's seed,
-// GPS period and noise: REQ-CFG-001). The return type is the base class,
-// so callers cannot tell which one they got. That is the point
-// (REQ-LOG-004).
+// GPS period and noise, the ADS-B block: REQ-CFG-001). The return type is
+// the base class, so callers cannot tell which one they got. That is the
+// point (REQ-LOG-004).
 //
 // std::make_unique constructs the object on the heap and wraps the
 // pointer in a std::unique_ptr<Derived>, which converts implicitly to
 // std::unique_ptr<DataSource> because Derived is-a DataSource.
 //
-// Returns null with `error` set when the live source cannot start: the
-// bus and the source report failure through ok()/error() rather than
-// throwing, the project's shape for startup errors, and a missing device
-// file or a chip answering with the wrong identity is a wiring or
-// configuration error that the first live run wants on one line.
+// Returns null with `error` set when the live or the ADS-B source cannot
+// start: the bus and the sources report failure through ok()/error()
+// rather than throwing, the project's shape for startup errors, and a
+// missing device file, a chip answering with the wrong identity or a
+// credentials file the service refuses is a wiring or configuration error
+// that the first run wants on one line. `credentials_path` is the ADS-B
+// source's credentials file, resolved by main (REQ-CFG-004).
 std::unique_ptr<DataSource> create_source(const Options& options, const TelemetryConfig& cfg, Clock& clock,
-                                          std::string& error) {
+                                          const std::filesystem::path& credentials_path, std::string& error) {
+    if (options.adsb) {
+        // The ADS-B source (REQ-SENS-008). The optional block is required
+        // here and nowhere else (REQ-CFG-001); the credentials are read once,
+        // by path, and refused by name without their contents (REQ-CFG-004);
+        // libcurl is the real HTTP client; start() runs the first poll on
+        // this thread, so a refused token refuses the run before the loop,
+        // while an unreachable service is counted and tried again.
+        if (!cfg.adsb.has_value()) {
+            error = "--adsb needs the adsb block of the configuration file, which this file lacks";
+            return nullptr;
+        }
+        const opensky_json::CredentialsLoad credentials = opensky_json::load_credentials_file(credentials_path);
+        if (!credentials.ok) {
+            error = credentials.problem;
+            return nullptr;
+        }
+        auto http = std::make_unique<CurlHttpClient>();
+        if (!http->ok()) {
+            error = "libcurl: " + http->error();
+            return nullptr;
+        }
+        auto adsb = std::make_unique<AdsbSource>(std::move(http), clock, *cfg.adsb, credentials.credentials,
+                                                 credentials_path.string(), options.adsb_origin.value_or(""));
+        if (!adsb->start()) {
+            error = adsb->error();
+            return nullptr;
+        }
+        return adsb;
+    }
     if (options.live) {
         auto bus = std::make_unique<LinuxI2cBus>(cfg.sensors.i2c_device);
         if (!bus->ok()) {
@@ -388,15 +515,23 @@ std::unique_ptr<DataSource> create_source(const Options& options, const Telemetr
 // (REQ-TRANS-001, REQ-TRANS-002).
 //
 // The session status (REQ-TRANS-004) goes to the same publishers: RUNNING
-// with the run's mode before frame 0 and every `status_every_cycles` after
+// with the run's mode and the source mode of its frames (REQ-LOG-007, the
+// run's own except in a replay) before frame 0 and every `status_every_cycles` after
 // it (one second of cycles), so a consumer that joins late learns the mode
-// from the next one; ENDED after the last frame, repeated, because a lost
-// datagram carrying the end has no later message to repair it.
+// from the next one, and at once when the identity it names changes;
+// ENDED after the last frame, repeated, because a lost datagram carrying
+// the end has no later message to repair it. `identity` is the composition
+// root's function: the aircraft the frames present in ADS-B mode (read
+// from the source main built, so the loop still never learns its type),
+// nothing in every other mode. It is called once per frame, after the
+// read, and the ADS-B composition reports the switches on the way.
 ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcessor& processor,
                   BinaryLogger& logger, const std::vector<Publisher*>& publishers,
                   FixedRateScheduler* scheduler, TimestampPacer* pacer, JitterLog* jitter,
-                  std::optional<int> frame_count, RunMode mode, int status_every_cycles) {
+                  std::optional<int> frame_count, RunMode mode, RunMode source_mode, int status_every_cycles,
+                  const std::function<SessionIdentity()>& identity) {
     ValidityTally tally;
+    SessionIdentity published_identity;
     // The source is asked before every read (REQ-LOG-006): a replay stops
     // at its log's end, an endless source always answers yes, and
     // --cycles, when given, caps either.
@@ -411,18 +546,24 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
             }
         }
 
-        // The status precedes the frame it announces, on every transport.
-        if (i % status_every_cycles == 0) {
-            for (Publisher* publisher : publishers) {
-                publisher->publish_status(mode, StreamState::RUNNING);
-            }
-        }
-
         // Virtual dispatch: the compiler emits a lookup through the object's
         // vtable, so this line runs SimulatedSource::read_frame() today and
         // would run LiveSensorSource::read_frame() or LogReplaySource::read_frame()
         // tomorrow, with no change to this code.
         TelemetryFrame raw = source.read_frame();
+
+        // The status precedes the frame it announces, on every transport:
+        // before frame 0, every second of cycles, and at once when the
+        // identity it names changes (REQ-TRANS-004). After the read, so it
+        // names the aircraft of the frame below; before the frame goes out,
+        // so a consumer re-takes its track first (REQ-DISP-007).
+        const SessionIdentity current = identity();
+        if (i % status_every_cycles == 0 || current != published_identity) {
+            for (Publisher* publisher : publishers) {
+                publisher->publish_status(SessionStatus{mode, source_mode, StreamState::RUNNING, current});
+            }
+            published_identity = current;
+        }
 
         // A paced replay waits here, after the read: the deadline is the
         // frame's recorded timestamp, and the wait changes nothing in the
@@ -465,7 +606,7 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
     // a receiver treats the repeats as one (REQ-TRANS-004).
     for (int k = 0; k < kEndedRepeats; k++) {
         for (Publisher* publisher : publishers) {
-            publisher->publish_status(mode, StreamState::ENDED);
+            publisher->publish_status(SessionStatus{mode, source_mode, StreamState::ENDED, published_identity});
         }
     }
     return tally;
@@ -481,6 +622,9 @@ ValidityTally run(DataSource& source, FaultDetector& detector, TelemetryProcesso
 //                                         publish every processed frame; 10 s at 50 Hz
 //        telemetry --udp 127.0.0.1:5556 --cycles 500
 //                                         the same, one datagram per frame; both flags may be given
+//        telemetry --adsb --cycles 15000 --zmq tcp://127.0.0.1:5555
+//                                         one aircraft on approach to SFO from the OpenSky Network, five
+//                                         minutes, to the bridge and the page
 int main(int argc, char* argv[]) {
     std::cout << "flight-telemetry v0.1.0\n" << std::endl;
 
@@ -563,6 +707,15 @@ int main(int argc, char* argv[]) {
     // which is refused here rather than destroyed (REQ-LOG-003,
     // REQ-CFG-003).
     const std::string prefix = replaying ? "replay" : "telemetry";
+
+    // The run's mode, decided where the source is (REQ-TRANS-004,
+    // REQ-LOG-007), and the source mode its frames are produced in: the
+    // run's own, except for a replay, which copies its input's forward
+    // below. Both go into every record's header and every status.
+    const RunMode mode = options.adsb ? RunMode::ADSB
+                         : options.live ? RunMode::LIVE
+                         : replaying ? RunMode::REPLAY : RunMode::SIMULATED;
+    RunMode source_mode = mode;
     if (replaying) {
         const std::filesystem::path input(*options.replay_file);
         std::filesystem::path input_directory = input.parent_path();
@@ -584,19 +737,33 @@ int main(int argc, char* argv[]) {
         // of feeding zero frames through the pipeline for --cycles cycles
         // (FTS-VR-001 Entry 11 §11.8). The replay source opens the file
         // again on its first read; this probe reads the header only. A
-        // version-1 input is a legitimate replay, said so on one line: the
-        // raw fields are the record and the pipeline recomputes the rest
-        // (REQ-LOG-004), so its replay log is a version-2 log.
-        const LogReader probe(input);
+        // version-1 or version-2 input is a legitimate replay, said so on
+        // one line: the raw fields are the record and the pipeline
+        // recomputes the rest (REQ-LOG-004), so its replay log is a
+        // version-3 log.
+        LogReader probe(input);
         if (!probe.ok()) {
             std::cerr << "error: cannot replay " << input.string() << ": " << probe.error() << std::endl;
             return 1;
         }
-        std::cout << "Replay input:  " << input.string() << " (format version " << probe.header().version;
+        // The header says how the frames were produced (REQ-LOG-007), and
+        // the replay carries that forward in its own header and status: an
+        // ADS-B recording's GPS channel takes the configured ADS-B timeout
+        // below (REQ-FAULT-001), so the replay reproduces the run's faults
+        // (REQ-LOG-004), and the page labels its datum. A file older than
+        // version 3 records neither mode; UNKNOWN goes forward, never a
+        // guess from the frames.
+        source_mode = static_cast<RunMode>(probe.header().source_mode);
+        std::cout << "Replay input:  " << input.string() << " (format version " << probe.header().version
+                  << ", run mode " << mode_name(static_cast<RunMode>(probe.header().run_mode))
+                  << ", source mode " << mode_name(source_mode);
         if (probe.header().version != kLogFormatVersion) {
             std::cout << "; this build writes version " << kLogFormatVersion
                       << ", so the replay log is version " << kLogFormatVersion
                       << " with the computed fields and their validity recomputed from the raw fields";
+        }
+        if (source_mode == RunMode::ADSB) {
+            std::cout << "; an ADS-B recording by its header, so the GPS channel's timeout is adsb.timeout_ms";
         }
         std::cout << ")" << std::endl;
     }
@@ -609,12 +776,35 @@ int main(int argc, char* argv[]) {
     // unique_ptr owns the source. When `source` goes out of scope at the end
     // of main, its destructor deletes the object through the DataSource
     // pointer, which is why ~DataSource must be virtual.
-    // The run's mode, decided where the source is (REQ-TRANS-004): the one
-    // fact about the frames the wire cannot carry in them.
-    const RunMode mode = options.live ? RunMode::LIVE : (replaying ? RunMode::REPLAY : RunMode::SIMULATED);
+
+    // The credentials file (REQ-CFG-004): named by --adsb-credentials or
+    // found under the home directory, read once by the source, its path
+    // printed and its contents never. A flag and not a key, because the
+    // configuration file is public and is recorded beside every log.
+    std::filesystem::path credentials_path;
+    if (options.adsb) {
+        if (options.adsb_credentials.has_value()) {
+            credentials_path = *options.adsb_credentials;
+        } else {
+            const std::optional<std::filesystem::path> default_path =
+                opensky_json::default_credentials_path(std::getenv("HOME"));
+            if (!default_path.has_value()) {
+                std::cerr << "error: --adsb-credentials <file> is required: HOME is not set, so the default path "
+                             "cannot be formed" << std::endl;
+                return 1;
+            }
+            credentials_path = *default_path;
+        }
+        std::cout << "ADS-B:     credentials from " << credentials_path.string()
+                  << " (read once, never printed)";
+        if (options.adsb_origin.has_value()) {
+            std::cout << "; service origin " << *options.adsb_origin;
+        }
+        std::cout << std::endl;
+    }
 
     std::string source_error;
-    std::unique_ptr<DataSource> source = create_source(options, cfg, clock, source_error);
+    std::unique_ptr<DataSource> source = create_source(options, cfg, clock, credentials_path, source_error);
     if (!source) {
         std::cerr << "error: " << source_error << std::endl;
         return 1;
@@ -625,16 +815,38 @@ int main(int argc, char* argv[]) {
     // which ended the run, the log or --cycles.
     LogReplaySource* replay = replaying ? static_cast<LogReplaySource*>(source.get()) : nullptr;
     const LiveSensorSource* live = options.live ? static_cast<const LiveSensorSource*>(source.get()) : nullptr;
+    AdsbSource* adsb = options.adsb ? static_cast<AdsbSource*>(source.get()) : nullptr;
 
     // The processor lives on the stack: main owns it for the whole run and
     // nothing else needs to share it, so there is no reason for the heap.
     // One configured value feeds both: the IMU timeout is the detector's
     // fault bound and the processor's re-seed bound (REQ-PROC-002), and
     // they must be the same number.
-    FaultDetector detector(cfg.fault);
+    // The GPS channel's timeout (REQ-FAULT-001): the receiver's in a live
+    // run, and for ADS-B frames the configured ADS-B timeout, because the
+    // channel's delivery period is the poll interval there; a replay of an
+    // ADS-B recording (by its header's source mode above, REQ-LOG-007)
+    // takes the same value, so the replay reproduces the run's faults
+    // (REQ-LOG-004). The composition root chooses which configured value a
+    // channel's timeout is, as it hands the IMU timeout to two consumers.
+    FaultDetectorConfig fault = cfg.fault;
+    if (source_mode == RunMode::ADSB) {
+        if (!cfg.adsb.has_value()) {
+            std::cerr << "error: replaying an ADS-B log needs the adsb block of the configuration, which "
+                      << config_path.string() << " lacks" << std::endl;
+            return 1;
+        }
+        fault.uart_timeout_ms = cfg.adsb->timeout_ms;
+    }
+    FaultDetector detector(fault);
     TelemetryProcessor processor(cfg.processing, cfg.fault.i2c_timeout_ms);
 
-    BinaryLogger logger(cfg.logging.directory, prefix, cfg.logging.max_file_bytes);
+    // The header every record and every frame message carries
+    // (REQ-LOG-007): built once, from the run's mode and the source mode,
+    // and handed to the logger and both publishers, so the file and the
+    // wire say the same thing.
+    const LogFileHeader header = make_log_header(mode, source_mode);
+    BinaryLogger logger(cfg.logging.directory, prefix, cfg.logging.max_file_bytes, header);
     if (!logger.ok()) {
         std::cerr << "cannot open log file in " << cfg.logging.directory << std::endl;
         return 1;
@@ -667,7 +879,7 @@ int main(int argc, char* argv[]) {
     std::optional<ZmqPublisher> publisher;
     if (zmq_enabled) {
         zmq_context.emplace(1);   // one I/O thread moves messages to the wire
-        publisher.emplace(*zmq_context, zmq_endpoint);
+        publisher.emplace(*zmq_context, zmq_endpoint, kDefaultSendHighWaterMark, header);
         if (!publisher->ok()) {
             std::cerr << "cannot bind ZeroMQ publisher to " << zmq_endpoint
                       << ": " << publisher->error() << std::endl;
@@ -686,7 +898,7 @@ int main(int argc, char* argv[]) {
     const std::string udp_destination = udp_host + ":" + std::to_string(udp_port);
     std::optional<UdpPublisher> udp_publisher;
     if (udp_enabled) {
-        udp_publisher.emplace(udp_host, udp_port);
+        udp_publisher.emplace(udp_host, udp_port, header);
         if (!udp_publisher->ok()) {
             std::cerr << "cannot send UDP to " << udp_destination
                       << ": " << udp_publisher->error() << std::endl;
@@ -721,6 +933,21 @@ int main(int argc, char* argv[]) {
         jitter.emplace(jitter_path);
     }
 
+    // Every change of the selected aircraft, beside the log under the run's
+    // prefix (REQ-SENS-009): the jitter CSV's shape, and the record of which
+    // aircraft a recorded run tracked, frame by frame, which a replay
+    // cannot carry (design.md section 12). Part of the session's record,
+    // like the configuration copy, so an unwritable file is refused.
+    const std::filesystem::path selection_path = std::filesystem::path(cfg.logging.directory) / (prefix + "_adsb.csv");
+    std::optional<SelectionLog> selection_log;
+    if (adsb != nullptr) {
+        selection_log.emplace(selection_path);
+        if (!selection_log->ok()) {
+            std::cerr << "error: cannot write the selection record " << selection_path.string() << std::endl;
+            return 1;
+        }
+    }
+
     // Baro Alt (REQ-PROC-001), Pitch/Roll (REQ-PROC-002), Fused Alt and
     // Vert Speed (REQ-PROC-003) and their validity (REQ-PROC-007) are all
     // computed by the processor. Status comes from the detector
@@ -737,11 +964,35 @@ int main(int argc, char* argv[]) {
     // floor keeps the interval at or under a second.
     const int status_every_cycles = kStatusIntervalMs / cfg.timing.period_ms;
 
+    // The identity the status carries (REQ-TRANS-004, REQ-DISP-007), read
+    // from the ADS-B source after each frame, with every switch the frame
+    // brought reported on the way: one console line and one row beside the
+    // log, both at the timestamp of the first frame carrying the new
+    // aircraft (REQ-SENS-009). Nothing in every other mode.
+    size_t switches_reported = 0;
+    const std::function<SessionIdentity()> identity_after_read = [&]() -> SessionIdentity {
+        if (adsb == nullptr) {
+            return SessionIdentity{};
+        }
+        const std::vector<SwitchRecord>& switches = adsb->switches();
+        for (; switches_reported < switches.size(); switches_reported++) {
+            print_switch(switches[switches_reported]);
+            selection_log->record(switches[switches_reported]);
+        }
+        const std::optional<AircraftIdentity>& selected = adsb->identity();
+        return selected.has_value() ? session_identity(selected->icao24, selected->callsign) : SessionIdentity{};
+    };
+
     const ValidityTally tally = run(*source, detector, processor, logger, publishers,
                                     replaying ? nullptr : &scheduler,
                                     options.pace ? &pacer : nullptr,
                                     jitter.has_value() ? &jitter.value() : nullptr,
-                                    cycles, mode, status_every_cycles);
+                                    cycles, mode, source_mode, status_every_cycles, identity_after_read);
+
+    // The poll thread is joined before the exit lines read its counters.
+    if (adsb != nullptr) {
+        adsb->stop();
+    }
 
     std::cout << "Logged to " << logger.current_path().string()
               << "  (replay with: telemetry --replay <file>)" << std::endl;
@@ -786,6 +1037,9 @@ int main(int argc, char* argv[]) {
     if (live != nullptr) {
         print_gps_summary(live->gps_counters(), live->last_gps_fix(), live->gps_startup_discarded(),
                           cfg.sensors.gps);
+    }
+    if (adsb != nullptr) {
+        print_adsb_summary(adsb->counters(), adsb->identity(), adsb->last_reading(), selection_path);
     }
 
     if (publisher.has_value()) {

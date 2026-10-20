@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { FakeSocket, fakeSocketFactory } from "./fakeSocket";
-import { frame, hello, session, PERIOD_MS, STALE_MS } from "./testMessages";
+import { frame, hello, session, PERIOD_MS, STALE_MS, TEST001 } from "./testMessages";
 
 let clock = 0;
 const now = () => clock;
@@ -81,8 +81,8 @@ describe("the page", () => {
     deliver(session("SIMULATED"));
     expect(bar().getByText("SIM")).toBeTruthy();
     expect(screen.queryByText(/LIVE/)).toBeNull();
-    deliver(session("REPLAY"));
-    expect(bar().getByText("REPLAY")).toBeTruthy();
+    deliver(session("REPLAY", "RUNNING", null, "SIMULATED"));
+    expect(bar().getByText("REPLAY")).toBeTruthy(); // a replayed simulator run has no identity to lose (REQ-DISP-007)
     expect(screen.queryByText(/LIVE/)).toBeNull();
     deliver(session("LIVE"));
     expect(bar().getByText("LIVE")).toBeTruthy();
@@ -90,7 +90,7 @@ describe("the page", () => {
 
   it("knows the mode from hello when it joins mid-run (step 9)", () => {
     renderPage();
-    openWithHello(hello({ mode: "SIMULATED", state: "RUNNING" }));
+    openWithHello(hello({ mode: "SIMULATED", state: "RUNNING", identity: null, source_mode: "SIMULATED" }));
     expect(bar().getByText("SIM")).toBeTruthy();
     expect(screen.queryAllByText("MODE UNKNOWN")).toHaveLength(0);
   });
@@ -193,7 +193,7 @@ describe("the page", () => {
 
   it("never renders a coordinate (step 14)", () => {
     renderPage();
-    openWithHello(hello({ mode: "LIVE", state: "RUNNING" }));
+    openWithHello(hello({ mode: "LIVE", state: "RUNNING", identity: null, source_mode: "LIVE" }));
     deliver(frame(7));
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/latitude|longitude/i);
@@ -221,7 +221,7 @@ describe("the page", () => {
     expect(screen.getByTestId("ground-track")).toBeTruthy();
     expect(screen.getByTestId("plot-nofix").textContent).toBe("no fix");
     deliver({ ...frame(0), position: { east_m: 0, north_m: 0 } });
-    deliver({ ...frame(50, {}, { ground_speed_mps: 3, heading_deg: 90 }), position: { east_m: 1, north_m: 0 } });
+    deliver({ ...frame(50, {}, { ground_speed_mps: 3, course_deg: 90 }), position: { east_m: 1, north_m: 0 } });
     expect(screen.getByTestId("plot-trail").getAttribute("points")).toBe("150,150 165,150");
     expect(screen.getByTestId("plot-marker").getAttribute("transform")).toBe("translate(165 150) rotate(90)");
     expect(screen.getByTestId("trk-readout").textContent).toBe("TRK 090°");
@@ -237,5 +237,22 @@ describe("the page", () => {
     deliver(frame(1)); // t=20, received_at 20, arriving 400 ms after the first: the queue is past the bridge
     expect(screen.getByTestId("lag").textContent).toBe("380 ms");
     expect(screen.getByTestId("bridge-lag").textContent).toBe("bridge 0 ms");
+  });
+  it("names the aircraft in the bar and attributes the traffic data whenever the source mode is ADS-B, live or replayed, and nowhere else (TC-030 steps 4 and 7)", () => {
+    renderPage();
+    openWithHello(hello({ mode: "ADSB", state: "RUNNING", identity: TEST001, source_mode: "ADSB" }));
+    expect(bar().getByText("ADS-B \u00b7 TEST001")).toBeTruthy();
+    expect(screen.getByTestId("attribution").textContent).toBe("Traffic data: The OpenSky Network (opensky-network.org)");
+    expect(screen.queryByText(/^LIVE/)).toBeNull();
+    // A replayed ADS-B recording shows the network's data as much as a live run does (TC-031 step 16).
+    deliver(session("REPLAY", "RUNNING", null, "ADSB"));
+    expect(bar().getByText("REPLAY \u00b7 ID UNAVAILABLE")).toBeTruthy();
+    expect(screen.getByTestId("attribution")).toBeTruthy();
+    deliver(session("REPLAY", "RUNNING", null, "SIMULATED"));
+    expect(bar().getByText("REPLAY")).toBeTruthy();
+    expect(screen.queryByTestId("attribution")).toBeNull();
+    deliver(session("SIMULATED"));
+    expect(bar().getByText("SIM")).toBeTruthy();
+    expect(screen.queryByTestId("attribution")).toBeNull();
   });
 });

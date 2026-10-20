@@ -20,6 +20,30 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
     // copy with no allocation.
     TelemetryFrame out = raw;
 
+    // REQ-PROC-008: the first frame of a newly presented vehicle. The
+    // source says so (FrameFlag::NEW_VEHICLE), because no filter can tell a
+    // new vehicle from a violent manoeuvre: on the ADS-B source's switch of
+    // aircraft the Kalman filter read the step between two aircraft's
+    // altitudes as a climb nobody flew (FTS-VR-001 Entry 18 §18.5). Every
+    // estimate is discarded here, before the gates, and this frame's own
+    // readings begin again by the rules that run at power-on: a fresh
+    // altitude births the Kalman filter with zero velocity, a fresh IMU
+    // sample seeds a new attitude filter (a new object, since reset() keeps
+    // the angles for the re-seed of an outage), a fresh barometer reading is
+    // converted; until then each field is 0 and NO_COMPUTED_DATA, the
+    // "never existed" of the new vehicle (REQ-PROC-007). The detector is not
+    // told: a new vehicle's first reading is a reading, and a channel's
+    // health does not depend on whose reading it is.
+    if (has_flag(raw, FrameFlag::NEW_VEHICLE)) {
+        altitude_filter_.reset();
+        attitude_filter_ = ComplementaryFilter(tuning_.complementary_alpha);
+        imu_last_fresh_ms_.reset();
+        last_baro_altitude_m_ = 0.0f;
+        baro_ever_fresh_ = false;
+        gps_ever_fresh_ = false;
+        attitude_ever_seeded_ = false;
+    }
+
     // REQ-PROC-006: a reading enters a filter only when its channel is
     // NOMINAL and the reading was taken this cycle. Health is the
     // detector's judgment over time; read_ok is this cycle's fact. Both
@@ -105,6 +129,19 @@ TelemetryFrame TelemetryProcessor::process(const TelemetryFrame& raw) {
                                  tuning_.baro_measurement_variance_m2,
                                  tuning_.initial_velocity_variance,
                                  tuning_.accel_noise_variance);
+    } else if (gps_fresh) {
+        // No barometer has read yet but the GPS has: the filter is born
+        // from the GPS reading, at the GPS variance, by the same rule
+        // (REQ-PROC-003, REQ-PROC-004, since 0.12.0). The barometer is
+        // tried first, above, so every session that reads one on its
+        // first cycle is born as before, byte for byte; the ADS-B source
+        // never reads one, and until this branch its altitude never
+        // existed (design.md section 12).
+        altitude_filter_.emplace(raw.gps_altitude_m,
+                                 0.0f,
+                                 tuning_.gps_measurement_variance_m2,
+                                 tuning_.initial_velocity_variance,
+                                 tuning_.accel_noise_variance);
     }
 
     if (altitude_filter_.has_value()) {
@@ -170,7 +207,8 @@ void TelemetryProcessor::judge(TelemetryFrame& out) const {
 
     // Fused altitude and vertical speed depend on an altitude source the
     // filter has taken a measurement from, NOMINAL now (FAULT-001: fused
-    // altitude relies solely on GPS while the barometer is out). With
+    // altitude relies solely on GPS while the barometer is out; in ADS-B
+    // mode there is no barometer and the GPS is the only source). With
     // neither the filter coasts on prediction and the estimate random-
     // walks: flagged at once and for as long as it lasts, never cleared by
     // time. A GPS that is NOMINAL but has never fixed does not contribute.
@@ -178,10 +216,11 @@ void TelemetryProcessor::judge(TelemetryFrame& out) const {
     if (!altitude_filter_.has_value()) {
         fused = Validity::NO_COMPUTED_DATA;
     } else {
-        // The filter exists only once a barometer reading was accepted (it
-        // is born from one), so the barometer has always been measured
-        // here and only its trust now is in question; the GPS needs both.
-        const bool baro_contributes = out.baro_status == ChannelStatus::NOMINAL;
+        // Each source contributes only if the filter has ever taken a
+        // measurement from it and it is trusted now: a filter born from
+        // the GPS beside a barometer that is NOMINAL but has never read
+        // must not count the barometer, and the symmetric case likewise.
+        const bool baro_contributes = baro_ever_fresh_ && out.baro_status == ChannelStatus::NOMINAL;
         const bool gps_contributes = gps_ever_fresh_ && out.gps_status == ChannelStatus::NOMINAL;
         if (!baro_contributes && !gps_contributes) {
             fused = Validity::FAILURE_WARNING;

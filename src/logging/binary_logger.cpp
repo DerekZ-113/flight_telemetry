@@ -13,10 +13,11 @@ std::filesystem::path log_file_path(const std::filesystem::path& directory,
 }
 
 BinaryLogger::BinaryLogger(std::filesystem::path directory, std::string prefix,
-                           uint64_t max_file_bytes)
+                           uint64_t max_file_bytes, LogFileHeader header)
     : directory_(std::move(directory)),
       prefix_(std::move(prefix)),
-      max_file_bytes_(max_file_bytes)
+      max_file_bytes_(max_file_bytes),
+      header_(header)
 {
     // A file must be able to hold its header and at least one frame, or
     // every write would rotate and the frame would never land.
@@ -42,11 +43,10 @@ void BinaryLogger::open_next_file() {
     if (!ok_) {
         return;
     }
-    const LogFileHeader header = make_log_header();
     // reinterpret_cast to bytes is safe here and only here: the header is
     // trivially copyable (static_assert in log_format.h).
-    out_.write(reinterpret_cast<const char*>(&header), sizeof(header));
-    bytes_written_ += sizeof(header);
+    out_.write(reinterpret_cast<const char*>(&header_), sizeof(header_));
+    bytes_written_ += sizeof(header_);
 }
 
 void BinaryLogger::write_record(RecordType type, const void* data, size_t size) {

@@ -20,10 +20,13 @@ struct LogRecord {
 //
 // The constructor reads and validates the header. A file from another
 // build, another platform, a format version this build does not read, or
-// a different frame layout is refused with ok() false and the mismatch
-// named in error() (REQ-LOG-005); it is never partially read. A version-1
-// file is read, its frames' validity and reserved bytes set to what
-// version 2 means by them (log_reader.cpp).
+// a frame size its version does not imply is refused with ok() false and
+// the mismatch named in error() (REQ-LOG-005); it is never partially read.
+// A version-1 or version-2 file is read by the prefix rule (log_format.h):
+// each 104-byte frame lands in the first 104 bytes of a value-initialized
+// version-3 frame, the tail zero; a version-1 frame's validity and former
+// reserved bytes are set besides to what version 2 meant by them
+// (log_reader.cpp).
 //
 // next() returns false at a clean end of file and also at a torn record
 // (a tag with fewer payload bytes behind it than its type requires), so

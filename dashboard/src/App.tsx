@@ -7,10 +7,14 @@
 // flagged or stale value on screen, struck through; the instruments remove
 // it under a flag (FTS-DS-001 §8). No coordinate anywhere, by construction:
 // the bridge sends a position relative to the first fix and nothing else.
+// Whenever the frames came from the ADS-B source, live or replayed, the view
+// ends with the attribution the data license requires (REQ-DISP-007,
+// FTS-DS-001 §8): a replayed recording shows the network's data as much as a
+// live run does.
 import type { JSX } from "react";
 
 import { badgeFor } from "./badge";
-import { CHANNELS, COMPUTED_FIELDS, modeLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
+import { CHANNELS, COMPUTED_FIELDS, adsbSource, stripLabel, type Channel, type ComputedField, type ValidityName } from "./feed";
 import { GroundTrackPlot } from "./pfd/GroundTrackPlot";
 import { instrumentState, trackShown } from "./pfd/instrumentState";
 import { Pfd } from "./pfd/Pfd";
@@ -51,7 +55,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
     <main className="pfd">
       <header className="bar" data-testid="bar">
         <span className="mode" data-mode={feed.session?.mode ?? "UNKNOWN"}>
-          {modeLabel(feed.session)}
+          {stripLabel(feed.session)}
         </span>
         <span className={`badge badge-${badge.kind}`} data-badge={badge.kind}>
           {badge.text}
@@ -66,7 +70,7 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
         <GroundTrackPlot
           trail={feed.trail}
           position={feed.lastFrame?.position ?? null}
-          trackDeg={feed.lastFrame?.frame.heading_deg ?? 0}
+          trackDeg={feed.lastFrame?.frame.course_deg ?? 0}
           trackShown={trackShown(feed)}
           state={instrumentState(feed.lastFrame === null ? [] : [feed.lastFrame.status.gps], feed)}
         />
@@ -140,6 +144,12 @@ export function App({ url, options }: { url: string; options?: FeedOptions }): J
           );
         })}
       </section>
+
+      {adsbSource(feed.session) ? (
+        <footer className="attribution" data-testid="attribution">
+          Traffic data: The OpenSky Network (opensky-network.org)
+        </footer>
+      ) : null}
     </main>
   );
 }
