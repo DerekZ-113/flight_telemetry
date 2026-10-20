@@ -41,7 +41,7 @@ cd dashboard && npm test -- --run && npm run build                      # 89 pag
 ```
 
 ```bash
-.venv/bin/python -m pytest                                              # 180 tests in about 133 s: one simulated session, replay identity, the log reader, the noise oracles, both transports, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in, the voter, the lane fault and its replay, the campaign's statistics and report
+.venv/bin/python -m pytest                                              # 182 tests in about 134 s: one simulated session, replay identity, a replay of any log under --config, the log reader, the noise oracles, both transports, the configuration file, validity and the format version, the replay's end and pace, the session status, the bridge, the scripted flight, the ADS-B run over a local stand-in, the voter, the lane fault and its replay, the campaign's statistics and report
 .venv/bin/python -m pipeline.log_reader logs/                           # a run's rotated files as one sequence: counts, steps, freshness, events
 .venv/bin/python -m analysis.noise_profile logs/ --figures docs/img --json noise.json   # per-channel noise, Allan deviation, the derived Kalman constants
 ```

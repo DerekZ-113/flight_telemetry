@@ -2837,10 +2837,10 @@ What changes:
 - **Code:** `src/main.cpp` (the replay's `--config`), `src/drivers/aircraft_selector.cpp` and `src/drivers/simulated_data.cpp` (one call each off a decision line), `CMakeLists.txt` (`ENABLE_SANITIZERS`).
 - **Tests:** `test_aircraft_selector.cpp` (one table-driven test), `test_config.py` (two tests), `test_udp_publisher.cpp` (one test skipping itself under the sanitized build, §27.8).
 - **CI:** a third job, `sanitize`; the four actions on their first Node.js 24 majors; `ubuntu-24.04` kept on every job.
-- **Documents:** FTS-DD-001 §2 (the crosswalk), §9 (one sentence) and, with commit 10, §14 (the campaign's measured duration); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md and, with commit 10, its Project Structure and pytest count.
+- **Documents:** FTS-DD-001 §2 (the crosswalk), §9 (one sentence) and, with commit 10, §14 (the campaign's measured duration); README to under 1,200 words, its command reference moved to `docs/command_reference.md`; one rule in CLAUDE.md and, with commits 10 and 11, its Project Structure, its pytest count and its CI paragraph; with commit 11, the command reference's pytest line.
 - **Unchanged:** the frame, the log format, every key, the five default hashes (§27.6).
 
-The commits are 1 to 10 on `claude/inspiring-galileo-632i0k`:
+The commits are 1 to 11 on `claude/inspiring-galileo-632i0k`:
 1. The documents and this entry's expectations, before the code (§27.1 to §27.3).
 2. The replay's `--config` (item 3 of the topic).
 3. The selector's table-driven test and `take`'s call off its decision line (item 4).
@@ -2851,6 +2851,7 @@ The commits are 1 to 10 on `claude/inspiring-galileo-632i0k`:
 8. The README, the command reference, the CLAUDE.md rule (item 6).
 9. §27.4 to §27.8: what was built, the preview, the byte checks, the README's mapping, the decisions; then the push and the pull request.
 10. §27.9 from the pull request's run, 39370957221; README's numbers and the matrix's run references on it; FTS-DD-001 §14's duration; CLAUDE.md's two lines.
+11. CLAUDE.md's CI paragraph with the `sanitize` job, the one skip named; the command reference's pytest line at 182; this list and §27.10. Documents only, after the run on commit 10's tree (39373751291) passed.
 
 The preview this time is not a Mac's. The commits were built and measured in an Ubuntu 24.04 container with the runner's own packages (GCC 13.3.0, lcov 2.0, cppcheck 2.13.0, Python 3.13.16), so the local figures are expected to equal the record, with one known exception (§27.2).
 
@@ -3046,5 +3047,5 @@ Every expectation the run can measure was met. The run tests the tree `main` wil
   Expected, in that order: `f1dc959a…`, `189eb162…`, `6f877d1d…`, `a2d1d891…`, `33b34f60…`; about six minutes, the two demos paced. A difference is first compared with the build recipe Entry 22 §22.4's hashes were taken with, and then a finding.
 - **The leg at `simulated_data.cpp:61`:** the direct test of `generate()` above, with the next simulator topic.
 - **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run.
-- **CLAUDE.md:** its CI paragraph still describes two jobs and the actions of §26.8, and its Build and Test block says the campaign takes "about 2.5 min" (143 s since FTS-DD-001 §14 states the preview's record); both outside what this topic was allowed to touch there.
+- **CLAUDE.md:** nothing. Commit 11 describes the `sanitize` job in its CI paragraph (what it builds and runs, that it gates every push, the one skip by name), which commit 10 had left at two jobs. Its Build and Test block keeps "about 2.5 min" for the campaign by Derek's decision (2026-10-20): the preview's 143 s, which FTS-DD-001 §14 states, rounds to it.
 - **Entry 26's open items stand:** the topics' Pi steps, the first release's tag and the four places that name 0.1.0, the five branches on `origin`. Closed by this entry: the actions' runtime notice, `simulated_data.cpp:118`, and Entry 24 §24.8's other untaken legs.
