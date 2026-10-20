@@ -2792,13 +2792,37 @@ Every expectation was met except that one count, and the count was wrong in the 
 
 ### 26.8 This pull request's run
 
-Reserved for the CI run on this pull request's head, the first on the pinned image. Expected:
+Written before the run. Expected:
 - the image `ubuntu-24.04`;
 - §26.4's figures exactly, since nothing under `src/` or `tests/` differs from `80cd4ca`.
 
+CI run 39358634665 on `7f4e744`, this pull request's head, 2026-10-20 02:23:23 to 02:27:40 UTC. It is the first run on the pinned image, from the one push that carried commits 1 to 3 (`80cd4ca..7f4e744`). Both jobs passed, and the repository's GitGuardian check with them.
+
+| Check | Result |
+|---|---|
+| Runner | `ubuntu-24.04` (Ubuntu 24.04.5, image 20261012.334.1) for both jobs. GitHub's notice that `ubuntu-latest` moves to Ubuntu 26, carried by §26.4's run, is gone |
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 580 of 580 in 19.6 s; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 180 of 180 in 135.6 s |
+| lcov over `src/` | lines 98.4% (3,202 of 3,253), functions 97.3% (355 of 365), branches 94.4% (1,518 of 1,608) |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
+| `page` job | 89 of 89 in 13 files; statements 99.17%, branches 99.04%, functions 97.84%, lines 99.71%; the build clean in 155 ms |
+| Wall time | the C++ job 4 min 14 s; the page job 28 s |
+
+Per-scope branch coverage on GCC: processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 90.4%, overall 94.4%.
+
+| Expectation | Measured |
+|---|---|
+| The image `ubuntu-24.04` | `ubuntu-24.04` on both jobs: met |
+| §26.4's figures exactly | the same tests, lines, functions, branches and scopes, and cppcheck's 43 files: met |
+
+- **The image's version.** This run's image, 20261012.334.1, is the one the first two runs on `main` had, not the 20261018.339.1 of the last three. Both builds of Ubuntu 24.04 gave the same tests and the same coverage.
+- **The measurement of record** stays §26.4's run on `main`. This run is a pull request's, and it confirms that the pin reproduces that record.
+- **A second notice.** This run and §26.4's both carry it: `actions/checkout@v4`, `actions/setup-python@v5`, `actions/setup-node@v4` and `actions/upload-artifact@v4` target Node.js 20, which GitHub now runs on Node.js 24. Nothing failed, and §26.9 lists it.
+
 ### 26.9 Open
 
-- **§26.8**, from this pull request's run.
+- **§26.8**, from this pull request's run. (Closed 2026-10-19: recorded from run 39358634665, both expectations met.)
+- **The actions' runtime notice.** The four actions §26.8 names target Node.js 20 and run on Node.js 24. Nothing fails today, and moving them to versions built for Node.js 24 is a change of its own.
 - **`simulated_data.cpp:118`.** GCC counts four edges on the line, one never taken (§17.7). No entry has classified that edge: it may be an exception-unwind edge under CLAUDE.md's rule, or another of GCC's edges.
 - **The branches.** The five pull requests' branches stay on `origin` until Derek deletes them.
 - **The topics' open items.** Each topic's open items stand (Entries 16 to 25). On the Pi that means TC-009 steps 7 and 8, TC-021 step 9 and TC-014 step 13.
