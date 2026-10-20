@@ -25,7 +25,11 @@ on:
 
 jobs:
   build-test-coverage:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest, which moves to Ubuntu 26 from
+    # 2026-10-19: the record's GCC 13.3, lcov 2.0 and cppcheck 2.13 are this
+    # image's, so a newer image is a decision of its own, its expectations
+    # written first (FTS-VR-001 Entry 26 §26.6).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20   # the whole job runs in about three; a hung receiver must not run for six hours
 
     steps:
@@ -149,7 +153,7 @@ jobs:
     # not gated (test_plan.md 6.3): the gate of record is gcov/lcov over
     # src/. Node 22 is the LTS the development Mac runs; the lockfile pins
     # every package, so npm ci installs exactly what was tested.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned with the C++ job, for the same reason
     timeout-minutes: 10
     defaults:
       run:
