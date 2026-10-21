@@ -412,7 +412,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
 
 - **Requirement:** REQ-SENS-003, REQ-SENS-004
 - **Level:** Unit
-- **Objective:** Verify that the MPU6050 driver checks the chip's identity, configures the one sample-rate divider, the low-pass filter, and both full-scale ranges with the decided values, assembles big-endian two's-complement register pairs in the right order, scales raw counts to the frame's units, converts the two extreme codes to the rails the fault detector compares against (FAULT-010), and reports a failed transaction as an empty reading rather than an exception.
+- **Objective:** Verify that the MPU6050 driver checks the chip's identity, configures the one sample-rate divider, the low-pass filter, and both full-scale ranges with the decided values, assembles big-endian two's-complement register pairs in the right order, scales raw counts to the frame's units, maps the chip's axes to the frame's (the y rate negated, FTS-DD-001 Section 6), converts the two extreme codes to the rails the fault detector compares against (FAULT-010), and reports a failed transaction as an empty reading rather than an exception.
 - **Preconditions:** `Mpu6050` over a `FakeI2cBus` (TC-014 steps 1 through 3) whose WHO_AM_I register (0x75) holds 0x68. Expected values are arithmetic from the register map (RM-MPU-6000A-00 revision 4.2): 16384 LSB/g at ±2 g, 131 LSB per deg/s at ±250 deg/s, sample rate = 1 kHz / (1 + SMPLRT_DIV) with the low-pass filter enabled.
 - **Steps:**
   1. Call `init()` with the default 100 Hz. Record the transaction log and the register file.
@@ -422,17 +422,19 @@ Test cards are the individual test procedures. Each card is executed by one or m
   5. Call `sample_rate_divider()` with 100, 50, 4, 1000, 1, 3, 30, 0, −50, and 2000.
   6. Fail the burst at 0x3B and call `read()`; lift the failure and call `read()` again.
   7. Load the accelerometer x pair with 0x7FFF and the y pair with 0x8000, the two extreme codes; call `read()` and compare each axis with the driver's rail constants, `kAccelPositiveRailMps2` and `kAccelNegativeRailMps2`.
+  8. Load the accelerometer pairs with 0x2000 and the gyroscope pairs with 0x0083 on every axis and call `read()`; then the y rate's pair alone with 0x8000, then every pair with 0, calling `read()` after each.
 - **Expected result:**
 
   | Step | Expected |
   |---|---|
   | 1 | one read of 0x75, then writes in order 0x6B = 0x01, 0x19 = 9, 0x1A = 0x04, 0x1B = 0x00, 0x1C = 0x00; `init()` true |
   | 2 | `init()` false; the message names 0x70 and 0x68; one transaction only, nothing written to a chip of unknown identity |
-  | 3 | accelerometer (9.81, −9.81, 4.905) m/s² within 1e-4; gyroscope (1.0, −1.0, 0.0) deg/s within 1e-4 |
+  | 3 | accelerometer (9.81, −9.81, 4.905) m/s² within 1e-4; gyroscope (1.0, 1.0, 0.0) deg/s within 1e-4, the chip's y of −1.0 negated by the mapping (step 8) |
   | 4 | accelerometer x 64/16384 × 9.81 = 0.0383 m/s²; gyroscope x 32255/131 = 246.2 deg/s. Swapped bytes are a different number, never the right one with the wrong sign |
   | 5 | 9, 19, 249, 0; the other six refused |
   | 6 | empty, then a reading |
   | 7 | x equals the positive rail and y the negative rail exactly, not within a tolerance: 32767/16384 × 9.81 = 19.6194 m/s², one count (9.81/16384, 0.0006 m/s²) short of 2 × 9.81, and −2 × 9.81 exactly. The constants are the same three numbers in the same order as `read()`'s conversion, which is what ties FAULT-010's threshold to what the sensor produces |
+  | 8 | accelerometer (4.905, 4.905, 4.905) m/s² and gyroscope (1.0, −1.0, 1.0) deg/s within 1e-4: every axis the chip's but the y rate, negated into the frame's nose-up pitch rate; 0x8000 on y gives +32768/131 = 250.137 deg/s, and a zero count +0.0, never −0.0 |
 
 - **Pass/fail:** Any write out of order or with another value, any accepted identity other than 0x68, any scale or sign error, any rate accepted that the divider cannot produce exactly, a rail differing from `read()`'s conversion of its code by a bit, or any exception fails. The test file also covers: a failed identity read and a failed configuration write refuse `init()` and name the cause; an unreachable rate is refused before the bus is touched; `read()` before `init()` is empty and touches the bus not at all.
 
@@ -455,7 +457,7 @@ Test cards are the individual test procedures. Each card is executed by one or m
   10. Construct the source with the barometer answering 0x55, then with the MPU6050 answering 0x70, then with both.
   11. *(Hardware)* `i2cdetect -y 1`; `i2cget -y 1 0x76 0xD0`; `i2cget -y 1 0x68 0x75`.
   12. *(Hardware)* `telemetry --live --cycles 50` with the board flat.
-  13. *(Hardware)* `telemetry --live --cycles 1500`, watching pitch and roll: raise the end the GY-521's X arrow points to, then roll the board right.
+  13. *(Hardware)* `telemetry --live --cycles 1500`, watching pitch and roll: lift the end the GY-521's X arrow points to and hold it; lay the board flat again; lift the side its Y arrow points to, a right roll, and hold it.
   14. *(Hardware)* Replay the live log (`telemetry --replay logs/telemetry_000.bin`) and `cmp` the two logs.
   15. *(Hardware)* Receiver on the Mac, then `telemetry --live --zmq tcp://0.0.0.0:5555 --cycles 500` on the Pi.
 - **Expected result:**
@@ -474,11 +476,11 @@ Test cards are the individual test procedures. Each card is executed by one or m
   | 10 | `ok()` false; the message names the barometer and 0x55, then the IMU and 0x70, then both chips; frames are still produced, the failed channel stale |
   | 11 | 68 and 76 (or 77) in the grid; 0x58 or 0x60; 0x68 |
   | 12 | pressure 950 to 1050 hPa, temperature 10 to 35 °C, accelerometer about (0, 0, 9.8), gyroscope within a few deg/s at rest; barometer and IMU NOMINAL with `read_ok` 1; with `sensors.gps.enabled` false, the shipped value: GPS NOT_AVAILABLE on every frame and no event (REQ-FAULT-007), and with a receiver enabled TC-018 steps 21 and 22 apply; 0 missed cycles |
-  | 13 | nose up: pitch positive; roll right: roll positive |
+  | 13 | nose up: pitch positive; roll right: roll positive; and during each tilt the angle moves toward the new attitude from the first frame of the motion and never away from it (the motion criterion, added on 2026-10-21 after the bench's first run, FTS-VR-001 Entry 8 §8.9) |
   | 14 | `cmp -l` one line, `11 1 3`: every record byte-identical and the headers equal but for the run mode, LIVE in the session's and REPLAY in the replay's (since format version 3, REQ-LOG-007) |
   | 15 | every frame published after the receiver's subscription reached the Pi received, with `gaps 0 frames`: a ZeroMQ PUB socket drops what it sends before a subscriber's connection completes (the slow joiner), so a receiver started first can still miss the run's first frames, which the Pi's log holds; the first `seq` received counts them |
 
-- **Pass/fail:** Steps 1 through 10 exact as listed. Step 12 fails on any out-of-range value or any event (with a receiver enabled, any TC-018 step 21 does not list); step 13's signs are recorded, and a wrong sign is a one-line change in the driver's axis mapping noted in FTS-DD-001 Section 6, not a failure of the card; step 14 fails on any byte difference but the run mode's; step 15 fails on frames lost at the publisher (gaps the receiver reports may be the network's); frames sent before the subscription completed are the join's, not a loss.
+- **Pass/fail:** Steps 1 through 10 exact as listed. Step 12 fails on any out-of-range value or any event (with a receiver enabled, any TC-018 step 21 does not list); step 13 fails on an angle that moves away from the new attitude during a tilt (a rate whose sign disagrees with the accelerometer's), while its settled signs are recorded, a wrong one being a one-line change in the driver's axis mapping (FTS-DD-001 Section 6), not a failure of the card; step 14 fails on any byte difference but the run mode's; step 15 fails on frames lost at the publisher (gaps the receiver reports may be the network's); frames sent before the subscription completed are the join's, not a loss.
 
 ### TC-015: Noise Characterization and Derived Constants
 

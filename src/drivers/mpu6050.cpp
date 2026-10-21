@@ -110,17 +110,21 @@ std::optional<ImuReading> Mpu6050::read() {
         return std::nullopt;
     }
 
-    // Chip axes map to the body frame as the identity (design.md section
-    // 6). If the tilt test on hardware shows a sign disagreement between
-    // the gyroscope and accelerometer paths, this is the one place it
-    // changes.
+    // The axis mapping, the one place it lives (design.md section 6). The
+    // frame's axes are the chip's as the GY-521 is mounted, right-handed:
+    // x forward, y left, z up. The accelerometer and the x and z rates pass
+    // through; a nose-up rotation is a negative rate about the chip's y, so
+    // the y rate is negated and the frame's gyro_y is the pitch rate the
+    // filter integrates, positive nose up (the bench's tilt test,
+    // 2026-10-20). The count is negated as an int, before the conversion,
+    // so INT16_MIN's rate stays representable and a zero count stays +0.0.
     ImuReading r{};
     r.accel_x = static_cast<float>(be16(raw[0], raw[1])) / kAccelLsbPerG * kGravityMps2;
     r.accel_y = static_cast<float>(be16(raw[2], raw[3])) / kAccelLsbPerG * kGravityMps2;
     r.accel_z = static_cast<float>(be16(raw[4], raw[5])) / kAccelLsbPerG * kGravityMps2;
     // raw[6], raw[7]: TEMP_OUT_H, TEMP_OUT_L
     r.gyro_x = static_cast<float>(be16(raw[8], raw[9])) / kGyroLsbPerDps;
-    r.gyro_y = static_cast<float>(be16(raw[10], raw[11])) / kGyroLsbPerDps;
+    r.gyro_y = static_cast<float>(-static_cast<int32_t>(be16(raw[10], raw[11]))) / kGyroLsbPerDps;
     r.gyro_z = static_cast<float>(be16(raw[12], raw[13])) / kGyroLsbPerDps;
     return r;
 }

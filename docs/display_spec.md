@@ -45,7 +45,7 @@ The convention is the cockpit's: red for a warning, amber for a caution, white f
 
 ### 2.3 Signs (REQ-DISP-002)
 
-`pitch_deg` positive is nose up; `roll_deg` positive is a right roll, the right wing down. These are the bench test's signs (FTS-TP-001 TC-014 step 13). FTS-DD-001 Section 6 records that the driver's axis mapping is the assumption the first hardware day settles, and that the display's rule does not move with it: if the bench shows a sign reversed, the fix is the driver's mapping. On the attitude indicator a nose-up pitch moves the horizon down and a right roll rotates the horizon counterclockwise about the fixed symbol (Section 4.1). The simulator's scripted flight (Section 7) generates its readings as the inverse of the pipeline's own formulas, so a scripted right roll is a right roll on this display by construction.
+`pitch_deg` positive is nose up; `roll_deg` positive is a right roll, the right wing down. These are the bench test's signs (FTS-TP-001 TC-014 step 13). FTS-DD-001 Section 6 records the frame the bench settled on 2026-10-20, and that the display's rule does not move with it: the bench showed the pitch rate reversed, and the fix was the driver's mapping. On the attitude indicator a nose-up pitch moves the horizon down and a right roll rotates the horizon counterclockwise about the fixed symbol (Section 4.1). The simulator's scripted flight (Section 7) generates its readings as the inverse of the pipeline's own formulas, so a scripted right roll is a right roll on this display by construction.
 
 ### 2.4 Units (REQ-DISP-002)
 
