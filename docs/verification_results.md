@@ -3045,6 +3045,7 @@ Every expectation the run can measure was met. The run tests the tree `main` wil
   shasum -a 256 $H/session/logs/telemetry_000.bin $H/session/logs/replay_000.bin $H/demo/logs/telemetry_000.bin $H/demofault/logs/telemetry_000.bin $H/demofault/logs/replay_000.bin
   ```
   Expected, in that order: `f1dc959a…`, `189eb162…`, `6f877d1d…`, `a2d1d891…`, `33b34f60…`; about six minutes, the two demos paced. A difference is first compared with the build recipe Entry 22 §22.4's hashes were taken with, and then a finding.
+  (Closed 2026-10-19: all five equal to Entry 22 §22.4 on `c510034`, the merge into `main`, whose tree is this branch's head's; Apple clang 21.0.0 (clang-2100.3.34.2), a fresh unoptimized build.)
 - **The leg at `simulated_data.cpp:61`:** the direct test of `generate()` above, with the next simulator topic.
 - **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run.
 - **CLAUDE.md:** nothing. Commit 11 describes the `sanitize` job in its CI paragraph (what it builds and runs, that it gates every push, the one skip by name), which commit 10 had left at two jobs. Its Build and Test block keeps "about 2.5 min" for the campaign by Derek's decision (2026-10-20): the preview's 143 s, which FTS-DD-001 §14 states, rounds to it.
