@@ -204,6 +204,39 @@ TEST(Bmp280Test, ByteSwappedCalibrationGivesAnotherAnswer) {
     EXPECT_GT(std::abs(r->pressure_hpa - 1006.5325f), 0.01f);
 }
 
+// TC-012 step 8. The real chip's calibration bytes (0x88 to 0x9F) and one
+// data sample (0xF7 to 0xFC), dumped on the bench's Raspberry Pi on
+// 2026-10-20 (`i2cdump -y 1 0x76 b`, FTS-VR-001 Entry 8 §8.6), served
+// through the register protocol. The chip answered 0x60, a BME280, whose
+// calibration layout and compensation are the BMP280's (design.md section
+// 12). The worked example of steps 1 and 2 cannot catch a layout
+// error that happens to agree with its own numbers; another trimming set
+// read through the same code must still put the bench near sea level.
+// These bytes give 1011.54 hPa and 23.31 °C, and the datasheet's
+// double-precision formula gives 1011.538 hPa and 23.312 °C on them.
+TEST(Bmp280Test, RealChipDumpCompensatesToPlausibleValues) {
+    const std::vector<uint8_t> calibration = {
+        0xA2, 0x6D, 0xC1, 0x67, 0x32, 0x00,                          // dig_T1 to dig_T3
+        0x0A, 0x8F, 0x52, 0xD6, 0xD0, 0x0B, 0x51, 0x1B, 0x9B, 0xFF,  // dig_P1 to dig_P5
+        0xF9, 0xFF, 0xB4, 0x2D, 0xE8, 0xD1, 0x88, 0x13,              // dig_P6 to dig_P9
+    };
+    const std::vector<uint8_t> sample = {0x53, 0x83, 0x00, 0x7F, 0x9B, 0x00};   // pressure, then temperature
+    FakeI2cBus bus;
+    bus.registers(kAddress)[Bmp280::kRegId] = Bmp280::kChipIdBme280;
+    bus.load(kAddress, Bmp280::kRegCalibration, calibration);
+    bus.load(kAddress, Bmp280::kRegData, sample);
+    Bmp280 baro(bus, kAddress);
+    ASSERT_TRUE(baro.init()) << baro.error();
+    EXPECT_EQ(baro.chip_id(), Bmp280::kChipIdBme280);
+
+    const std::optional<BaroReading> r = baro.read();
+    ASSERT_TRUE(r.has_value());
+    EXPECT_GE(r->pressure_hpa, 950.0f);
+    EXPECT_LE(r->pressure_hpa, 1050.0f);
+    EXPECT_GE(r->temperature_c, 10.0f);
+    EXPECT_LE(r->temperature_c, 35.0f);
+}
+
 // The one guard in the datasheet's pressure code: var1 is zero only when
 // dig_P1 is zero (an all-zero calibration), and the formula would then
 // divide by it. The datasheet returns 0; so does the driver, and the
