@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -100,6 +101,50 @@ TEST(PosixSerialPortTest, ControlBytesPassUnaltered) {
     const std::string bytes("\r\n\x11\x13\x03\x00" "a", 7);
     pty.send(bytes);
     EXPECT_EQ(read_all(port, bytes.size()), bytes);
+}
+
+// The settings the port found at open are back when it closes
+// (REQ-SENS-005, 0.20.0). A terminal's settings outlive its descriptors,
+// and the ones the port's non-blocking reads need, VMIN and VTIME zero,
+// left behind on the bench made every later blocking reader see an end of
+// file at once (FTS-VR-001 Entry 13 §13.10). A second descriptor reads the
+// slave's settings as another program would: before, held, and after.
+TEST(PosixSerialPortTest, CloseRestoresTheSettingsFoundAtOpen) {
+    Pty pty;
+    ASSERT_TRUE(pty.ok());
+    const int watcher = ::open(pty.slave_path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    ASSERT_GE(watcher, 0);
+    termios before{};
+    ASSERT_EQ(::tcgetattr(watcher, &before), 0);
+    before.c_lflag |= ICANON;   // a line discipline the port turns off
+    before.c_cc[VMIN] = 1;      // what a blocking reader such as cat needs
+    before.c_cc[VTIME] = 0;
+    ASSERT_EQ(::tcsetattr(watcher, TCSANOW, &before), 0);
+    ASSERT_EQ(::tcgetattr(watcher, &before), 0);   // as the kernel holds them
+
+    {
+        PosixSerialPort port(pty.slave_path, 9600);
+        ASSERT_TRUE(port.ok()) << port.error();
+        termios held{};
+        ASSERT_EQ(::tcgetattr(watcher, &held), 0);
+        EXPECT_EQ(held.c_cc[VMIN], 0);
+        EXPECT_EQ(held.c_lflag & ICANON, static_cast<tcflag_t>(0));
+    }
+
+    termios after{};
+    ASSERT_EQ(::tcgetattr(watcher, &after), 0);
+    EXPECT_EQ(after.c_iflag, before.c_iflag);
+    EXPECT_EQ(after.c_oflag, before.c_oflag);
+    EXPECT_EQ(after.c_cflag, before.c_cflag);
+    // PENDIN is the kernel's state, not a setting: a BSD kernel sets it
+    // when a line returns to canonical mode, to reprocess pending input.
+    EXPECT_EQ(after.c_lflag & ~static_cast<tcflag_t>(PENDIN), before.c_lflag & ~static_cast<tcflag_t>(PENDIN));
+    for (int i = 0; i < NCCS; ++i) {
+        EXPECT_EQ(after.c_cc[i], before.c_cc[i]) << "c_cc[" << i << "]";
+    }
+    EXPECT_EQ(::cfgetispeed(&after), ::cfgetispeed(&before));
+    EXPECT_EQ(::cfgetospeed(&after), ::cfgetospeed(&before));
+    ::close(watcher);
 }
 
 TEST(PosixSerialPortTest, BytesWrittenBeforeOpenAreFlushed) {

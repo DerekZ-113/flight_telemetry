@@ -1,5 +1,7 @@
 #pragma once
 
+#include <termios.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -48,6 +50,10 @@ public:
 // first fix the pipeline sees must be current. One stop bit, and a BREAK
 // on the line ignored: cfmakeraw leaves both as it found them, and a
 // receive-only line gets only noise from a BREAK.
+// At close the settings the device had at open are put back
+// (REQ-SENS-005): a terminal's settings outlive its descriptors, and
+// VMIN and VTIME zero would leave the next blocking reader, cat or a
+// later run's tools, an end of file at its first read.
 //
 // With VMIN and VTIME zero an empty read returns 0 bytes on both kernels,
 // which is the answer forty-nine cycles in fifty. A device the kernel has
@@ -81,6 +87,7 @@ public:
 
 private:
     int fd_ = -1;
+    termios original_{};   // the device's settings at open, put back at close
     std::string error_;
     int last_errno_ = 0;
 };
