@@ -8,10 +8,39 @@ Embedded flight telemetry for a Raspberry Pi in C++17: barometer, IMU and GPS fu
 
 ## Architecture
 
-```
-DataSource ──raw──▶ FaultDetector ──status──▶ 3 × TelemetryProcessor ──▶ Voter ──▶ BinaryLogger ──▶ logs/*.bin
- (simulated, replay, live, ADS-B;           paced by FixedRateScheduler(Clock)         ├─▶ ZmqPublisher ─┐
-  fault injection wraps any)                                                            └─▶ UdpPublisher ─┴─▶ pipeline/receiver.py ─▶ pipeline/bridge.py ─▶ dashboard/ (the PFD)
+```mermaid
+flowchart TB
+    SCHED["FixedRateScheduler<br/>one cycle every 20 ms on absolute deadlines"]
+    subgraph SRC["One DataSource seam: raw fields only, so every source runs the same code"]
+        direction LR
+        SIM["SimulatedSource<br/>the bench's measured noise,<br/>a scripted flight on request"]
+        LIVE["LiveSensorSource<br/>barometer and IMU over I2C,<br/>GPS receiver over serial"]
+        ADSB["AdsbSource<br/>one real aircraft from OpenSky,<br/>polled on its own thread"]
+        REPLAY["LogReplaySource<br/>a recorded log,<br/>paced on request"]
+    end
+    DET["FaultDetector<br/>timeout · stuck value · range · non-finite<br/>a status for every channel"]
+    subgraph LANES["Three identical processing lanes, all run every frame"]
+        direction LR
+        L1["TelemetryProcessor<br/>ISA altitude · Kalman fusion<br/>complementary attitude · validity"]
+        L2["TelemetryProcessor"]
+        L3["TelemetryProcessor"]
+    end
+    VOTER["Voter<br/>bit-for-bit majority · a lane excluded after<br/>3 disagreements · no majority flagged"]
+    LOG[("BinaryLogger<br/>logs/*.bin, the configuration beside it")]
+    PUB["ZmqPublisher · UdpPublisher<br/>never block the loop"]
+    BRIDGE["pipeline/bridge.py<br/>WebSocket, coordinates never forwarded"]
+    PFD["dashboard/<br/>the Primary Flight Display"]
+    CAMP["fault_campaign<br/>faults injected into the source and the lanes,<br/>97,100 seeded runs against written predictions"]
+
+    SCHED -.->|"paces live and simulated runs"| SRC
+    SRC -->|"raw frame"| DET
+    DET -->|"raw frame + channel status"| LANES
+    LANES -->|"three computed frames"| VOTER
+    VOTER -->|"one voted frame"| LOG
+    VOTER --> PUB --> BRIDGE --> PFD
+    LOG -.->|"replayed by LogReplaySource through the same code, bit for bit"| SRC
+    CAMP -.-> SRC
+    CAMP -.-> LANES
 ```
 
 - **Data source seam** ([§3](docs/design.md#3-datasource-abstraction)): one `read_frame()`, raw fields only; live, simulated and replayed frames run the same code.
