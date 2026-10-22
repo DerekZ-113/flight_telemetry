@@ -43,12 +43,13 @@ public:
     // Accelerometer in m/s^2, gyroscope in deg/s (as the MPU6050 driver
     // and TelemetryFrame report them), dt in seconds.
     //
-    // Axis convention (right-handed body frame, x forward, y right, z up):
-    //   pitch is rotation about y, driven by gyro_y_dps
-    //   roll  is rotation about x, driven by gyro_x_dps
+    // Axis convention (design.md section 6): the chip's axes as mounted,
+    // right-handed, x forward, y left, z up.
+    //   pitch, positive nose up, is driven by gyro_y_dps, the nose-up pitch
+    //         rate: the MPU6050 driver negates the chip's y rate for it
+    //   roll, positive for a right roll, is driven by gyro_x_dps
     //   gyro_z_dps (yaw rate) is accepted but unused; heading comes from GPS.
-    // The signs assume the accelerometer and gyroscope agree on the
-    // frame. Whether the mounted MPU6050 does is verified on hardware.
+    // The bench's tilt test settled the signs (TC-014 step 13).
     //
     // The first call seeds both angles from the accelerometer alone and
     // ignores the gyro and dt, because no previous frame exists to

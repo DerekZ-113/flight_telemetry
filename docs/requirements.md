@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Requirements
 
 > **Document ID:** FTS-SRD-001
-> **Version:** 0.19.0
+> **Version:** 0.20.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-20
+> **Last Updated:** 2026-10-21
 > **Related:** FTS-TM-001 (traceability), FTS-DD-001 (design), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-VR-001 (verification results), FTS-NP-001 (noise profile), FTS-FI-001 (fault-injection report)
 
 ## Conventions
@@ -32,9 +32,9 @@ REQ-SENS-004: The system shall read 3-axis gyroscope data from the MPU6050 senso
 
 > **Rationale:** the MPU6050 has a single sample-rate divider for both sensors; accelerometer and gyroscope rates cannot be set independently.
 
-REQ-SENS-005: The system shall read position (latitude, longitude, altitude above mean sea level), ground speed and course over ground from a NEO-6M-class GPS receiver as NMEA 0183 sentences (GGA and RMC) on a configurable serial device at a configurable baud rate, delivering one reading per fix the receiver reports valid, with the fix quality and satellite count the GGA sentence reports recorded in the frame, and marking every other cycle not fresh (`gps_read_ok` false).
+REQ-SENS-005: The system shall read position (latitude, longitude, altitude above mean sea level), ground speed and course over ground from a NEO-6M-class GPS receiver as NMEA 0183 sentences (GGA and RMC) on a configurable serial device at a configurable baud rate, delivering one reading per fix the receiver reports valid, with the fix quality and satellite count the GGA sentence reports recorded in the frame, and marking every other cycle not fresh (`gps_read_ok` false). When it closes the serial device, the system shall restore the terminal settings the device had when the system opened it.
 
-> **Rationale:** the receiver's own rate is 1 Hz and the loop's is 50 Hz, so a fix is one measurement applied once (REQ-PROC-006), not fifty copies. GGA carries position, altitude, fix quality and satellite count; RMC carries speed, course and the receiver's own validity flag; the two sentences of one epoch share a UTC time field, which is how the driver pairs them. The device is a key because the same receiver connects over USB (a serial device to the operating system) or the header UART, and nothing above the device file differs. A fix the receiver reports invalid (GGA quality 0, RMC status V) is not a reading, so a receiver with no sky view delivers nothing and the channel times out: FTS-FM-001 FAULT-003 (b) seen through (a); since format version 3 (0.13.0) the frame carries the fix quality and the satellite count the receiver reported, recorded and judged by nobody yet (FAULT-003b, FTS-DD-001 Section 11.2). The receiver's time names the measurement epoch; the frame's timestamp stays the cycle the fix entered the pipeline, up to half a second later at 9600 baud (FTS-DD-001 Section 10).
+> **Rationale:** the receiver's own rate is 1 Hz and the loop's is 50 Hz, so a fix is one measurement applied once (REQ-PROC-006), not fifty copies. GGA carries position, altitude, fix quality and satellite count; RMC carries speed, course and the receiver's own validity flag; the two sentences of one epoch share a UTC time field, which is how the driver pairs them. The device is a key because the same receiver connects over USB (a serial device to the operating system) or the header UART, and nothing above the device file differs. A fix the receiver reports invalid (GGA quality 0, RMC status V) is not a reading, so a receiver with no sky view delivers nothing and the channel times out: FTS-FM-001 FAULT-003 (b) seen through (a); since format version 3 (0.13.0) the frame carries the fix quality and the satellite count the receiver reported, recorded and judged by nobody yet (FAULT-003b, FTS-DD-001 Section 11.2). The receiver's time names the measurement epoch; the frame's timestamp stays the cycle the fix entered the pipeline, up to half a second later at 9600 baud (FTS-DD-001 Section 10). The settings go back at close (0.20.0) because they outlive the program: the ones its non-blocking reads need, VMIN and VTIME zero, make a later blocking reader see an end of file at once, which silenced every tool on the bench's receiver after a run until the settings were reset (FTS-VR-001 Entry 13 §13.10).
 
 REQ-SENS-006: The system shall provide a simulated data source that produces TelemetryFrames of raw sensor readings with configurable noise, delivering each channel's readings at a configurable rate and marking the frames between readings as not fresh (`read_ok` false).
 

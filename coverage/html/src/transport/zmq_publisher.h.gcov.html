@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/transport/zmq_publisher.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/transport</a> - zmq_publisher.h<span style="font-size: 80%;"> (source / <a href="zmq_publisher.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstddef&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;string&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : </span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : #include &lt;zmq.hpp&gt;</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : </span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : #include &quot;logging/log_format.h&quot;</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : #include &quot;telemetry_frame.h&quot;</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : #include &quot;transport/publisher.h&quot;</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : </span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // Publishes processed frames on a ZeroMQ PUB socket (REQ-TRANS-001) in a</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // way that can never hold up the processing loop (REQ-TRANS-003).</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : //</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // The wire format is the log format (FTS-DD-001 section 9). Every message</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // is a complete one-record log file:</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : //</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : //   LogFileHeader (16 bytes) | RecordType tag (1 byte) | TelemetryFrame (120 bytes)</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : //</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // so a subscriber validates the layout from its first message, whenever it</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // joins, with the same parser it uses for a log on disk. Pub/sub has no</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // handshake, which is why the header travels on every message rather than</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // once per connection.</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : //</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : // What &quot;never blocks&quot; means here, from zmq_socket(3): a PUB socket's send</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : // never waits. When one subscriber's queue reaches the high-water mark,</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : // messages to that subscriber are dropped until it catches up; other</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : // subscribers are unaffected; with no subscriber at all every message is</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             : // dropped on the spot. Those drops are silent at this end, so this class</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : // cannot count them. It counts what it can see: messages the library</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             : // accepted, and sends the library refused. Loss is measured at the</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : // receiver, from gaps in frame timestamps.</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : //</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             : // RAII: the zmq::socket_t member closes itself in its destructor. The</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : // zmq::context_t is owned by the caller (one per process; inproc:// only</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : // works between sockets of the same context) and must outlive this object,</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : // because terminating a context blocks until every socket on it is closed.</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             : </span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : // Messages the library queues per subscriber before dropping</span>
+<span id="L41"><span class="lineNum">      41</span>                 :             : // (REQ-TRANS-003). 100 is two seconds of frames at 50 Hz: a subscriber</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             : // that stalls for less loses nothing; one that falls further behind loses</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : // frames rather than slowing the loop. Not a configuration key: REQ-CFG-001</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : // lists transport addresses and ports, and the tuning stays fixed until a</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             : // requirement asks for it (FTS-DD-001 section 12, decided 2026-10-13).</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : constexpr int kDefaultSendHighWaterMark = 100;</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             : </span>
+<span id="L48"><span class="lineNum">      48</span>                 :             : // Implements Publisher (publisher.h), the seam the loop sees; PublishStats</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             : // lives there too, shared with the UDP publisher.</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             : class ZmqPublisher : public Publisher {</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : public:</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :     // Binds a PUB socket to `endpoint` (&quot;tcp://127.0.0.1:5555&quot;,</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     // &quot;inproc://name&quot;). A failed bind (address in use, malformed endpoint)</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             :     // leaves ok() false with the reason in error(); it does not throw.</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     // Creating the socket itself fails only when the process is out of</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     // descriptors or the context is already terminated; that is a</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     // zmq::error_t from the member initializer and is not handled here.</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :     // `header` is the one every message carries (REQ-LOG-007): the</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             :     // composition root hands in the header its logger writes, so the file</span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :     // and the wire say the same modes; a publisher nobody told says</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :     // UNKNOWN.</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             :     ZmqPublisher(zmq::context_t&amp; context, const std::string&amp; endpoint,</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             :                  int send_high_water_mark = kDefaultSendHighWaterMark,</span>
+<span id="L64"><span class="lineNum">      64</span>                 :             :                  LogFileHeader header = make_log_header());</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             : </span>
+<span id="L66"><span class="lineNum">      66</span>                 :             :     // The socket is a resource with one owner; a copy would close it twice.</span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :     ZmqPublisher(const ZmqPublisher&amp;) = delete;</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             :     ZmqPublisher&amp; operator=(const ZmqPublisher&amp;) = delete;</span>
+<span id="L69"><span class="lineNum">      69</span>                 :             : </span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC tlaBgGNC">          12 :     bool ok() const { return ok_; }</span></span>
+<span id="L71"><span class="lineNum">      71</span>                 :<span class="tlaGNC">           3 :     const std::string&amp; error() const { return error_; }</span></span>
+<span id="L72"><span class="lineNum">      72</span>                 :             : </span>
+<span id="L73"><span class="lineNum">      73</span>                 :             :     // Hands one frame to the library and returns at once. false means the</span>
+<span id="L74"><span class="lineNum">      74</span>                 :             :     // frame was not sent; stats() says how often that has happened.</span>
+<span id="L75"><span class="lineNum">      75</span>                 :             :     bool publish(const TelemetryFrame&amp; frame) override;</span>
+<span id="L76"><span class="lineNum">      76</span>                 :             : </span>
+<span id="L77"><span class="lineNum">      77</span>                 :             :     // The nineteen-byte session status (REQ-TRANS-004), through the same</span>
+<span id="L78"><span class="lineNum">      78</span>                 :             :     // socket, counted apart from frames.</span>
+<span id="L79"><span class="lineNum">      79</span>                 :             :     bool publish_status(const SessionStatus&amp; status) override;</span>
+<span id="L80"><span class="lineNum">      80</span>                 :             : </span>
+<span id="L81"><span class="lineNum">      81</span>                 :<span class="tlaGNC">          33 :     const PublishStats&amp; stats() const override { return stats_; }</span></span>
+<span id="L82"><span class="lineNum">      82</span>                 :             : </span>
+<span id="L83"><span class="lineNum">      83</span>                 :             : private:</span>
+<span id="L84"><span class="lineNum">      84</span>                 :             :     // One message of `size` bytes, sent without waiting; false when the</span>
+<span id="L85"><span class="lineNum">      85</span>                 :             :     // library refused or threw, with the errno kept. Frames and statuses</span>
+<span id="L86"><span class="lineNum">      86</span>                 :             :     // differ only in the bytes they hand in.</span>
+<span id="L87"><span class="lineNum">      87</span>                 :             :     bool send_bytes(const uint8_t* data, size_t size);</span>
+<span id="L88"><span class="lineNum">      88</span>                 :             : </span>
+<span id="L89"><span class="lineNum">      89</span>                 :             :     zmq::socket_t socket_;</span>
+<span id="L90"><span class="lineNum">      90</span>                 :             :     LogFileHeader header_;</span>
+<span id="L91"><span class="lineNum">      91</span>                 :             :     bool ok_ = false;</span>
+<span id="L92"><span class="lineNum">      92</span>                 :             :     std::string error_;</span>
+<span id="L93"><span class="lineNum">      93</span>                 :             :     PublishStats stats_;</span>
+<span id="L94"><span class="lineNum">      94</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

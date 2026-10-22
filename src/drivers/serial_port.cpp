@@ -55,6 +55,10 @@ PosixSerialPort::PosixSerialPort(const std::string& path, int baud_rate) {
         ::close(fd);
         return;
     }
+    // Kept to be put back at close (REQ-SENS-005): a terminal's settings
+    // outlive the descriptor that set them, and VMIN and VTIME zero, which
+    // these reads need, make the next blocking reader see an end of file.
+    original_ = tio;
     ::cfmakeraw(&tio);
     tio.c_cflag |= CLOCAL | CREAD;
     tio.c_cflag &= static_cast<tcflag_t>(~(CRTSCTS | CSTOPB));   // no flow control; one stop bit
@@ -67,6 +71,7 @@ PosixSerialPort::PosixSerialPort(const std::string& path, int baud_rate) {
     if (flushed != 0) {
         last_errno_ = errno;
         error_ = path + ": cannot configure the terminal: " + std::strerror(last_errno_);
+        ::tcsetattr(fd, TCSANOW, &original_);   // whatever took, undone
         ::close(fd);
         return;
     }
@@ -75,6 +80,9 @@ PosixSerialPort::PosixSerialPort(const std::string& path, int baud_rate) {
 
 PosixSerialPort::~PosixSerialPort() {
     if (fd_ >= 0) {
+        // Unchecked: a device the kernel hung up refuses it, and there is
+        // nothing left to restore.
+        ::tcsetattr(fd_, TCSANOW, &original_);
         ::close(fd_);
     }
 }

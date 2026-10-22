@@ -1,0 +1,210 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/logging/log_format.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/logging</a> - log_format.h<span style="font-size: 80%;"> (source / <a href="log_format.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">1</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntry">6</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;array&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;cstddef&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &lt;string&gt;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : #include &lt;type_traits&gt;</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : </span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : #include &quot;processing/fault_detector.h&quot;   // FaultEvent</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : #include &quot;run_mode.h&quot;</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : #include &quot;telemetry_frame.h&quot;</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : </span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // Binary log format (REQ-LOG-001). One file is:</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : //</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : //   LogFileHeader</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : //   { RecordType tag, record bytes } ...</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : //</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // Records are the in-memory structs written verbatim. That is legal only</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // because both structs are trivially copyable (asserted below): their</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // bytes are their value, with no pointers or owning members to lose.</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : //</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // The format is tied to one platform and one build: struct layout depends</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // on the compiler's padding and the host's byte order. That is the scope</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // design.md section 8 already sets for replay. The header records</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // everything needed to detect a mismatch on read instead of producing</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : // garbage: a magic tag, a format version, both record sizes, and the</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : // host's endianness.</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : //</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : // Rule: any change to TelemetryFrame or FaultEvent changes the format.</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             : // Bump kLogFormatVersion in the same commit, or an old log will be read</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : // with the wrong sizes and rejected with a confusing message rather than</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             : // a clear &quot;format version 4; this build reads 1 to 3&quot;.</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : //</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : // Versions (REQ-LOG-005). kLogFormatVersion is the one this build writes;</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             : // kOldestReadableLogFormatVersion the oldest it reads. Version 1 (through</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : // 2026-10-13) had a 104-byte frame with four compiler padding bytes before</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : // latitude and six after gps_read_ok, and a 16-byte event with two after</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : // `type`. Version 2 named every one of those bytes (reserved_a, the five</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             : // Validity fields, reserved_b, FaultEvent::reserved) and moved no other</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : // byte. Version 3 (2026-10-15) kept every version-2 field where it was,</span>
+<span id="L41"><span class="lineNum">      41</span>                 :             : // spent the two reserved fields (the sequence number, the flags byte),</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             : // renamed heading_deg course_deg, and appended a 16-byte tail: 120 bytes.</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : // So one layout serves every version, the prefix rule: a frame of an</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : // older file is read into a value-initialized version-3 frame and lands</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             : // in its first 104 bytes, where every one of its fields still lives, the</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : // tail staying zero and the sequence 0; a version-1 frame's validity and</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             : // former reserved bytes are set besides to what version 2 meant by them,</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             : // since an old file may carry stack contents there. A change that keeps</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             : // the raw bytes in place may extend the readable range this way; one that</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             : // moves them may not. The header's version implies the frame size</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : // (frame_size_for), which the header must agree with.</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             : //</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             : // The header also records the run mode of the session that wrote the file</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             : // and the source mode its frames were produced in (REQ-LOG-007), in the</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             : // two bytes that were one reserved field until version 3: a run property</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             : // belongs in the header, written once, not in fifty frames a second, and</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             : // a reader takes it from there and never infers it from the frames. A</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             : // header older than version 3 reads UNKNOWN for both.</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             : </span>
+<span id="L60"><span class="lineNum">      60</span>                 :             : constexpr uint16_t kLogFormatVersion = 3;</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             : constexpr uint16_t kOldestReadableLogFormatVersion = 1;</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             : constexpr uint32_t kEndianMarker = 0x01020304u;</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             : </span>
+<span id="L64"><span class="lineNum">      64</span>                 :             : // The frame of versions 1 and 2: the first 104 bytes of today's.</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             : constexpr uint16_t kVersion2FrameBytes = 104;</span>
+<span id="L66"><span class="lineNum">      66</span>                 :             : </span>
+<span id="L67"><span class="lineNum">      67</span>                 :             : // The frame size a version's layout implies; 0 for a version this build</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             : // does not define, which header_problem has refused before asking.</span>
+<span id="L69"><span class="lineNum">      69</span>                 :<span class="tlaGNC tlaBgGNC">       16049 : constexpr uint16_t frame_size_for(uint16_t version) {</span></span>
+<span id="L70"><span class="lineNum">      70</span>         [<span class="tlaGBC" title="Branch 0 was taken 15685 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 241 times"> + </span>]:<span class="tlaGNC">       15926 :     return version == 1 || version == 2 ? kVersion2FrameBytes</span></span>
+<span id="L71"><span class="lineNum">      71</span>   [<span class="tlaGBC" title="Branch 0 was taken 15926 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 123 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 15683 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span>]:<span class="tlaGNC">       31975 :          : version == kLogFormatVersion ? static_cast&lt;uint16_t&gt;(sizeof(TelemetryFrame)) : 0;</span></span>
+<span id="L72"><span class="lineNum">      72</span>                 :             : }</span>
+<span id="L73"><span class="lineNum">      73</span>                 :             : </span>
+<span id="L74"><span class="lineNum">      74</span>                 :             : struct LogFileHeader {</span>
+<span id="L75"><span class="lineNum">      75</span>                 :             :     char magic[4];            // &quot;FTLG&quot;</span>
+<span id="L76"><span class="lineNum">      76</span>                 :             :     uint16_t version;         // kLogFormatVersion</span>
+<span id="L77"><span class="lineNum">      77</span>                 :             :     uint16_t frame_size;      // sizeof(TelemetryFrame) when written</span>
+<span id="L78"><span class="lineNum">      78</span>                 :             :     uint16_t event_size;      // sizeof(FaultEvent) when written</span>
+<span id="L79"><span class="lineNum">      79</span>                 :             :     uint8_t run_mode;         // RunMode: how this session ran (REQ-LOG-007); 0 before version 3</span>
+<span id="L80"><span class="lineNum">      80</span>                 :             :     uint8_t source_mode;      // RunMode: how its frames were originally produced; 0 before version 3</span>
+<span id="L81"><span class="lineNum">      81</span>                 :             :     uint32_t endian_marker;   // kEndianMarker as this host stores it</span>
+<span id="L82"><span class="lineNum">      82</span>                 :             : };</span>
+<span id="L83"><span class="lineNum">      83</span>                 :             : </span>
+<span id="L84"><span class="lineNum">      84</span>                 :             : enum class RecordType : uint8_t {</span>
+<span id="L85"><span class="lineNum">      85</span>                 :             :     FRAME = 1,</span>
+<span id="L86"><span class="lineNum">      86</span>                 :             :     FAULT_EVENT = 2,</span>
+<span id="L87"><span class="lineNum">      87</span>                 :             : };</span>
+<span id="L88"><span class="lineNum">      88</span>                 :             : </span>
+<span id="L89"><span class="lineNum">      89</span>                 :             : // The header this build writes, with the two modes main knows; the</span>
+<span id="L90"><span class="lineNum">      90</span>                 :             : // defaults say that nobody told them, which is what a test's logger or</span>
+<span id="L91"><span class="lineNum">      91</span>                 :             : // publisher means by it.</span>
+<span id="L92"><span class="lineNum">      92</span>                 :             : LogFileHeader make_log_header(RunMode run_mode = RunMode::UNKNOWN, RunMode source_mode = RunMode::UNKNOWN);</span>
+<span id="L93"><span class="lineNum">      93</span>                 :             : </span>
+<span id="L94"><span class="lineNum">      94</span>                 :             : // Empty when the header is one this build reads: the magic, a version in</span>
+<span id="L95"><span class="lineNum">      95</span>                 :             : // the readable range, the frame size that version implies, the event size</span>
+<span id="L96"><span class="lineNum">      96</span>                 :             : // and the byte order all match. Otherwise the first mismatch, named</span>
+<span id="L97"><span class="lineNum">      97</span>                 :             : // (&quot;format version 4; this build reads 1 to 3&quot;; &quot;frame size 112 in the</span>
+<span id="L98"><span class="lineNum">      98</span>                 :             : // header, 120 for version 3 in this build&quot;), the twin of the Python</span>
+<span id="L99"><span class="lineNum">      99</span>                 :             : // reader's check_header. A refused file is named before any record is</span>
+<span id="L100"><span class="lineNum">     100</span>                 :             : // read (REQ-LOG-005).</span>
+<span id="L101"><span class="lineNum">     101</span>                 :             : std::string header_problem(const LogFileHeader&amp; header);</span>
+<span id="L102"><span class="lineNum">     102</span>                 :             : </span>
+<span id="L103"><span class="lineNum">     103</span>                 :             : // header_problem(header).empty(): the one-line form for callers that need</span>
+<span id="L104"><span class="lineNum">     104</span>                 :             : // only the verdict.</span>
+<span id="L105"><span class="lineNum">     105</span>                 :             : bool header_is_valid(const LogFileHeader&amp; header);</span>
+<span id="L106"><span class="lineNum">     106</span>                 :             : </span>
+<span id="L107"><span class="lineNum">     107</span>                 :             : static_assert(std::is_trivially_copyable&lt;TelemetryFrame&gt;::value,</span>
+<span id="L108"><span class="lineNum">     108</span>                 :             :               &quot;TelemetryFrame is written to the log as raw bytes; it must stay trivially copyable&quot;);</span>
+<span id="L109"><span class="lineNum">     109</span>                 :             : static_assert(std::is_trivially_copyable&lt;FaultEvent&gt;::value,</span>
+<span id="L110"><span class="lineNum">     110</span>                 :             :               &quot;FaultEvent is written to the log as raw bytes; it must stay trivially copyable&quot;);</span>
+<span id="L111"><span class="lineNum">     111</span>                 :             : static_assert(std::is_trivially_copyable&lt;LogFileHeader&gt;::value, &quot;header is written as raw bytes&quot;);</span>
+<span id="L112"><span class="lineNum">     112</span>                 :             : static_assert(sizeof(LogFileHeader) == 16, &quot;header layout changed; bump kLogFormatVersion&quot;);</span>
+<span id="L113"><span class="lineNum">     113</span>                 :             : </span>
+<span id="L114"><span class="lineNum">     114</span>                 :             : // Bytes in one frame message: header, tag, frame.</span>
+<span id="L115"><span class="lineNum">     115</span>                 :             : constexpr size_t kFrameMessageBytes = sizeof(LogFileHeader) + 1 + sizeof(TelemetryFrame);</span>
+<span id="L116"><span class="lineNum">     116</span>                 :             : </span>
+<span id="L117"><span class="lineNum">     117</span>                 :             : // A frame as a complete one-record log file: the header, the FRAME tag,</span>
+<span id="L118"><span class="lineNum">     118</span>                 :             : // then the frame's bytes verbatim, laid out exactly as BinaryLogger writes</span>
+<span id="L119"><span class="lineNum">     119</span>                 :             : // a record after the file header. This is what a transport sends</span>
+<span id="L120"><span class="lineNum">     120</span>                 :             : // (REQ-TRANS-001, REQ-TRANS-002; design.md section 9: the wire format is</span>
+<span id="L121"><span class="lineNum">     121</span>                 :             : // the log format). Both publishers call this one function with the header</span>
+<span id="L122"><span class="lineNum">     122</span>                 :             : // the composition root handed them, the same one the logger writes, so</span>
+<span id="L123"><span class="lineNum">     123</span>                 :             : // the file and the wire cannot disagree by a byte. memcpy is licensed by</span>
+<span id="L124"><span class="lineNum">     124</span>                 :             : // the static_asserts above.</span>
+<span id="L125"><span class="lineNum">     125</span>                 :             : std::array&lt;uint8_t, kFrameMessageBytes&gt; frame_message(const TelemetryFrame&amp; frame, const LogFileHeader&amp; header);</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

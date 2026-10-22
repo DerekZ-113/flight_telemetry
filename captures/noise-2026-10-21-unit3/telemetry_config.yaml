@@ -1,0 +1,124 @@
+# Flight Telemetry System: the configuration of record (REQ-CFG-001).
+#
+# This file is the standing configuration, the only source of the values the
+# binary runs with. `telemetry` reads config/telemetry_config.yaml from the
+# working directory, or the file named by --config; validates every value at
+# startup and refuses to start on any problem, naming each one (REQ-CFG-002);
+# and copies this text verbatim beside the session's log as
+# <prefix>_config.yaml, which a replay of that log then reads (REQ-CFG-003).
+#
+# Rules. Every key below is required, except that the adsb block as a whole
+# may be omitted by a file no ADS-B run uses (every key inside it is
+# required when it is present); an unknown or duplicate key is an error. A whole number is decimal digits or 0x and hex digits, nothing else
+# (010 is refused, not read as octal). A number is anything strtod reads in
+# full that is finite (.inf and .nan are refused). A switch is exactly true
+# or false. Text must not be empty. --zmq <endpoint> and --udp <ipv4>:<port>
+# enable a transport for one run and override its address; --live, --replay,
+# --pace, --adsb and --cycles choose the run; nothing else on the command line
+# overrides a key.
+#
+# The values here equal the defaults compiled into the module structs, the
+# unit tests' baseline; ConfigTest.ShippedFileEqualsDefaults fails the build
+# if the two drift apart. The addresses are the boards' defaults, provisional
+# until the chips are read on the Pi (FTS-DD-001 section 12).
+
+# REQ-TIME-001: the processing loop's period, 20 to 1000 ms. The barometer is
+# read once per cycle, so this is also its sample rate, 50 to 1 Hz
+# (REQ-SENS-001); the simulated source stamps its frames on the same grid.
+timing:
+  period_ms: 20
+
+# REQ-SENS-001 through REQ-SENS-005: live mode (--live).
+sensors:
+  i2c_device: /dev/i2c-1
+  barometer:
+    address: 0x76            # 7-bit I2C address, 0x08 to 0x77; SDO to ground
+  imu:
+    address: 0x68            # AD0 low
+    sample_rate_hz: 100      # 4 to 100, an exact divisor of 1000, at least the processing rate
+  # REQ-SENS-005. Off until a receiver is wired; a run with one passes a copy
+  # of this file naming it. The switch line carries no comment: a test marks
+  # it by the line that follows, as it does the transports' switches.
+  gps:
+    enabled: false
+    device: /dev/serial0     # the header UART; /dev/ttyACM0 or /dev/ttyUSB0 over the board's micro-USB port
+    baud_rate: 9600          # one of 4800, 9600, 19200, 38400, 57600, 115200; a u-blox receiver ships at 9600
+
+# REQ-FAULT-001, -002, -003, -005 (FTS-FM-001 FAULT-001 to FAULT-011).
+fault:
+  i2c_timeout_ms: 500        # FAULT-001, -002, -004; also the attitude filter's re-seed bound (REQ-PROC-002)
+  uart_timeout_ms: 2000      # FAULT-003; must exceed the GPS fix period (simulation.gps_interval_ms; 1 s on a NEO-6M-class receiver)
+  stuck_count: 10            # N of REQ-FAULT-002 (FAULT-005, -006, -007); at least 2
+  recovery_count: 5          # M of REQ-FAULT-005 (FAULT-011); at least 1
+  pressure_min_hpa: 300      # FAULT-008: the BMP280 operating range
+  pressure_max_hpa: 1100
+  temperature_min_c: -40     # FAULT-009: the BMP280 operating range
+  temperature_max_c: 85
+  # FAULT-010 has no key: the accelerometer's saturation limits are the two
+  # rails of the +/-2 g full scale the driver configures, derived from its
+  # own scale constants (FTS-DD-001 section 3), so they cannot drift from
+  # what the sensor produces.
+
+# REQ-PROC-001 to REQ-PROC-004: the processor's tuning. FTS-NP-001 gives the
+# provenance of each number; the placeholders stand until the stationary
+# capture is analyzed.
+processing:
+  baro_measurement_variance_m2: 3.0   # m^2; also the initial altitude variance (REQ-PROC-004)
+  gps_measurement_variance_m2: 25.0   # m^2; the datasheet figure until a capture with the receiver fixing is analysed
+  initial_velocity_variance: 1.0      # (m/s)^2
+  accel_noise_variance: 1.0           # (m/s^2)^2, the process noise
+  complementary_alpha: 0.98           # gyro weight, 0 to 1; at 50 Hz a time constant of about 1 s
+  sea_level_pressure_hpa: 1013.25     # ISA; a METAR value makes the barometric altitude absolute
+
+# REQ-LOG-001, REQ-LOG-002. The jitter CSV and the configuration record are
+# written to the same directory.
+logging:
+  directory: logs
+  max_file_bytes: 1048576    # 1 MiB, about 10,000 frames; at least 121, one record
+
+# REQ-TRANS-001, REQ-TRANS-002. Both off here: --zmq and --udp turn one on
+# for a run and override its address.
+transport:
+  zmq:
+    enabled: false
+    endpoint: tcp://127.0.0.1:5555
+  udp:
+    enabled: false
+    host: 127.0.0.1          # an IPv4 dotted quad, one unicast host
+    port: 5556
+
+# REQ-SENS-006: the simulated source, the default source. The seed makes a
+# run reproducible; each sigma is one channel's noise, one standard
+# deviation, positive.
+simulation:
+  seed: 42
+  gps_interval_ms: 1000      # a NEO-6M fixes once per second
+  noise:
+    pressure_sigma_hpa: 0.2        # pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS
+    temperature_sigma_c: 0.1
+    accel_sigma_mps2: 0.05         # the MPU6050's 400 ug/sqrt(Hz) at 100 Hz bandwidth
+    gyro_sigma_dps: 0.1            # about twice the datasheet figure at 100 Hz
+    latitude_sigma_deg: 0.00002    # about 2.2 m
+    longitude_sigma_deg: 0.00002   # about 1.8 m at 37.5 N
+    gps_altitude_sigma_m: 2.0      # optimistic: a NEO-6M is closer to 5 m
+
+# REQ-SENS-008, REQ-SENS-009, REQ-FAULT-001: the ADS-B source (--adsb). The
+# one block a file may omit: an ADS-B run requires it, no other run reads
+# it, and a configuration recorded before it existed replays as recorded
+# (REQ-CFG-001). The box and the reference point are public places, the SFO
+# approach and the airport (FTS-DD-001 section 3); the service's endpoints
+# and the credentials are not keys (REQ-CFG-004).
+adsb:
+  box:                       # the bounding box asked of the service, WGS-84 degrees: 0.135 square degrees, one credit per poll
+    lat_min: 37.45
+    lat_max: 37.75
+    lon_min: -122.55
+    lon_max: -122.10
+  reference:                 # KSFO; the nearest descending airborne aircraft to it is selected
+    latitude: 37.6213
+    longitude: -122.3790
+  poll_interval_ms: 5000     # the service's own resolution; one credit per poll, 720 an hour against 4,000 a day; 1000 to 3600000
+  switch_margin_m: 2000      # a candidate replaces the kept aircraft only when nearer by more than this; at least 0
+  ceiling_m: 1650            # no candidate above this geometric altitude (WGS-84 HAE), and the kept aircraft is dropped above it: the 3° glide path at the box's far corner, 31 km out, plus the field, rounded up; at least 0
+  gone_after_polls: 2        # responses without the kept aircraft before it counts as gone; at least 1
+  timeout_ms: 20000          # the GPS channel's timeout in this mode (FAULT-003); must exceed poll_interval_ms

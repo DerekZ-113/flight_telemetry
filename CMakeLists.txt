@@ -207,10 +207,12 @@ file(GLOB UNIT_TEST_SOURCES CONFIGURE_DEPENDS tests/unit/*.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 # The configuration tests load the shipped file itself (TC-016 step 1, the
-# drift test), so its path is compiled in rather than guessed from whatever
+# drift test), and the GPS driver's test the receiver's own capture (TC-018
+# step 17), so their paths are compiled in rather than guessed from whatever
 # directory ctest runs from.
 target_compile_definitions(unit_tests PRIVATE
-    TELEMETRY_SHIPPED_CONFIG="${CMAKE_SOURCE_DIR}/config/telemetry_config.yaml")
+    TELEMETRY_SHIPPED_CONFIG="${CMAKE_SOURCE_DIR}/config/telemetry_config.yaml"
+    TELEMETRY_GPS_CAPTURE="${CMAKE_SOURCE_DIR}/tests/unit/data/gt_u7_capture.nmea")
 # gtest_main supplies main(), so test files contain only TEST() bodies.
 target_link_libraries(unit_tests PRIVATE telemetry_core GTest::gtest_main)
 

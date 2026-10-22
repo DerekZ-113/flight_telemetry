@@ -4,18 +4,47 @@
 
 Embedded flight telemetry for a Raspberry Pi in C++17: barometer, IMU and GPS fused into altitude and attitude at 50 Hz, with per-channel fault detection. Three ideas run through it. A deterministic core: a binary log replays bit for bit through the same pipeline. Requirements traceability: every line of code traces to a written requirement and a test. Redundancy with voting: three identical processing lanes behind one detector, a majority voter choosing the output. DO-178C-aligned practices, not certification.
 
-**Status.** Built and verified on simulated and replayed data: the pipeline, the detector, the three lanes and the voter, logging and replay, both transports, the bridge and the PFD, the ADS-B source (run live on 2026-10-15) and the fault-injection campaign (a preview). Awaiting the Raspberry Pi, built and tested on fakes: the BMP280 and MPU6050 drivers and the GPS receiver's path. Pending: the stationary capture's constants, the receiver's first fixes, the campaign of record. Results: [verification_results.md](docs/verification_results.md).
+**Status.** Built and verified on simulated and replayed data and, since 2026-10-20, on the Raspberry Pi: the barometer, IMU and GPS drivers, the pipeline with Kalman constants measured on a stationary capture, the detector, the three lanes and the voter, logging and replay, both transports, the bridge and the PFD, the ADS-B source, and the fault-injection campaign of record. Five requirements remain partial, each with what it lacks in [the matrix](docs/traceability_matrix.md). Results: [verification_results.md](docs/verification_results.md).
 
 ## Architecture
 
-```
-DataSource ──raw──▶ FaultDetector ──status──▶ 3 × TelemetryProcessor ──▶ Voter ──▶ BinaryLogger ──▶ logs/*.bin
- (simulated, replay, live, ADS-B;           paced by FixedRateScheduler(Clock)         ├─▶ ZmqPublisher ─┐
-  fault injection wraps any)                                                            └─▶ UdpPublisher ─┴─▶ pipeline/receiver.py ─▶ pipeline/bridge.py ─▶ dashboard/ (the PFD)
+```mermaid
+flowchart TB
+    SCHED["FixedRateScheduler<br/>one cycle every 20 ms on absolute deadlines"]
+    subgraph SRC["One DataSource seam: raw fields only, so every source runs the same code"]
+        direction LR
+        SIM["SimulatedSource<br/>the bench's measured noise,<br/>a scripted flight on request"]
+        LIVE["LiveSensorSource<br/>barometer and IMU over I2C,<br/>GPS receiver over serial"]
+        ADSB["AdsbSource<br/>one real aircraft from OpenSky,<br/>polled on its own thread"]
+        REPLAY["LogReplaySource<br/>a recorded log,<br/>paced on request"]
+    end
+    DET["FaultDetector<br/>timeout · stuck value · range · non-finite<br/>a status for every channel"]
+    subgraph LANES["Three identical processing lanes, all run every frame"]
+        direction LR
+        L1["TelemetryProcessor<br/>ISA altitude · Kalman fusion<br/>complementary attitude · validity"]
+        L2["TelemetryProcessor"]
+        L3["TelemetryProcessor"]
+    end
+    VOTER["Voter<br/>bit-for-bit majority · a lane excluded after<br/>3 disagreements · no majority flagged"]
+    LOG[("BinaryLogger<br/>logs/*.bin, the configuration beside it")]
+    PUB["ZmqPublisher · UdpPublisher<br/>never block the loop"]
+    BRIDGE["pipeline/bridge.py<br/>WebSocket, coordinates never forwarded"]
+    PFD["dashboard/<br/>the Primary Flight Display"]
+    CAMP["fault_campaign<br/>faults injected into the source and the lanes,<br/>97,100 seeded runs against written predictions"]
+
+    SCHED -.->|"paces live and simulated runs"| SRC
+    SRC -->|"raw frame"| DET
+    DET -->|"raw frame + channel status"| LANES
+    LANES -->|"three computed frames"| VOTER
+    VOTER -->|"one voted frame"| LOG
+    VOTER --> PUB --> BRIDGE --> PFD
+    LOG -.->|"replayed by LogReplaySource through the same code, bit for bit"| SRC
+    CAMP -.-> SRC
+    CAMP -.-> LANES
 ```
 
 - **Data source seam** ([§3](docs/design.md#3-datasource-abstraction)): one `read_frame()`, raw fields only; live, simulated and replayed frames run the same code.
-- **Drivers** ([§3](docs/design.md#3-datasource-abstraction)): BMP280 and MPU6050 behind an I2C seam, the GPS behind a serial seam, verified on fakes.
+- **Drivers** ([§3](docs/design.md#3-datasource-abstraction)): a BMP280-compatible barometer (a BME280 on the bench) and the MPU6050 behind an I2C seam, the GPS behind a serial seam, verified on fakes and on the Pi.
 - **ADS-B source** ([§3](docs/design.md#3-datasource-abstraction)): one real aircraft from the OpenSky Network as the GPS channel, selected with hysteresis.
 - **Configuration** ([§3](docs/design.md#3-datasource-abstraction)): one YAML file, validated at startup, injected by constructor, recorded beside each log.
 - **Detector before processor** ([§4](docs/design.md#4-processing-pipeline-order)): faults judged on the frame's own timestamp, so replay reproduces them.
@@ -31,16 +60,16 @@ DataSource ──raw──▶ FaultDetector ──status──▶ 3 × Telemetry
 
 ## Verification at a glance
 
-Measurement of record: run [39370957221](https://github.com/DerekZ-113/flight_telemetry/actions/runs/39370957221) on `93034c9`, Ubuntu 24.04, GCC 13.3 ([Entry 27 §27.9](docs/verification_results.md#279-measurement-of-record)).
+Measurement of record: run [39718471043](https://github.com/DerekZ-113/flight_telemetry/actions/runs/39718471043) on `0becf4c`, Ubuntu 24.04, GCC 13.3 ([Entry 29 §29.1](docs/verification_results.md#291-measurement-of-record)).
 
 | Item | Value |
 |---|---|
-| Unit tests (Google Test) | 581 of 581 (491 unit, 90 fault-injection) |
-| Integration tests (pytest) | 182 of 182 in 134.0 s |
+| Unit tests (Google Test) | 585 of 585 (495 unit, 90 fault-injection) |
+| Integration tests (pytest) | 186 of 186 in 137.5 s |
 | Page tests (Vitest) | 89 of 89 |
-| Sanitized build (ASan, UBSan) | 581 of 581, no report |
+| Sanitized build (ASan, UBSan) | 585 of 585, no report |
 | Branch coverage (gcov/lcov) | 94.9% (1,522 of 1,604), every scope above its threshold |
-| Line coverage | 98.4% (3,205 of 3,256) |
+| Line coverage | 98.4% (3,207 of 3,259) |
 | Warnings under `-Werror` | 0 |
 | cppcheck findings | 0 (43 files) |
 
@@ -50,7 +79,7 @@ The gate is branch coverage, 70% to 90% by scope, 80% overall; every exclusion i
 
 - **The loop:** requirement, matrix row, code, test, matrix update, coverage and static analysis, one commit naming the IDs.
 - **Nine controlled documents:** requirements (FTS-SRD-001), design (FTS-DD-001), traceability matrix (FTS-TM-001), fault model (FTS-FM-001), test plan (FTS-TP-001), verification results (FTS-VR-001), noise profile (FTS-NP-001), fault-injection report (FTS-FI-001), display specification (FTS-DS-001).
-- **Structural coverage** gated per scope on every push; cppcheck; the same tests again under AddressSanitizer and UndefinedBehaviorSanitizer.
+- **Structural coverage** gated per scope on every CI run; cppcheck; the same tests again under AddressSanitizer and UndefinedBehaviorSanitizer. CI runs on pushes to `main`, on `v*` tags and on pull requests into `main`, never on a push to another branch alone.
 - **A fault model,** a detection and a test per failure mode, and a campaign whose predictions were committed before its code.
 
 **Limits, in the same breath.** DAL C is assumed, not assigned; nothing is certified; nothing was verified independently; no tool is qualified under DO-330; MC/DC is out of scope ([design §2](docs/design.md#2-software-level-dal-c)).
@@ -93,9 +122,10 @@ scripts/    the coverage gate, the campaign on demand
 
 ## Roadmap
 
-- The Raspberry Pi: the receiver's first fixes, the stationary capture's constants, the lanes' cost.
-- The campaign of record after those constants, and the first release's demo video.
+- The Raspberry Pi: the late cycle of TC-009 step 8 understood ([FTS-VR-001 §20.10](docs/verification_results.md#2010-finding-one-cycle-168-ms-late-at-the-start-of-a-run-on-the-pi)), a second stationary capture of the IMU in service, the GPS on the header UART.
+- The first release's demo video.
 - ADS-B Phase B: the vertical rate as the filter's third measurement, the pressure altitude, the finiteness check for both.
+- Candidates for later: the gyroscope-bias subtraction (REQ-PROC-009, proposed in [design §12](docs/design.md#12-open-design-decisions)), a SIGINT and SIGTERM handler for a clean stop, the barometer driver renamed for the BME280.
 
 ## Data sources
 

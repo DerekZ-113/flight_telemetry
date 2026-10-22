@@ -40,10 +40,13 @@
 // must be positive: std::normal_distribution requires it, and the
 // configuration's validation enforces it.
 struct SimulationNoise {
-    float pressure_sigma_hpa = 0.2f;      // Intentionally pessimistic: the BMP280 datasheet quotes 0.2 to 1.3 Pa RMS, 15 to 100x lower.
-    float temperature_sigma_c = 0.1f;
-    float accel_sigma_mps2 = 0.05f;       // Matches MPU6050 400 ug/sqrt(Hz) density at 100 Hz bandwidth.
-    float gyro_sigma_dps = 0.1f;          // Roughly 2x the MPU6050 datasheet figure at 100 Hz.
+    // Measured on the stationary capture of 2026-10-21 (FTS-NP-001 section 5):
+    // the barometer's white scatter, ADEV(tau0), whose slower wander is the
+    // room's; the IMU's detrended sigma, RMS over the three axes.
+    float pressure_sigma_hpa = 0.0282f;
+    float temperature_sigma_c = 0.0114f;
+    float accel_sigma_mps2 = 0.0130f;
+    float gyro_sigma_dps = 0.0254f;
     double latitude_sigma_deg = 0.00002;  // About 2.2 m of latitude.
     double longitude_sigma_deg = 0.00002; // About 1.8 m of longitude at 37.5 N.
     float gps_altitude_sigma_m = 2.0f;    // Optimistic: NEO-6M vertical error is typically closer to 5 m.

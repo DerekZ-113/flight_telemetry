@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/drivers/motion_profile.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/drivers</a> - motion_profile.h<span style="font-size: 80%;"> (source / <a href="motion_profile.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;optional&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;string&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &lt;string_view&gt;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : #include &lt;vector&gt;</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : </span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : // A scripted flight for the simulator (REQ-SENS-007): altitude, attitude,</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // ground track, ground speed and the rates that go with them, as a</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // function of time, so that the display's instruments and the replay demo</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : // have something that moves through the real pipeline. The stationary</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // scenario in simulated_data.cpp stays the default; a profile is selected</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // by name with --motion and never by a configuration key, because a</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // scenario is a choice of run, not a tunable (FTS-DD-001 Section 3).</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : //</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // A profile is a table of keyframes, linear in between, so each rate is a</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // segment's slope, which is what a gyroscope on the scripted aircraft</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // reads, and held after the last keyframe with zero rates. The simulator</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // turns a MotionState into readings by inverting the pipeline's own models</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // (SimulatedDataGenerator::scripted_readings), which is what lets the</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // pipeline recover the script. The demo's keyframes are the table in</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // FTS-DS-001 §7; its numbers live in motion_profile.cpp and nowhere else.</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : </span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : struct MotionState {</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             :     float altitude_m = 0.0f;</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     float pitch_deg = 0.0f;         // nose up positive</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     float roll_deg = 0.0f;          // right roll positive (FTS-DS-001 §2.3)</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     float track_deg = 0.0f;         // course over ground, 0 to 360</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             :     float ground_speed_mps = 0.0f;</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     float pitch_rate_dps = 0.0f;    // the segment's slopes: what the gyroscope reads</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     float roll_rate_dps = 0.0f;</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     float track_rate_dps = 0.0f;</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : };</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             : </span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : // Metres per degree of latitude on a sphere of the mean Earth radius,</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : // 6,371,000 m; per degree of longitude, this times the cosine of the</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : // latitude. The profile places its fixes with it, and the bridge's</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             : // METERS_PER_DEGREE (pipeline/bridge.py) is its twin, so the ground track</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : // plot's scale is the script's; within a few kilometres the error of the</span>
+<span id="L41"><span class="lineNum">      41</span>                 :             : // approximation is below half a percent.</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             : constexpr double kMetersPerDegreeLatitude = 6'371'000.0 * 3.14159265358979323846 / 180.0;</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : </span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : class MotionProfile {</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             : public:</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     struct Keyframe {</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :         uint64_t t_ms;</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :         float altitude_m;</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :         float pitch_deg;</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :         float roll_deg;</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :         float track_deg;</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :         float ground_speed_mps;</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     };</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             : </span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     // The profile of that name, or nullopt; main turns nullopt into a</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     // refusal that lists known_names().</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     static std::optional&lt;MotionProfile&gt; named(std::string_view name);</span>
+<span id="L58"><span class="lineNum">      58</span>                 :<span class="tlaGNC tlaBgGNC">           1 :     static const char* known_names() { return &quot;demo&quot;; }</span></span>
+<span id="L59"><span class="lineNum">      59</span>                 :             : </span>
+<span id="L60"><span class="lineNum">      60</span>                 :<span class="tlaGNC">           1 :     const std::string&amp; name() const { return name_; }</span></span>
+<span id="L61"><span class="lineNum">      61</span>                 :<span class="tlaGNC">           1 :     uint64_t duration_ms() const { return keyframes_.back().t_ms; }</span></span>
+<span id="L62"><span class="lineNum">      62</span>                 :             : </span>
+<span id="L63"><span class="lineNum">      63</span>                 :             :     // The state at a timestamp: linear within the segment that contains it,</span>
+<span id="L64"><span class="lineNum">      64</span>                 :             :     // with that segment's slopes as the rates (a keyframe belongs to the</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             :     // segment it starts), and the last keyframe held with zero rates from</span>
+<span id="L66"><span class="lineNum">      66</span>                 :             :     // its time on.</span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :     MotionState state_at(uint64_t timestamp_ms) const;</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             : </span>
+<span id="L69"><span class="lineNum">      69</span>                 :             : private:</span>
+<span id="L70"><span class="lineNum">      70</span>                 :             :     MotionProfile(std::string name, std::vector&lt;Keyframe&gt; keyframes);</span>
+<span id="L71"><span class="lineNum">      71</span>                 :             : </span>
+<span id="L72"><span class="lineNum">      72</span>                 :             :     std::string name_;</span>
+<span id="L73"><span class="lineNum">      73</span>                 :             :     std::vector&lt;Keyframe&gt; keyframes_;   // ascending t_ms, the first at 0, at least one</span>
+<span id="L74"><span class="lineNum">      74</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

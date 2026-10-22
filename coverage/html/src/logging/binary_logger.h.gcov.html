@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/logging/binary_logger.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/logging</a> - binary_logger.h<span style="font-size: 80%;"> (source / <a href="binary_logger.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;filesystem&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;fstream&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &lt;string&gt;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : </span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : #include &quot;logging/log_format.h&quot;</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : </span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // Writes processed frames and fault events to rotating binary files</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // (REQ-LOG-001, REQ-LOG-002, and the &quot;log a fault event&quot; half of</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : // REQ-FAULT-004).</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : //</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // Files are named &lt;prefix&gt;_000.bin, &lt;prefix&gt;_001.bin, ... so a plain sort</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // is chronological. Every file starts with the LogFileHeader the</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // composition root built (the run mode and the source mode, REQ-LOG-007;</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // a test's logger takes the default, both unknown), so each one can be</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // read on its own. Rotation happens before a record that would</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // push the file past max_file_bytes; a record is never split across two</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // files, because a torn record would make the tail of one file unreadable</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // and replay would silently lose a frame.</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : //</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // The std::ofstream member is the RAII handle: opened in open_next_file(),</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // flushed and closed by its own destructor when the logger is destroyed.</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // Nothing here calls close() by hand.</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : class BinaryLogger {</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : public:</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     // Creates `directory` if needed and opens &lt;prefix&gt;_000.bin.</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     // max_file_bytes below header + one frame record is raised to that</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             :     // minimum, so rotation can never trigger on every write.</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     BinaryLogger(std::filesystem::path directory, std::string prefix, uint64_t max_file_bytes,</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :                  LogFileHeader header = make_log_header());</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : </span>
+<span id="L34"><span class="lineNum">      34</span>                 :             :     void log_frame(const TelemetryFrame&amp; frame);</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             :     void log_event(const FaultEvent&amp; event);</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : </span>
+<span id="L37"><span class="lineNum">      37</span>                 :             :     std::filesystem::path current_path() const;</span>
+<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC tlaBgGNC">           2 :     int file_index() const { return file_index_; }</span></span>
+<span id="L39"><span class="lineNum">      39</span>                 :<span class="tlaGNC">          10 :     bool ok() const { return ok_; }</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : </span>
+<span id="L41"><span class="lineNum">      41</span>                 :             : private:</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             :     void open_next_file();</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             :     void write_record(RecordType type, const void* data, size_t size);</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : </span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     std::filesystem::path directory_;</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     std::string prefix_;</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     uint64_t max_file_bytes_;</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :     LogFileHeader header_;           // written at the top of every file, rotated ones included</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     uint64_t bytes_written_ = 0;     // in the current file, header included</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :     bool file_has_record_ = false;</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :     int file_index_ = -1;</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :     bool ok_ = false;</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     std::ofstream out_;</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             : };</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             : </span>
+<span id="L56"><span class="lineNum">      56</span>                 :             : // &lt;prefix&gt;_NNN.bin, zero-padded to three digits.</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             : std::filesystem::path log_file_path(const std::filesystem::path&amp; directory,</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :                                     const std::string&amp; prefix, int index);</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/data_source.h</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">src</a> - data_source.h<span style="font-size: 80%;"> (source / <a href="data_source.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryMed">75.0&nbsp;%</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : </span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &quot;telemetry_frame.h&quot;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : </span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : // Abstract interface for anything that can produce telemetry frames:</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : // live sensors, the simulator, or a recorded log during replay.</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : //</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // The processing pipeline holds a DataSource pointer and never learns which</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // concrete source is behind it. That is what makes REQ-LOG-004 possible:</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : // live mode and replay mode run the exact same pipeline code, differing</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // only in which DataSource object was constructed at startup.</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : //</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // Contract for implementers: read_frame() fills RAW sensor fields only</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // (pressure, temperature, accel, gyro, GPS). Computed fields such as</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // baro_altitude_m, pitch/roll, fused_altitude_m, and vertical_speed_mps</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // are left at 0.0 for the pipeline to fill. If a source computed them</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // itself, replay could never verify the pipeline, because the work would</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // already be done before the pipeline ran. Statuses are left NOMINAL for</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // the detector to judge, with one exception (REQ-FAULT-007): a channel the</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // source has no sensor for is reported NOT_AVAILABLE on every frame, a</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // fact of the configuration, which the detector then leaves alone. Since</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // format version 3 a source also states facts about the frame itself: its</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // sequence number, from next_sequence() below, and the flags byte's bits</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : // (FrameFlag), which the detector and the processor read and never write.</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : class DataSource {</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : public:</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     // Virtual destructor. Callers own sources through DataSource pointers</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             :     // (see std::unique_ptr&lt;DataSource&gt; in main.cpp). When such a pointer is</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     // deleted, C++ picks which destructor to run the same way it picks any</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     // other virtual function: by looking at the real object. Without</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     // `virtual` here, only DataSource's destructor would run, and the</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             :     // derived class's members (the simulator's random engine, a file</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             :     // handle, an I2C bus) would leak. This is undefined behavior per the</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             :     // standard, not merely a leak.</span>
+<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC tlaBgGNC">         271 :     virtual ~DataSource() = default;</span></span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : </span>
+<span id="L39"><span class="lineNum">      39</span>                 :             :     // Produce the next frame. `= 0` makes this &quot;pure virtual&quot;: DataSource</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             :     // provides no implementation, and any class that fails to override it</span>
+<span id="L41"><span class="lineNum">      41</span>                 :             :     // is itself abstract and cannot be instantiated.</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             :     virtual TelemetryFrame read_frame() = 0;</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : </span>
+<span id="L44"><span class="lineNum">      44</span>                 :             :     // Whether read_frame() has a frame to give (REQ-LOG-006). The loop asks</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     // before every read and stops at the first false, so no cycle runs past</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     // the end of a log. A sensor and the simulator always have a next frame:</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     // an endless source has no end of stream, which is why the default is</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :     // true and only a replay overrides it. A caller that never asks gets the</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     // source's own fallback (a replay: its last frame again).</span>
+<span id="L50"><span class="lineNum">      50</span>                 :<span class="tlaGNC">        4890 :     virtual bool has_next() { return true; }</span></span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : </span>
+<span id="L52"><span class="lineNum">      52</span>                 :             : protected:</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     // The source's own count of its frames, from zero for the run</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             :     // (REQ-LOG-008): a source that produces frames calls this once per</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     // read_frame() and stamps frame.sequence with it. A raw fact of the</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     // stream, so the log records it and a replay reproduces it from the</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     // log, which is why LogReplaySource never calls this and</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :     // FaultInjectingSource passes its inner source's count through. The</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             :     // loop never numbers frames: a number the run assigned would not</span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :     // replay. Four bytes wrap after 2.7 years at 50 Hz, and unsigned</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :     // arithmetic defines the wrap.</span>
+<span id="L62"><span class="lineNum">      62</span>                 :<span class="tlaGNC">      569209 :     uint32_t next_sequence() { return sequence_++; }</span></span>
+<span id="L63"><span class="lineNum">      63</span>                 :             : </span>
+<span id="L64"><span class="lineNum">      64</span>                 :             : private:</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             :     uint32_t sequence_ = 0;</span>
+<span id="L66"><span class="lineNum">      66</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

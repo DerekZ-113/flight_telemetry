@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/transport/udp_publisher.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/transport</a> - udp_publisher.h<span style="font-size: 80%;"> (source / <a href="udp_publisher.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;string&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : </span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &quot;logging/log_format.h&quot;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : #include &quot;telemetry_frame.h&quot;</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : #include &quot;transport/publisher.h&quot;</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : </span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // Publishes processed frames as UDP datagrams (REQ-TRANS-002) in a way that</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // can never hold up the processing loop (REQ-TRANS-003).</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : //</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // One frame is one datagram, laid out as the same one-record log file the</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // ZeroMQ publisher sends (frame_message, log_format.h): 137 bytes, under</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // any MTU, so a frame is never fragmented and arrives whole or not at all.</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // A datagram socket has no connection, no acknowledgement, and no</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // retransmission: a frame that could only be delivered after the next one</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // is due is stale, which is why telemetry downlinks use datagrams, and why</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // loss is measured at the receiver from frame timestamps, never here.</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : //</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // The socket is connected to its one unicast destination at construction.</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // connect() on a datagram socket sends nothing: it records the destination</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // and the route, so send() needs no address, and it makes the kernel</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // deliver this destination's ICMP errors to this socket. What the kernel</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // can refuse, and when: a full send buffer (EAGAIN, never on loopback); a</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : // port nobody listens on, learned from an ICMP unreachable after the fact</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : // and reported on a later send as ECONNREFUSED, one report per ICMP, that</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : // datagram not sent; a non-unicast destination (EACCES). A receiver whose</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : // own buffer is full drops on its side and this end sees nothing, as a PUB</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             : // socket at its high-water mark. Every refusal is counted with its errno</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : // and never retried (design.md section 9).</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             : //</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : // RAII: the descriptor is closed in the destructor. No platform split:</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : // these are the same POSIX calls on Linux and macOS.</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             : </span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : class UdpPublisher : public Publisher {</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : public:</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             :     // `host` is an IPv4 dotted quad, `port` 1 to 65535. Anything else, a</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             :     // non-unicast address (0.0.0.0, 255.255.255.255), a socket the process</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             :     // cannot create, or a destination the kernel cannot route leaves ok()</span>
+<span id="L41"><span class="lineNum">      41</span>                 :             :     // false with the reason in error(); nothing throws. The destination is</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             :     // the configuration file's `transport.udp` keys, or the --udp argument</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             :     // for one run (REQ-CFG-001); main hands it in either way. `header` is</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             :     // the one every datagram carries (REQ-LOG-007), the logger's; a</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     // publisher nobody told says UNKNOWN.</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     UdpPublisher(const std::string&amp; host, int port, LogFileHeader header = make_log_header());</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     ~UdpPublisher() override;</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             : </span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     // The descriptor has one owner; a copy would close it twice.</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :     UdpPublisher(const UdpPublisher&amp;) = delete;</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :     UdpPublisher&amp; operator=(const UdpPublisher&amp;) = delete;</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             : </span>
+<span id="L53"><span class="lineNum">      53</span>                 :<span class="tlaGNC tlaBgGNC">          15 :     bool ok() const { return ok_; }</span></span>
+<span id="L54"><span class="lineNum">      54</span>                 :<span class="tlaGNC">          10 :     const std::string&amp; error() const { return error_; }</span></span>
+<span id="L55"><span class="lineNum">      55</span>                 :             : </span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     // Hands one frame to the kernel and returns at once. false means the</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     // frame was not sent; stats() says how often that has happened.</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :     bool publish(const TelemetryFrame&amp; frame) override;</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             : </span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :     // The nineteen-byte session status (REQ-TRANS-004) as one datagram,</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :     // counted apart from frames.</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             :     bool publish_status(const SessionStatus&amp; status) override;</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             : </span>
+<span id="L64"><span class="lineNum">      64</span>                 :<span class="tlaGNC">          41 :     const PublishStats&amp; stats() const override { return stats_; }</span></span>
+<span id="L65"><span class="lineNum">      65</span>                 :             : </span>
+<span id="L66"><span class="lineNum">      66</span>                 :             : private:</span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :     // One datagram of `size` bytes, sent without waiting; false when the</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             :     // kernel refused, with the errno kept.</span>
+<span id="L69"><span class="lineNum">      69</span>                 :             :     bool send_bytes(const uint8_t* data, size_t size);</span>
+<span id="L70"><span class="lineNum">      70</span>                 :             : </span>
+<span id="L71"><span class="lineNum">      71</span>                 :             :     int fd_ = -1;</span>
+<span id="L72"><span class="lineNum">      72</span>                 :             :     LogFileHeader header_;</span>
+<span id="L73"><span class="lineNum">      73</span>                 :             :     bool ok_ = false;</span>
+<span id="L74"><span class="lineNum">      74</span>                 :             :     std::string error_;</span>
+<span id="L75"><span class="lineNum">      75</span>                 :             :     PublishStats stats_;</span>
+<span id="L76"><span class="lineNum">      76</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

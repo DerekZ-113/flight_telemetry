@@ -3,13 +3,15 @@
 Two oracles. Synthetic logs written with numpy's seeded generator, where every planted
 sigma, bias, drift and run length is known exactly and the tolerances are multiples of
 the estimator's standard error. Then the binary's own seed-42 log from the session
-fixture, whose true sigmas are the literals in src/drivers/simulated_data.cpp; those
-tolerances are wide because the realization differs between libc++ and libstdc++.
+fixture, whose true sigmas are the configuration's `simulation.noise` (SimulationNoise's
+defaults, measured on the stationary capture since 2026-10-21, FTS-NP-001); those tolerances are wide because the realization differs between libc++ and libstdc++.
 """
 from __future__ import annotations
 
 import json
 import math
+import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -25,9 +27,10 @@ WHITE = {"pressure_hpa": 0.03, "temperature_c": 0.005, "baro_altitude_m": 0.25,
          "accel_x": 0.02, "accel_y": 0.02, "accel_z": 0.02, "gyro_x": 0.02, "gyro_y": 0.02, "gyro_z": 0.02}
 MEANS = {"pressure_hpa": 1013.0, "temperature_c": 25.0, "baro_altitude_m": 2.0, "accel_z": 9.81,
          "accel_x": 0.05, "gyro_y": 2.5}     # 0.05 m/s^2 of x offset, 2.5 deg/s of y bias
-SIM_SIGMAS = {"pressure_hpa": 0.2, "temperature_c": 0.1, "accel_x": 0.05, "accel_y": 0.05, "accel_z": 0.05,
-              "gyro_x": 0.1, "gyro_y": 0.1, "gyro_z": 0.1}      # simulated_data.cpp
-SIM_BARO_VARIANCE_M2 = (0.2 * 8.327) ** 2                       # 2.774 m^2 at 1013.00 hPa
+SIM_SIGMAS = {"pressure_hpa": 0.0282, "temperature_c": 0.0114, "accel_x": 0.0130, "accel_y": 0.0130, "accel_z": 0.0130,
+              "gyro_x": 0.0254, "gyro_y": 0.0254, "gyro_z": 0.0254}   # SimulationNoise, measured (FTS-NP-001)
+SIM_BARO_SIGMA_M = 0.0282 * 8.327                                # 0.2348 m at 1013.00 hPa
+SIM_BARO_VARIANCE_M2 = SIM_BARO_SIGMA_M ** 2                     # 0.0551 m^2
 
 
 def stationary_log(path, n, rng, sigmas, means=None, drift=None):
@@ -163,12 +166,13 @@ def test_derived_constants_formulas(white_report):
     assert constants["P0_alt_m2"]["value"] == constants["R_baro_m2"]["value"]
     assert constants["R_gps_m2"]["value"] == 25.0 and constants["R_gps_m2"]["status"] == "retained"
     assert constants["Q_accel_var"]["value"] == 1.0 and constants["Q_accel_var"]["status"] == "retained"
-    assert constants["P0_vel"]["value"] == 1.0
+    assert constants["P0_vel"]["value"] is None and constants["P0_vel"]["status"] == "chosen by replay"
     assert derived["accel_offset_mg"]["x"] == pytest.approx(0.05 / 9.81 * 1000, rel=0.1)
     assert abs(derived["accel_offset_mg"]["z"]) < 2.0
     assert derived["baro_sigma_m_via_slope"] == pytest.approx(
         abs(derived["isa_slope_m_per_hpa"]) * white_report["channels"]["pressure_hpa"]["adev_tau0"])
     assert derived["r_baro_rule"]["estimator"] == "adev_tau0"      # white: the two estimators agree
+    assert derived["r_baro_rule"]["white_short_ratio"] == pytest.approx(1.0, abs=0.05)
     assert abs(derived["r_baro_rule"]["rho1_detrended"]) < derived["r_baro_rule"]["threshold"]
     assert derived["r_baro_rule"]["detrended_variance"] == pytest.approx(constants["R_baro_m2"]["value"], rel=0.03)
     assert derived["warnings"] == []
@@ -198,11 +202,79 @@ def test_r_rule_takes_detrended_variance_when_samples_are_correlated(tmp_path):
     true_variance = sigma_w ** 2 / (1 - phi ** 2)
     assert rule["estimator"] == "detrended_variance"
     assert rule["rho1_detrended"] == pytest.approx(phi, abs=0.03)
+    assert rule["white_short_ratio"] > 1.0 + npf.WHITE_SHORT_TOLERANCE    # the correlation is the sample-to-sample noise's
     assert report["derived"]["constants"]["R_baro_m2"]["value"] == pytest.approx(true_variance, rel=0.03)
     assert rule["adev_tau0_variance"] == pytest.approx(true_variance * (1 - phi), rel=0.05)
     assert report["channels"]["baro_altitude_m"]["sigma"] > 1.5 * report["channels"]["baro_altitude_m"]["detrended_sigma"]
     assert report["channels"]["baro_altitude_m"]["trend_per_hour"] == pytest.approx(7.2, rel=0.05)
     assert report["derived"]["warnings"] == []
+
+
+def test_r_rule_takes_the_white_part_under_a_slow_wander(tmp_path):
+    # FTS-NP-001 Section 3.2 as amended on 2026-10-21: white noise of 0.235 m under a wander of
+    # 0.6 m with a 20 s correlation time, the capture's shape. The detrended rho1 is high, but the
+    # Allan deviation is white from one sample to five, so the correlation is slower than the
+    # sensor's noise and R is the white part, not the 0.45 m^2 the detrended variance would give.
+    rng = np.random.default_rng(21)
+    white = rng.normal(0.0, 0.235, N)
+    phi = 0.999
+    innovations = rng.normal(0.0, 0.6 * math.sqrt(1 - phi ** 2), N)
+    wander = np.empty(N)
+    wander[0] = rng.normal(0.0, 0.6)
+    for i in range(1, N):
+        wander[i] = phi * wander[i - 1] + innovations[i]
+    pressure = 1011.5 + rng.normal(0.0, 0.0282, N)
+    frames = syn.frames_from_columns(N, baro_altitude_m=14.0 + white + wander, pressure_hpa=pressure,
+                                     gps_read_ok=[False] * N)
+    report = npf.analyze(read_log(syn.write_log(tmp_path / "telemetry_000.bin", frames)), settle_s=10.0)
+    rule = report["derived"]["r_baro_rule"]
+    assert rule["rho1_detrended"] > 0.8 > rule["threshold"]
+    assert rule["white_short_ratio"] == pytest.approx(1.0, abs=npf.WHITE_SHORT_TOLERANCE)
+    assert rule["estimator"] == "adev_tau0"
+    assert report["derived"]["constants"]["R_baro_m2"]["value"] == pytest.approx(0.235 ** 2, rel=0.03)
+    assert rule["detrended_variance"] > 5 * report["derived"]["constants"]["R_baro_m2"]["value"]
+    assert report["derived"]["warnings"] == []
+
+
+def test_repeats_on_the_conversion_step_are_chance(tmp_path):
+    # FTS-NP-001 Section 2.2 as amended on 2026-10-21: independent conversions on the 18-bit step
+    # (0.66 Pa) with 2.8 Pa of noise. The temperature conversion walks by one count or stays, and
+    # each count shifts the compensated pressure by 0.0137 Pa, as t_fine does, so the values fill
+    # the scale down to float32's step and a pressure repeats only when the temperature does. They
+    # repeat about 6.6% of the time at a repeated temperature: far beyond the chance the check was
+    # first written with, within the amended model's, and no warning.
+    rng = np.random.default_rng(22)
+    counts = np.round(rng.normal(0.0, 2.8, N) / npf.PRESSURE_STEP_PA)
+    temperature_count = np.cumsum(rng.integers(-1, 2, N))
+    pressure = 1011.5 + (counts * npf.PRESSURE_STEP_PA + temperature_count * 0.0137) / 100.0
+    frames = syn.frames_from_columns(N, pressure_hpa=pressure, temperature_c=22.0 + 0.002 * temperature_count,
+                                     baro_altitude_m=14.0 + rng.normal(0.0, 0.235, N), gps_read_ok=[False] * N)
+    report = npf.analyze(read_log(syn.write_log(tmp_path / "telemetry_000.bin", frames)), settle_s=10.0)
+    check = report["channels"]["pressure_hpa"]["repeat_check"]
+    assert check["repeats"] > 5 * check["by_chance_float32"]          # the check as first written would stop here
+    assert check["at_repeated_temperature"] == check["repeats"]
+    assert check["repeats"] == pytest.approx(check["by_chance"], rel=0.15)
+    assert not any("faster than it converts" in w for w in report["derived"]["warnings"])
+
+
+def test_allan_table_at_its_named_averaging_times(white_report):
+    # Each column is computed at its own tau, 0.1 s being five samples, not the log grid's 0.12 s.
+    table = white_report["channels"]["pressure_hpa"]["allan_table"]
+    assert table["tau_s"] == pytest.approx(npf.ALLAN_TABLE_TAUS_S)
+    assert f"{npf._fmt(table['adev'][1], 3)} (±" in npf.render_markdown(white_report)
+
+
+def test_simulator_sigmas_match_the_configuration():
+    # The comparison's "simulator sigma today" is the shipped file's simulation.noise, kept equal here.
+    text = (Path(__file__).resolve().parents[2] / "config" / "telemetry_config.yaml").read_text(encoding="utf-8")
+    shipped = {key: float(re.search(rf"^\s*{key}:\s*([0-9.eE+-]+)", text, re.M).group(1))
+               for key in ("pressure_sigma_hpa", "temperature_sigma_c", "accel_sigma_mps2", "gyro_sigma_dps")}
+    script = {spec.field: spec.simulator_sigma for spec in npf.RAW_CHANNELS}
+    assert script["pressure_hpa"] == shipped["pressure_sigma_hpa"]
+    assert script["temperature_c"] == shipped["temperature_sigma_c"]
+    assert script["baro_altitude_m"] == pytest.approx(shipped["pressure_sigma_hpa"] * 8.327)
+    assert {script[f"accel_{a}"] for a in "xyz"} == {shipped["accel_sigma_mps2"]}
+    assert {script[f"gyro_{a}"] for a in "xyz"} == {shipped["gyro_sigma_dps"]}
 
 
 def test_r_rule_warns_on_anticorrelation_and_repeated_conversions(tmp_path):
@@ -284,8 +356,8 @@ def test_gps_fresh_once_per_second(sim_report):
 def test_baro_sigma_in_metres_two_ways(sim_report):
     derived = sim_report["derived"]
     assert derived["baro_sigma_m_white"] == pytest.approx(derived["baro_sigma_m_via_slope"], rel=0.01)
-    assert abs(derived["baro_sigma_m_white"] / 1.665 - 1) < 0.15
-    assert abs(derived["baro_sigma_m_total"] / 1.665 - 1) < 0.15
+    assert abs(derived["baro_sigma_m_white"] / SIM_BARO_SIGMA_M - 1) < 0.15
+    assert abs(derived["baro_sigma_m_total"] / SIM_BARO_SIGMA_M - 1) < 0.15
     assert derived["isa_slope_m_per_hpa"] == pytest.approx(-8.327, abs=0.01)
 
 
@@ -326,7 +398,7 @@ def test_cli_end_to_end(sim_session, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "### Derived constants" in out and "### Scheduler jitter" in out
     report = json.loads(json_path.read_text())
-    assert report["schema"] == "FTS-NP-001/1"
+    assert report["schema"] == "FTS-NP-001/2"
     for key in ("inputs", "run", "channels", "derived", "outputs", "jitter", "figures"):
         assert key in report, key
     assert report["jitter"]["cycles"] == 500

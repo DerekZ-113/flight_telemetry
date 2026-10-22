@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/drivers/bmp280.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/drivers</a> - bmp280.cpp<span style="font-size: 80%;"> (source / <a href="bmp280.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">91</td>
+            <td class="headerCovTableEntry">91</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">12</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryMed">85.0&nbsp;%</td>
+            <td class="headerCovTableEntry">40</td>
+            <td class="headerCovTableEntry">34</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;drivers/bmp280.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : namespace {</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : </span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : // Calibration words are little-endian (datasheet Table 17: 0x88 holds</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : // dig_T1[7:0], 0x89 holds dig_T1[15:8]). Combined as unsigned; the</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : // signed variant casts once at the end, the one place the sign appears.</span>
+<span id="L8"><span class="lineNum">       8</span>                 :<span class="tlaGNC tlaBgGNC">         324 : uint16_t le16(uint8_t lo, uint8_t hi) {</span></span>
+<span id="L9"><span class="lineNum">       9</span>                 :<span class="tlaGNC">         324 :     return static_cast&lt;uint16_t&gt;(lo | (static_cast&lt;uint16_t&gt;(hi) &lt;&lt; 8));</span></span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : }</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : </span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">         270 : int16_t le16s(uint8_t lo, uint8_t hi) {</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :<span class="tlaGNC">         270 :     return static_cast&lt;int16_t&gt;(le16(lo, hi));</span></span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : }</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : </span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // Data fields are 20 bits across three registers, high byte first, with</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // the last four bits in the top nibble of xlsb (section 4.3.5): the</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // opposite byte order from the calibration words.</span>
+<span id="L19"><span class="lineNum">      19</span>                 :<span class="tlaGNC">        1372 : int32_t raw20(uint8_t msb, uint8_t lsb, uint8_t xlsb) {</span></span>
+<span id="L20"><span class="lineNum">      20</span>                 :<span class="tlaGNC">        1372 :     return (static_cast&lt;int32_t&gt;(msb) &lt;&lt; 12) | (static_cast&lt;int32_t&gt;(lsb) &lt;&lt; 4) | (xlsb &gt;&gt; 4);</span></span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : }</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : </span>
+<span id="L23"><span class="lineNum">      23</span>                 :<span class="tlaGNC">           6 : std::string hex_byte(uint8_t byte) {</span></span>
+<span id="L24"><span class="lineNum">      24</span>                 :             :     static const char* const kDigits = &quot;0123456789ABCDEF&quot;;</span>
+<span id="L25"><span class="lineNum">      25</span>                 :<span class="tlaGNC">          18 :     return std::string{kDigits[byte &gt;&gt; 4], kDigits[byte &amp; 0x0F]};</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : }</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : </span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : }  // namespace</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : </span>
+<span id="L30"><span class="lineNum">      30</span>                 :<span class="tlaGNC">         685 : int32_t Bmp280::compensate_temperature(const Bmp280Calibration&amp; cal, int32_t adc_t, int32_t&amp; t_fine) {</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     // &quot;bmp280_compensate_T_int32&quot; from section 3.11.3, transliterated.</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     // Fixed point: the chip's MCU-class reference has no floating point,</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     // so the formula is scaled integer arithmetic with the shifts placed</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             :     // so every intermediate fits 32 bits (the largest, the squared term,</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             :     // is about 1.4e9 at the top of the ADC range). The two left shifts of</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             :     // the datasheet are multiplications here: both operands are positive,</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             :     // but one rule is easier to keep than two.</span>
+<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC">         685 :     const int32_t t1 = static_cast&lt;int32_t&gt;(cal.dig_T1);</span></span>
+<span id="L39"><span class="lineNum">      39</span>                 :<span class="tlaGNC">         685 :     const int32_t var1 = (((adc_t &gt;&gt; 3) - t1 * 2) * static_cast&lt;int32_t&gt;(cal.dig_T2)) &gt;&gt; 11;</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">         685 :     const int32_t var2 = (((((adc_t &gt;&gt; 4) - t1) * ((adc_t &gt;&gt; 4) - t1)) &gt;&gt; 12) * static_cast&lt;int32_t&gt;(cal.dig_T3)) &gt;&gt; 14;</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">         685 :     t_fine = var1 + var2;</span></span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">         685 :     return (t_fine * 5 + 128) &gt;&gt; 8;</span></span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : }</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : </span>
+<span id="L45"><span class="lineNum">      45</span>                 :<span class="tlaGNC">         685 : uint32_t Bmp280::compensate_pressure(const Bmp280Calibration&amp; cal, int32_t adc_p, int32_t t_fine) {</span></span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     // &quot;bmp280_compensate_P_int64&quot; from section 3.11.3, transliterated with</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     // one change: where the datasheet left-shifts a signed intermediate,</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :     // the value is multiplied by the same power of two, because shifting</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     // a negative value left is undefined behavior in C++17, and it happens</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :     // in the datasheet's own worked example (var1 * dig_P2 is negative).</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :     // Right shifts of negatives stay as written: implementation-defined</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :     // before C++20, arithmetic on GCC and clang, mandated arithmetic from</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     // C++20, and the oracle test pins the exact result on both toolchains.</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             :     //</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     // 64 bits are not optional. var1 is t_fine - 128000, about ±330,000 at</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     // the temperature limits, so var1 * var1 * dig_P6 reaches 1e11 and</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     // overflows int32 once |var1| exceeds 17,515: with the datasheet's</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :     // trimming set that is any temperature outside 21.6 to 28.4 °C. The</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             :     // worked example at 25.08 °C (var1 = 422) would pass in int32 by</span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :     // luck. (1048576 - adc_p) * 2^31 is about 1e15 and never fits.</span>
+<span id="L61"><span class="lineNum">      61</span>                 :<span class="tlaGNC">         685 :     int64_t var1 = static_cast&lt;int64_t&gt;(t_fine) - 128000;</span></span>
+<span id="L62"><span class="lineNum">      62</span>                 :<span class="tlaGNC">         685 :     int64_t var2 = var1 * var1 * cal.dig_P6;</span></span>
+<span id="L63"><span class="lineNum">      63</span>                 :<span class="tlaGNC">         685 :     var2 = var2 + (var1 * cal.dig_P5) * (int64_t{1} &lt;&lt; 17);</span></span>
+<span id="L64"><span class="lineNum">      64</span>                 :<span class="tlaGNC">         685 :     var2 = var2 + static_cast&lt;int64_t&gt;(cal.dig_P4) * (int64_t{1} &lt;&lt; 35);</span></span>
+<span id="L65"><span class="lineNum">      65</span>                 :<span class="tlaGNC">         685 :     var1 = ((var1 * var1 * cal.dig_P3) &gt;&gt; 8) + (var1 * cal.dig_P2) * (int64_t{1} &lt;&lt; 12);</span></span>
+<span id="L66"><span class="lineNum">      66</span>                 :<span class="tlaGNC">         685 :     var1 = (((int64_t{1} &lt;&lt; 47) + var1)) * cal.dig_P1 &gt;&gt; 33;</span></span>
+<span id="L67"><span class="lineNum">      67</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 684 times"> + </span>]:<span class="tlaGNC">         685 :     if (var1 == 0) {</span></span>
+<span id="L68"><span class="lineNum">      68</span>                 :<span class="tlaGNC">           1 :         return 0;   // only an all-zero calibration gets here; a division by zero otherwise</span></span>
+<span id="L69"><span class="lineNum">      69</span>                 :             :     }</span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC">         684 :     int64_t p = 1048576 - adc_p;</span></span>
+<span id="L71"><span class="lineNum">      71</span>                 :<span class="tlaGNC">         684 :     p = (((p * (int64_t{1} &lt;&lt; 31)) - var2) * 3125) / var1;</span></span>
+<span id="L72"><span class="lineNum">      72</span>                 :<span class="tlaGNC">         684 :     var1 = (static_cast&lt;int64_t&gt;(cal.dig_P9) * (p &gt;&gt; 13) * (p &gt;&gt; 13)) &gt;&gt; 25;</span></span>
+<span id="L73"><span class="lineNum">      73</span>                 :<span class="tlaGNC">         684 :     var2 = (static_cast&lt;int64_t&gt;(cal.dig_P8) * p) &gt;&gt; 19;</span></span>
+<span id="L74"><span class="lineNum">      74</span>                 :<span class="tlaGNC">         684 :     p = ((p + var1 + var2) &gt;&gt; 8) + static_cast&lt;int64_t&gt;(cal.dig_P7) * 16;</span></span>
+<span id="L75"><span class="lineNum">      75</span>                 :<span class="tlaGNC">         684 :     return static_cast&lt;uint32_t&gt;(p);   // Q24.8: the datasheet's &quot;24 integer bits and 8 fractional bits&quot;</span></span>
+<span id="L76"><span class="lineNum">      76</span>                 :             : }</span>
+<span id="L77"><span class="lineNum">      77</span>                 :             : </span>
+<span id="L78"><span class="lineNum">      78</span>                 :<span class="tlaGNC">          33 : Bmp280::Bmp280(I2cBus&amp; bus, uint8_t address)</span></span>
+<span id="L79"><span class="lineNum">      79</span>                 :<span class="tlaGNC">          33 :     : bus_(bus),</span></span>
+<span id="L80"><span class="lineNum">      80</span>                 :<span class="tlaGNC">          33 :       address_(address)</span></span>
+<span id="L81"><span class="lineNum">      81</span>                 :             : {</span>
+<span id="L82"><span class="lineNum">      82</span>                 :<span class="tlaGNC">          33 : }</span></span>
+<span id="L83"><span class="lineNum">      83</span>                 :             : </span>
+<span id="L84"><span class="lineNum">      84</span>                 :<span class="tlaGNC">          32 : bool Bmp280::init() {</span></span>
+<span id="L85"><span class="lineNum">      85</span>                 :<span class="tlaGNC">          32 :     initialized_ = false;</span></span>
+<span id="L86"><span class="lineNum">      86</span>                 :<span class="tlaGNC">          32 :     chip_id_ = 0;</span></span>
+<span id="L87"><span class="lineNum">      87</span>                 :             : </span>
+<span id="L88"><span class="lineNum">      88</span>                 :<span class="tlaGNC">          32 :     uint8_t id = 0;</span></span>
+<span id="L89"><span class="lineNum">      89</span>   [<span class="tlaGBC" title="Branch 0 was taken 32 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 31 times"> + </span>]:<span class="tlaGNC">          32 :     if (!bus_.read_registers(address_, kRegId, &amp;id, 1)) {</span></span>
+<span id="L90"><span class="lineNum">      90</span>                 :<span class="tlaGNC">           1 :         error_ = &quot;chip id read failed&quot;;</span></span>
+<span id="L91"><span class="lineNum">      91</span>                 :<span class="tlaGNC">           1 :         return false;</span></span>
+<span id="L92"><span class="lineNum">      92</span>                 :             :     }</span>
+<span id="L93"><span class="lineNum">      93</span>   [<span class="tlaGBC" title="Branch 0 was taken 5 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 26 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span>]:<span class="tlaGNC">          31 :     if (id != kChipIdBmp280 &amp;&amp; id != kChipIdBme280) {</span></span>
+<span id="L94"><span class="lineNum">      94</span>                 :<span class="tlaGNC">           3 :         error_ = &quot;chip id 0x&quot; + hex_byte(id) + &quot;, expected 0x58 (BMP280) or 0x60 (BME280)&quot;;</span></span>
+<span id="L95"><span class="lineNum">      95</span>                 :<span class="tlaGNC">           3 :         return false;</span></span>
+<span id="L96"><span class="lineNum">      96</span>                 :             :     }</span>
+<span id="L97"><span class="lineNum">      97</span>                 :             : </span>
+<span id="L98"><span class="lineNum">      98</span>                 :             :     // All twelve words in one burst, in Table 17's order.</span>
+<span id="L99"><span class="lineNum">      99</span>                 :             :     uint8_t raw[kCalibrationLength];</span>
+<span id="L100"><span class="lineNum">     100</span>   [<span class="tlaGBC" title="Branch 0 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 27 times"> + </span>]:<span class="tlaGNC">          28 :     if (!bus_.read_registers(address_, kRegCalibration, raw, kCalibrationLength)) {</span></span>
+<span id="L101"><span class="lineNum">     101</span>                 :<span class="tlaGNC">           1 :         error_ = &quot;calibration read failed&quot;;</span></span>
+<span id="L102"><span class="lineNum">     102</span>                 :<span class="tlaGNC">           1 :         return false;</span></span>
+<span id="L103"><span class="lineNum">     103</span>                 :             :     }</span>
+<span id="L104"><span class="lineNum">     104</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_T1 = le16(raw[0], raw[1]);</span></span>
+<span id="L105"><span class="lineNum">     105</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_T2 = le16s(raw[2], raw[3]);</span></span>
+<span id="L106"><span class="lineNum">     106</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_T3 = le16s(raw[4], raw[5]);</span></span>
+<span id="L107"><span class="lineNum">     107</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P1 = le16(raw[6], raw[7]);</span></span>
+<span id="L108"><span class="lineNum">     108</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P2 = le16s(raw[8], raw[9]);</span></span>
+<span id="L109"><span class="lineNum">     109</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P3 = le16s(raw[10], raw[11]);</span></span>
+<span id="L110"><span class="lineNum">     110</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P4 = le16s(raw[12], raw[13]);</span></span>
+<span id="L111"><span class="lineNum">     111</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P5 = le16s(raw[14], raw[15]);</span></span>
+<span id="L112"><span class="lineNum">     112</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P6 = le16s(raw[16], raw[17]);</span></span>
+<span id="L113"><span class="lineNum">     113</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P7 = le16s(raw[18], raw[19]);</span></span>
+<span id="L114"><span class="lineNum">     114</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P8 = le16s(raw[20], raw[21]);</span></span>
+<span id="L115"><span class="lineNum">     115</span>                 :<span class="tlaGNC">          27 :     calibration_.dig_P9 = le16s(raw[22], raw[23]);</span></span>
+<span id="L116"><span class="lineNum">     116</span>                 :             : </span>
+<span id="L117"><span class="lineNum">     117</span>                 :             :     // Sleep first: the datasheet says writes to config may be ignored in</span>
+<span id="L118"><span class="lineNum">     118</span>                 :             :     // normal mode and are honored in sleep mode (section 4.3.5), and a</span>
+<span id="L119"><span class="lineNum">     119</span>                 :             :     // chip left running by a previous process is in normal mode. Then the</span>
+<span id="L120"><span class="lineNum">     120</span>                 :             :     // config, then normal mode, which starts the first conversion. The</span>
+<span id="L121"><span class="lineNum">     121</span>                 :             :     // first failed write ends the sequence with error() naming it.</span>
+<span id="L122"><span class="lineNum">     122</span>         [<span class="tlaGBC" title="Branch 0 was taken 27 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          27 :     if (!write(kRegCtrlMeas, kCtrlMeasSleep) ||</span></span>
+<span id="L123"><span class="lineNum">     123</span>   [<span class="tlaGBC" title="Branch 0 was taken 26 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 26 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">          52 :         !write(kRegConfig, kConfig) ||</span></span>
+<span class="lineNum">        </span>    <span class="tlaGBC" title="Branch 4 was taken 25 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 6 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 7 was taken 24 times"> + </span>]
+<span id="L124"><span class="lineNum">     124</span>   [<span class="tlaGBC" title="Branch 0 was taken 25 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 24 times"> + </span>]:<span class="tlaGNC">          25 :         !write(kRegCtrlMeas, kCtrlMeasNormal)) {</span></span>
+<span id="L125"><span class="lineNum">     125</span>                 :<span class="tlaGNC">           3 :         return false;</span></span>
+<span id="L126"><span class="lineNum">     126</span>                 :             :     }</span>
+<span id="L127"><span class="lineNum">     127</span>                 :             : </span>
+<span id="L128"><span class="lineNum">     128</span>                 :<span class="tlaGNC">          24 :     chip_id_ = id;</span></span>
+<span id="L129"><span class="lineNum">     129</span>                 :<span class="tlaGNC">          24 :     initialized_ = true;</span></span>
+<span id="L130"><span class="lineNum">     130</span>                 :<span class="tlaGNC">          24 :     error_.clear();</span></span>
+<span id="L131"><span class="lineNum">     131</span>                 :<span class="tlaGNC">          24 :     return true;</span></span>
+<span id="L132"><span class="lineNum">     132</span>                 :             : }</span>
+<span id="L133"><span class="lineNum">     133</span>                 :             : </span>
+<span id="L134"><span class="lineNum">     134</span>                 :<span class="tlaGNC">          78 : bool Bmp280::write(uint8_t reg, uint8_t value) {</span></span>
+<span id="L135"><span class="lineNum">     135</span>         [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 75 times"> + </span>]:<span class="tlaGNC">          78 :     if (!bus_.write_register(address_, reg, value)) {</span></span>
+<span id="L136"><span class="lineNum">     136</span>                 :<span class="tlaGNC">           3 :         error_ = &quot;write to register 0x&quot; + hex_byte(reg) + &quot; failed&quot;;</span></span>
+<span id="L137"><span class="lineNum">     137</span>                 :<span class="tlaGNC">           3 :         return false;</span></span>
+<span id="L138"><span class="lineNum">     138</span>                 :             :     }</span>
+<span id="L139"><span class="lineNum">     139</span>                 :<span class="tlaGNC">          75 :     return true;</span></span>
+<span id="L140"><span class="lineNum">     140</span>                 :             : }</span>
+<span id="L141"><span class="lineNum">     141</span>                 :             : </span>
+<span id="L142"><span class="lineNum">     142</span>                 :<span class="tlaGNC">          10 : const std::string&amp; Bmp280::error() const {</span></span>
+<span id="L143"><span class="lineNum">     143</span>                 :<span class="tlaGNC">          10 :     return error_;</span></span>
+<span id="L144"><span class="lineNum">     144</span>                 :             : }</span>
+<span id="L145"><span class="lineNum">     145</span>                 :             : </span>
+<span id="L146"><span class="lineNum">     146</span>                 :<span class="tlaGNC">           5 : uint8_t Bmp280::chip_id() const {</span></span>
+<span id="L147"><span class="lineNum">     147</span>                 :<span class="tlaGNC">           5 :     return chip_id_;</span></span>
+<span id="L148"><span class="lineNum">     148</span>                 :             : }</span>
+<span id="L149"><span class="lineNum">     149</span>                 :             : </span>
+<span id="L150"><span class="lineNum">     150</span>                 :<span class="tlaGNC">         736 : std::optional&lt;BaroReading&gt; Bmp280::read() {</span></span>
+<span id="L151"><span class="lineNum">     151</span>         [<span class="tlaGBC" title="Branch 0 was taken 5 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 731 times"> + </span>]:<span class="tlaGNC">         736 :     if (!initialized_) {</span></span>
+<span id="L152"><span class="lineNum">     152</span>                 :<span class="tlaGNC">           5 :         return std::nullopt;</span></span>
+<span id="L153"><span class="lineNum">     153</span>                 :             :     }</span>
+<span id="L154"><span class="lineNum">     154</span>                 :             : </span>
+<span id="L155"><span class="lineNum">     155</span>                 :             :     // One burst for all six registers (section 3.9): the chip shadows</span>
+<span id="L156"><span class="lineNum">     156</span>                 :             :     // them together at the end of a conversion, and reading them one at a</span>
+<span id="L157"><span class="lineNum">     157</span>                 :             :     // time could combine bytes from two conversions.</span>
+<span id="L158"><span class="lineNum">     158</span>                 :             :     uint8_t raw[kDataLength];</span>
+<span id="L159"><span class="lineNum">     159</span>   [<span class="tlaGBC" title="Branch 0 was taken 731 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 45 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 686 times"> + </span>]:<span class="tlaGNC">         731 :     if (!bus_.read_registers(address_, kRegData, raw, kDataLength)) {</span></span>
+<span id="L160"><span class="lineNum">     160</span>                 :<span class="tlaGNC">          45 :         return std::nullopt;</span></span>
+<span id="L161"><span class="lineNum">     161</span>                 :             :     }</span>
+<span id="L162"><span class="lineNum">     162</span>                 :<span class="tlaGNC">         686 :     const int32_t adc_p = raw20(raw[0], raw[1], raw[2]);</span></span>
+<span id="L163"><span class="lineNum">     163</span>                 :<span class="tlaGNC">         686 :     const int32_t adc_t = raw20(raw[3], raw[4], raw[5]);</span></span>
+<span id="L164"><span class="lineNum">     164</span>                 :             : </span>
+<span id="L165"><span class="lineNum">     165</span>                 :             :     // The reset value means no conversion has completed yet (or the</span>
+<span id="L166"><span class="lineNum">     166</span>                 :             :     // measurement was skipped). Compensating it would produce a number</span>
+<span id="L167"><span class="lineNum">     167</span>                 :             :     // nobody measured; it is a missing reading instead.</span>
+<span id="L168"><span class="lineNum">     168</span>   [<span class="tlaGBC" title="Branch 0 was taken 684 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 683 times"> + </span>]:<span class="tlaGNC">         686 :     if (adc_p == kSkippedMeasurement || adc_t == kSkippedMeasurement) {</span></span>
+<span id="L169"><span class="lineNum">     169</span>                 :<span class="tlaGNC">           3 :         return std::nullopt;</span></span>
+<span id="L170"><span class="lineNum">     170</span>                 :             :     }</span>
+<span id="L171"><span class="lineNum">     171</span>                 :             : </span>
+<span id="L172"><span class="lineNum">     172</span>                 :<span class="tlaGNC">         683 :     int32_t t_fine = 0;</span></span>
+<span id="L173"><span class="lineNum">     173</span>                 :<span class="tlaGNC">         683 :     const int32_t temperature_centi = compensate_temperature(calibration_, adc_t, t_fine);</span></span>
+<span id="L174"><span class="lineNum">     174</span>                 :<span class="tlaGNC">         683 :     const uint32_t pressure_q24_8 = compensate_pressure(calibration_, adc_p, t_fine);</span></span>
+<span id="L175"><span class="lineNum">     175</span>                 :             : </span>
+<span id="L176"><span class="lineNum">     176</span>                 :<span class="tlaGNC">         683 :     BaroReading r{};</span></span>
+<span id="L177"><span class="lineNum">     177</span>                 :<span class="tlaGNC">         683 :     r.temperature_c = static_cast&lt;float&gt;(temperature_centi) / 100.0f;</span></span>
+<span id="L178"><span class="lineNum">     178</span>                 :<span class="tlaGNC">         683 :     r.pressure_hpa = static_cast&lt;float&gt;(pressure_q24_8) / 25600.0f;   // 256 per Pa, 100 Pa per hPa</span></span>
+<span id="L179"><span class="lineNum">     179</span>                 :<span class="tlaGNC">         683 :     return r;</span></span>
+<span id="L180"><span class="lineNum">     180</span>                 :             : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

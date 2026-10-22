@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -115,7 +116,8 @@ TEST(Mpu6050Test, FailedConfigurationWriteRefusesInit) {
 
 // TC-013 step 3. Full-scale fractions scale to the frame's units: 0x4000
 // is 16384 LSB, one g, 9.81 m/s^2; 0x0083 is 131 LSB, one degree per
-// second. Negative values come out negative through the int16 cast.
+// second. Negative values come out negative through the int16 cast, but
+// for the y rate, which the axis mapping negates (step 8).
 TEST(Mpu6050Test, ScalesRawCountsToFrameUnits) {
     FakeI2cBus bus = bus_with_chip();
     Mpu6050 imu(bus, kAddress);
@@ -128,7 +130,7 @@ TEST(Mpu6050Test, ScalesRawCountsToFrameUnits) {
     EXPECT_NEAR(r->accel_y, -9.81f, 1e-4f);
     EXPECT_NEAR(r->accel_z, 4.905f, 1e-4f);
     EXPECT_NEAR(r->gyro_x, 1.0f, 1e-4f);
-    EXPECT_NEAR(r->gyro_y, -1.0f, 1e-4f);
+    EXPECT_NEAR(r->gyro_y, 1.0f, 1e-4f);
     EXPECT_NEAR(r->gyro_z, 0.0f, 1e-6f);
 }
 
@@ -213,6 +215,39 @@ TEST(Mpu6050Test, ExtremeCountsAreTheRails) {
     EXPECT_EQ(Mpu6050::kAccelNegativeRailMps2, -2.0f * Mpu6050::kGravityMps2);   // exactly -2 g
     EXPECT_NEAR(2.0f * Mpu6050::kGravityMps2 - Mpu6050::kAccelPositiveRailMps2,
                 Mpu6050::kGravityMps2 / Mpu6050::kAccelLsbPerG, 1e-6f);          // the gap is one count
+}
+
+// TC-013 step 8. The axis mapping (design.md section 6). The frame's axes
+// are the chip's as the GY-521 is mounted, x forward, y left, z up, but a
+// nose-up rotation is a negative rate about the chip's y, so the driver
+// negates the y rate: the frame's gyro_y is the pitch rate the filter
+// integrates, positive nose up. The other five channels pass through.
+// The count is negated before the conversion, so INT16_MIN's rate is
+// representable and a zero count stays +0.0 in the log.
+TEST(Mpu6050Test, AxisMappingNegatesOnlyTheYRate) {
+    FakeI2cBus bus = bus_with_chip();
+    Mpu6050 imu(bus, kAddress);
+    ASSERT_TRUE(imu.init());
+    load_sample(bus, 0x2000, 0x2000, 0x2000, 0x0083, 0x0083, 0x0083);
+
+    std::optional<ImuReading> r = imu.read();
+    ASSERT_TRUE(r.has_value());
+    EXPECT_NEAR(r->accel_x, 4.905f, 1e-4f);
+    EXPECT_NEAR(r->accel_y, 4.905f, 1e-4f);
+    EXPECT_NEAR(r->accel_z, 4.905f, 1e-4f);
+    EXPECT_NEAR(r->gyro_x, 1.0f, 1e-4f);
+    EXPECT_NEAR(r->gyro_y, -1.0f, 1e-4f);
+    EXPECT_NEAR(r->gyro_z, 1.0f, 1e-4f);
+
+    load_sample(bus, 0, 0, 0, 0, INT16_MIN, 0);
+    r = imu.read();
+    ASSERT_TRUE(r.has_value());
+    EXPECT_NEAR(r->gyro_y, 32768.0f / 131.0f, 1e-3f);
+
+    load_sample(bus, 0, 0, 0, 0, 0, 0);
+    r = imu.read();
+    ASSERT_TRUE(r.has_value());
+    EXPECT_FALSE(std::signbit(r->gyro_y));
 }
 
 // read() before a successful init() is empty and touches the bus not at
