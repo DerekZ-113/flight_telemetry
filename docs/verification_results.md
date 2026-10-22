@@ -2320,7 +2320,7 @@ The one untaken branch is a decision, not an exception edge, on `lane_fault_inje
 ### 21.8 Open
 
 - §21.7's run of this branch, after the push: the subset's 45 cells on GCC and libstdc++; the coverage of `lane_fault_injector.cpp` and `recorded_injections.cpp` on the record; cppcheck on the 45 files.
-- The campaign of record, after the bench session, at the commit that holds the measured constants (TC-036). It changes the uncovered cells' consequences and nothing the thresholds fix.
+- The campaign of record, after the bench session, at the commit that holds the measured constants (TC-036). It changes the uncovered cells' consequences and nothing the thresholds fix. (Run 2026-10-21 at `73d1b27`, Entry 28: as this said, the consequences moved and the thresholds' outcomes did not.)
 - TC-037 step 9: the demo recorded with `--lane-fault 2@60` and replayed paced to the page, lane 2's cell amber from 60.06 s (a hand record). (Run 2026-10-21 and passing, §21.9.)
 - FAULT-024 at the detector, a non-finite raw value declared OUT_OF_RANGE: the follow-up the plan recommended (FTS-DD-001 §12).
 - The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author. (Closed by Entry 23: the README points to §1.3, the standing list.)
@@ -3364,3 +3364,55 @@ Every expectation the run can measure was met. The run tests the tree `main` wil
 - **A follow-up, if wanted:** pytest against the sanitized binary, which the `sanitize` job does not run.
 - **CLAUDE.md:** nothing. Commit 11 describes the `sanitize` job in its CI paragraph (what it builds and runs, that it gates every push, the one skip by name), which commit 10 had left at two jobs. Its Build and Test block keeps "about 2.5 min" for the campaign by Derek's decision (2026-10-20): the preview's 143 s, which FTS-DD-001 §14 states, rounds to it.
 - **Entry 26's open items stand:** the topics' Pi steps, the first release's tag and the four places that name 0.1.0, the five branches on `origin`. Closed by this entry: the actions' runtime notice, `simulated_data.cpp:118`, and Entry 24 §24.8's other untaken legs.
+
+---
+
+## Entry 28 — 2026-10-21, The fault-injection campaign of record at the measured constants (TC-036)
+
+TC-036 on a clean tree at `73d1b27`, the commit that holds the measured constants (Entry 9 §9.6 to §9.11), with the preview of 2026-10-19 (Entry 21 §21.5) as its comparison. No code changed: `scripts/fault_campaign.sh` rewrote FTS-FI-001's generated blocks and one figure, and the findings were written against Section 5's predictions, none of which was edited (FTS-FI-001 0.4.0).
+
+### 28.1 The run
+
+| Item | Value |
+|---|---|
+| Commit | `73d1b274a939729a5222cf735789f5a6a9827b2c`, a clean tree (`scripts/fault_campaign.sh`, without `--preview`) |
+| Platform | macOS 27.2 (Darwin 27.2.0, arm64), Apple M1 Max; Apple LLVM 21.0.0 (clang-2100.3.34.2), libc++ 220106, not optimized |
+| Configuration | `config/telemetry_config.yaml`, SHA-256 `c8e53b15f0305242ffbc83cc9f54a5c4deed79305d601a49c1672abb79a955ce`, the configuration of record with the measured constants |
+| Runs | 97,100 in 93 cells, 151 s on one core, 0 invalid; each run's id and seed `cell × 100,000 + replicate`, cells 0 to 92 (FTS-FI-001 Section 3 lists every range) |
+| As predicted, run by run (the gate) | 97,100 of 97,100 |
+| As Section 5 was written | 96,423: 600 in U06 and U07, by design since the non-finite check (Section 5.6), and 77 in V09 and V12 (finding 1) |
+| The record | `build/campaign/73d1b274a939729a5222cf735789f5a6a9827b2c/` (`runs.csv`, `manifest.json`, `config.yaml`), outside the repository like every build product; any run rebuilds from its seed |
+
+### 28.2 Against the predictions
+
+| Section 5's prediction | The campaign of record |
+|---|---|
+| D01, D02, D04: declared at 500 ms, recovered at 80 ms | every run |
+| D03: uniform over 1,020 to 2,000 ms; 1,020 ms on the fix clock | 1,520 / 1,960 / 2,000 ms (median, 95th percentile, maximum); 1,020 on the fix clock in every run |
+| D05 to D07: 160 ms; 140 after a repeat; recovery 80, or 100 after a repeat | 160 in every run; one recovery of 100 ms (D05, run 400025), predicted from its frames |
+| D08 to D10: 0 ms | every run |
+| T01 to T03: no declaration, but T03's predicted coincidence | none, but one T03 run (1200746), predicted from its frames |
+| U01 to U05: no event, the consequences of Section 5.3 | no event; U01 8.33 m of barometric altitude per hPa, the fused altitude 120% of it, a false vertical speed up to 39 m/s; U02 8.69 m/s per hPa/s; U03 atan(offset / g) to 0.1%; U04 0.0128% of the bias; U05 1.3 mm |
+| U06, U07: Section 5.6 | declared on their frame, recovered at 80 ms, no voter event, every field NORMAL at the end, no value emitted that is not a number |
+| C00 and untouched channels: zero declarations | 0 in 707.5 channel-hours, under 0.0042 per channel-hour by the rule of three; no voter event in 10,000 clean runs |
+| V01 to V03: excluded (P − 1) × 20 ms after onset | every run at every count |
+| V04 to V06: excluded only at P = 1 | 100% at P = 1, 0% at every other count |
+| V07: excluded if and only if L ≥ P | 100, 100, 80.1, 60.2, 40.3 and 0% at P = 1, 2, 3, 4, 5, 8 |
+| V08: measured | excluded in 91.7% of runs at P = 1 to 89.1% at P = 8 |
+| V09: the healthy lane out, the wrong value voted | 100% at every count; no majority in 0.9% (finding 1) |
+| V10, V11: no majority | 100% at every count, no healthy lane out |
+| V12: a wrong majority in P of 11 runs | 8.1, 20.0, 28.5, 38.2, 47.6 and 73.3% against 9.1, 18.2, 27.3, 36.4, 45.5 and 72.7% |
+| The invariants on every frame | no run broke one |
+
+### 28.3 Against the preview
+
+What the measured constants moved, each in FTS-FI-001 Section 7 with both numbers: the uncovered faults' consequences, through a barometric variance about 54 times smaller (findings 2 to 4: U01's false vertical speed from 17.5 to 39 m/s at most, U02's overshoot from 4% at 6 s to 4.3% at 2.1 s, U04's share from 0.42% to 0.0128%, U05's error from 0.037 m to 1.3 mm); the errors after U06's and U07's recoveries (finding 7); V08's absorbed share, about a point higher at every count (finding 6); V09's and V12's departures as written, from 94 runs to 77 (finding 1); and the two coincidences, now seven times as likely for the pressure (finding 8). What it did not move, as FTS-FI-001 Section 10 said: every detection latency, every outcome below a threshold, the voter's isolation latencies, the shares of V01 to V07 and V09 to V12 outside finding 1, and the false-alarm zero. Of the three figures, `fi_uncovered_error.png` was redrawn; the other two came out byte-identical.
+
+### 28.4 Findings
+
+FTS-FI-001 Section 7 holds eight, none a defect in the code and none a prediction edited: the NaN-range flip of V09 and V12 (1), the filter's overshoot of a barometric step and a ramp (2, 3), the GPS's weight at the measured variance (4), a draw outside its interval in V11 at P = 2 (5, unchanged), V08's later exclusions and absorbed share (6), the non-finite check's cells (7), and the predicted coincidences that occurred (8). The one to read twice is finding 2: the filter that sees a climb 2.2 s sooner (FTS-NP-001 Section 8) also turns an undetected 5 hPa barometric step into a false vertical speed of 39 m/s under NORMAL, the cost of the measured variance inside FTS-FI-001 Section 8's first blind spot.
+
+### 28.5 Open
+
+- FTS-FI-001 Section 9's limits stand: unquantized noise, one scenario, one platform. The campaign sourced from the stationary capture stays parked (FTS-DD-001 §12); the capture's gyroscope runs (FTS-NP-001 Section 8) are its first input.
+- README's status and roadmap lines still name the campaign of record as pending.
