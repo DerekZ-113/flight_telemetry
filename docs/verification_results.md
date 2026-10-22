@@ -719,6 +719,7 @@ Against the card's expected results:
 - The analysis script's update (§9.9), in its own commit before the release: the repeats' chance model and the R rule as amended, and its "Simulator sigma today" column and placeholders, which print the values before FTS-NP-001 0.2.0. (Done 2026-10-21, §9.10.)
 - A capture begun on the IMU's first run after power-up carries the gyroscope's start-up in its first frames (Entry 8 §8.10), which the analysis counts: the next capture starts after a run has woken the chip.
 - The stuck margin on the gyroscope, 3 on gyro_x (FTS-NP-001 Section 8): an input to the campaign sourced from the capture (FTS-DD-001 §12).
+- REQ-PROC-009, proposed (§9.11, FTS-DD-001 §12): its condition, a second capture of unit 3 on another day agreeing within 0.2 deg/s, and its build in Sprint 3.
 - The campaign of record (TC-036) at the measured constants: FTS-FI-001's text and predictions describe the simulator's noise before them.
 
 ### 9.8 The measured constants landed: the re-baseline and the byte checks (macOS preview)
@@ -786,6 +787,21 @@ The tests, TC-015 step 6, each failing against the script before the update:
 On the two captures, rerun: the capture of record gives R 0.05513 m² by ADEV(τ₀)², the ratio 1.07, the detrended ρ₁ 0.867, and the repeats 924, all at a repeated temperature, against 993 by chance (10 from float32, 983 on the step), with no warning; `captures/noise-2026-10-21-unit3/noise.json` is rewritten and its four figures come out byte-identical. The capture of 2026-10-20 gives R 0.04586 m², the ratio 1.05, 971 against 1,147, no warning. Both agree with FTS-NP-001 Section 6 and the configuration.
 
 Results: `test_noise_profile.py` 30 of 30; pytest 186 of 186 in 133 s; no C++ changed.
+
+### 9.11 The gyroscope-bias rule applied, 2026-10-21
+
+FTS-NP-001 §3.6, written before the data: if 0.98 × |b| exceeds 1° on either axis, a requirement for subtracting a configured per-axis bias is proposed, conditional on a second capture on another day agreeing within 0.2 deg/s. Unit 3's gyroscope at rest, from the files:
+
+| Estimate | x (deg/s) | y (deg/s) | z (deg/s) | Source |
+|---|---|---|---|---|
+| The capture of record, 15 minutes | −1.577 | −0.057 | −1.512 | FTS-NP-001 Section 5.3 |
+| Its first and last minute | −1.584, −1.583 | −0.048, −0.054 | −1.498, −1.510 | the same |
+| The tilt rerun at rest, 25 to 48 s | −1.583 | −0.037 | | Entry 8 §8.10 |
+| TC-014 step 12, 50 frames that morning | −1.63 | −0.05, in the chip's sign | −1.45 | Entry 8 §8.6 |
+
+**Roll: trips.** 0.98 × 1.577 = 1.546°, above 1°. The filter shows it: over the capture its mean roll sits −1.545° from the accelerometer's (the prediction −1.546°), and at the tilt rerun's rest −1.550° against 0.98 × −1.583 = −1.551°. **Pitch: under**, 0.98 × 0.057 = 0.056°, measured 0.056°. The bench's −1.63° of roll offset took the seed, one accelerometer sample, as the rest attitude, and its rate of −1.63 deg/s is the morning's 50 frames (§8.10); the longer windows give −1.55° and −1.58 deg/s, the same verdict.
+
+**The proposal.** REQ-PROC-009, with the rule's own text, numbered fresh since REQ-PROC-007 is validity's, recorded in FTS-DD-001 §12 rather than FTS-SRD-001, every shall of which has a matrix row and its code (its conventions); the build is Sprint 3, with the questions §12 lists for it. **The condition is open:** the estimates above agree within 0.06 deg/s, but they are one day's. A second capture of unit 3 on another day settles it, and the same capture would pass TC-015 step 9 under the amended card (§9.7).
 
 ---
 
