@@ -1215,7 +1215,7 @@ The first CI run with this entry's commits (`37e1fad`, the receiver, and `4783b9
 
 ### 13.8 On-target results
 
-Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10-21 (step 22's backlog check, steps 23 and 24, the capture for step 17) with a sky view, the GT-U7 on the Pi's USB both days. Still reserved: step 17's fixture, the capture turned into `tests/unit/data/gt_u7_capture.nmea` with every position shifted by one constant and the checksums recomputed, with its provenance and its redaction. REQ-SENS-005 stays Partial on it, and stayed on §13.10 until step 25 closed it on 2026-10-21 (§13.11).
+Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10-21 (step 22's backlog check, steps 23 and 24, the capture for step 17) with a sky view, the GT-U7 on the Pi's USB both days. Still reserved: step 17's fixture, the capture turned into `tests/unit/data/gt_u7_capture.nmea` with every position shifted by one constant and the checksums recomputed, with its provenance and its redaction. REQ-SENS-005 stays Partial on it, and stayed on §13.10 until step 25 closed it on 2026-10-21 (§13.11). (The fixture and its test landed 2026-10-21, §13.12, and REQ-SENS-005 is Verified.)
 
 **The port.** The board's own micro-USB: `cdc_acm` enumerates a "u-blox 7 - GPS/GNSS Receiver" (idVendor 1546, idProduct 01a7) at full speed as `/dev/ttyACM0`, read at 9600 baud through a copy of the configuration with `sensors.gps.enabled` true and `sensors.gps.device` `/dev/ttyACM0`. The first fixes: quality 1 from 4 satellites at a window on 2026-10-20; quality 2 from 8 on 2026-10-21, a differential fix with SBAS corrections, which the driver takes as it takes quality 1.
 
@@ -1240,7 +1240,7 @@ Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10
 
 - §13.8. (§13.7 written 2026-10-14 from run 38668973387. Steps 20 to 24 run on 2026-10-20 and 21; step 17's fixture is left.)
 - Five parser and driver outcomes the record shows untaken (§13.7): a longitude that fails to convert beside a good latitude, a GGA with a position and an empty altitude, an RMC with an empty status field, a course that is not a number, a fix-quality GGA paired with a status-V RMC. Five tests, red first, in their own commit; TC-018's unit rows and the matrix's SENS-005 test list grow with them, and §13.3's sentence on lines 258 and 281 stands corrected by §13.7. (Closed 2026-10-14, Entry 15: the five tests, each proven against its line by breaking that line and watching the test fail, in their own commit; TC-018 steps 2, 3, 5 and 13 and the SENS-005 row carry them.)
-- The capture fixture and TC-018 step 17's test, which land when the file does.
+- The capture fixture and TC-018 step 17's test, which land when the file does. (Landed 2026-10-21, §13.12.)
 - The six remaining `LCOV_EXCL_EXCEPTION_BR_LINE` lines and the rule they rest on (Entry 11 §11.8), unchanged by this topic.
 - FTS-DD-001 §12: GPS fix latency (the frame keeps the cycle's time; a fix is up to half a second old at 9600 baud); 2D fixes (quality 1 for 2D and 3D alike; GSA or a satellite count, parked with the fix-quality byte); the Kalman filter born from the barometer only, now decidable once a capture with a fix exists; the GPS variance retained at 25 m² until such a capture is analysed.
 - FAULT-003b's own event, with the fix-quality byte at the next format bump.
@@ -1274,6 +1274,29 @@ The Pi rebuilt at `02e36bc`, with 23 of 23 in `PosixSerialPortTest` and `Mpu6050
 | 25 | `stty -F /dev/ttyACM0 -a` before and after a 250-cycle run: the two readings equal, `diff` empty. Then `cat` read 2,742 bytes in 5 s, with no `stty` and no replug between. The run's line: `GPS: 52 sentences (10 GGA/RMC) on /dev/ttyACM0 (9600 baud): 5 fixes (1 discarded in the first second), 0 epochs without a fix`, every error counter 0, 3,095 bytes; the last fix quality 1 with 7 satellites at UTC 233229.00 | passes |
 
 The run's full output held a position, so only the counter line was kept and the file deleted, by §13.8's rule. §13.10 closes with this step, and REQ-SENS-005 stays Partial on step 17's fixture alone.
+
+### 13.12 TC-018 step 17's fixture: the board's capture, redacted, 2026-10-21
+
+**The source.** §13.8's capture: the GT-U7's NMEA at 9600 baud on the Pi's USB, 30 s from 19:13:30 to 19:13:59 UTC on 2026-10-21, written straight to a file and never displayed; 277 lines. It holds a real position, so the raw capture and its hash are held off the repository by the owner: with the fixture public and the redaction below documented, four constants fix the raw file, and its hash would let anyone with a guess at the region search for them until it matched. Its size is held back with it, since beside the fixture's it would tell the width of the altitude the redaction replaced.
+
+**Its content, counted without displaying it.** 277 complete sentences, every checksum valid, no partial line: 30 each of GGA, RMC, GLL, VTG and GSA, 120 GSV and 7 TXT, talker GP. Every GGA a quality-1 fix from 7 or 8 satellites and every RMC status A, from the first epoch, so the capture opens on a fix and holds no no-fix to fix transition; the GGA and RMC of each UTC time paired, 30 epochs.
+
+**The redaction**, by a one-off script on the Mac, `Plan - GPS` section 5 B's made exact and extended to the altitude, outside the repository, its constants printed nowhere:
+- every latitude and longitude of the GGA, RMC and GLL sentences shifted by one constant pair, computed in whole units of 10⁻⁵ arc-minute, the receiver's resolution, so the shift is exact, and chosen so that the first fix lands on the manual's example, 47°17.11399′ N, 8°33.91590′ E;
+- the GGA altitude and geoid separation shifted by one constant each, so the first fix reads the example's 499.6 and 48.0 m. The plan had left the altitude as received; it is the site's elevation, which stays out of the repository as it does for the barometer captures (FTS-NP-001 Section 2.1);
+- the checksums of the 90 edited sentences recomputed; every other byte the board's: the times and the date, the satellites with their elevations, azimuths and signal levels, the dilutions, the speeds and courses, the receiver's text messages, the line endings.
+
+The script checked, before writing the file: every shift exact, every checksum valid, every other line identical to the capture's, no raw position or altitude string anywhere in the fixture, the first fix on the example, every fixture position more than 1,000 km from every raw one. The result, `tests/unit/data/gt_u7_capture.nmea`: 277 lines, 15,883 bytes, SHA-256 `5d934bb66e4be2c0ac61cd244cc6299e7d8e655021223fdc085d9786bab87805`, stored as received (no `.gitattributes` rewrites its CRLF).
+
+**The test.** `NmeaGpsTest.TheBoardsCaptureGivesTheSameFixesHoweverItIsCut` (TC-018 step 17) opens the file through `TELEMETRY_GPS_CAPTURE`, a compile definition beside `TELEMETRY_SHIPPED_CONFIG`, and fails, never skips, without it: it failed before the file existed and passes with it.
+
+| Run | Result |
+|---|---|
+| 19-byte chunks, polled after each | 277 sentences, 60 used, 30 fixes, 0 skipped, `bad_checksum` 0 and every other error counter 0, 15,883 bytes; the first fix the manual's position and altitude at the board's UTC 191330.00, the last at 191359.00 |
+| 7-byte chunks | every counter and every fix equal to the 19-byte run's |
+| one chunk, polled until the port is empty | the same bytes, sentences, used and checksums; 4 fixes delivered and 26 skipped, a poll reading at most 4,096 bytes and delivering the latest fix; each fix delivered equal to the 19-byte run's of its epoch |
+
+TC-018's expected result had asked all three runs to agree on every counter and every fix, which one chunk cannot under the per-poll cap the step's first half tests; it was corrected, dated, before the test ran. `ctest` 585 of 585. With step 25 (§13.11), REQ-SENS-005 is Verified.
 
 ---
 

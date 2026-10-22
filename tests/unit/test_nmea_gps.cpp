@@ -2,6 +2,8 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -76,6 +78,49 @@ void queue_cut(FakeSerialPort& port, const std::string& text, size_t cut) {
     for (size_t at = 0; at < text.size(); at += cut) {
         port.queue(text.substr(at, cut));
     }
+}
+
+std::string read_file(const char* path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+struct CaptureRun {
+    std::vector<GpsFix> fixes;
+    GpsCounters counters;
+};
+
+// Streams `capture` in pieces of `cut` bytes, polling after each, then
+// polls until the port is empty: a poll reads at most kMaxBytesPerPoll.
+CaptureRun stream_capture(const std::string& capture, size_t cut) {
+    FakeSerialPort port;
+    NmeaGps gps(port);
+    CaptureRun run;
+    const auto poll = [&] {
+        if (const std::optional<GpsFix> fix = gps.poll()) {
+            run.fixes.push_back(*fix);
+        }
+    };
+    for (size_t at = 0; at < capture.size(); at += cut) {
+        port.queue(capture.substr(at, cut));
+        poll();
+    }
+    while (!port.empty()) {
+        poll();
+    }
+    run.counters = gps.counters();
+    return run;
+}
+
+void expect_same_fix(const GpsFix& a, const GpsFix& b) {
+    EXPECT_EQ(a.latitude_deg, b.latitude_deg);
+    EXPECT_EQ(a.longitude_deg, b.longitude_deg);
+    EXPECT_EQ(a.altitude_m, b.altitude_m);
+    EXPECT_EQ(a.ground_speed_mps, b.ground_speed_mps);
+    EXPECT_EQ(a.course_deg, b.course_deg);
+    EXPECT_EQ(a.fix_quality, b.fix_quality);
+    EXPECT_EQ(a.satellites, b.satellites);
+    EXPECT_EQ(a.utc_time, b.utc_time);
 }
 
 }  // namespace
@@ -356,4 +401,61 @@ TEST(NmeaGpsTest, PollReadsAtMostTheCapInChunks) {
     EXPECT_EQ(gps.counters().bytes, flood.size());
     EXPECT_EQ(gps.counters().fixes, 2u);   // one per poll, the rest skipped
     EXPECT_EQ(gps.counters().fixes + gps.counters().fixes_skipped, 32u);
+}
+
+// Step 17: the GT-U7's own 30 seconds at 9600 baud, recorded on the Pi on
+// 2026-10-21 (FTS-VR-001 Entry 13 §13.12). Every position is shifted by one
+// constant pair, and the altitude and the geoid separation by one constant
+// each, so that the first fix lands on the manual's example; the checksums
+// are recomputed and every other byte is the board's. Cut at 19 and at 7
+// bytes the runs agree on everything. Queued whole, a poll reads 4096 bytes
+// and delivers only the latest fix, so that run skips what the others
+// deliver, and every fix it does deliver is theirs.
+TEST(NmeaGpsTest, TheBoardsCaptureGivesTheSameFixesHoweverItIsCut) {
+    const std::string capture = read_file(TELEMETRY_GPS_CAPTURE);
+    ASSERT_FALSE(capture.empty()) << TELEMETRY_GPS_CAPTURE;
+
+    const CaptureRun by19 = stream_capture(capture, 19);
+    EXPECT_EQ(by19.counters.bytes, capture.size());
+    EXPECT_EQ(by19.counters.sentences, 277u);
+    EXPECT_EQ(by19.counters.used, 60u);
+    EXPECT_EQ(by19.counters.bad_checksum, 0u);
+    EXPECT_EQ(by19.counters.malformed, 0u);
+    EXPECT_EQ(by19.counters.resyncs, 0u);
+    EXPECT_EQ(by19.counters.incomplete_epochs, 0u);
+    EXPECT_EQ(by19.counters.no_fix_epochs, 0u);
+    EXPECT_EQ(by19.counters.fixes, 30u);
+    EXPECT_EQ(by19.counters.fixes_skipped, 0u);
+    ASSERT_EQ(by19.fixes.size(), 30u);
+    EXPECT_NEAR(by19.fixes.front().latitude_deg, ex::kGgaLatitudeDeg, 1e-9);
+    EXPECT_NEAR(by19.fixes.front().longitude_deg, ex::kGgaLongitudeDeg, 1e-9);
+    EXPECT_FLOAT_EQ(by19.fixes.front().altitude_m, ex::kGgaAltitudeM);
+    EXPECT_EQ(by19.fixes.front().utc_time, "191330.00");
+    EXPECT_EQ(by19.fixes.back().utc_time, "191359.00");
+
+    const CaptureRun by7 = stream_capture(capture, 7);
+    expect_same_counters(by7.counters, by19.counters);
+    ASSERT_EQ(by7.fixes.size(), by19.fixes.size());
+    for (size_t i = 0; i < by19.fixes.size(); ++i) {
+        expect_same_fix(by7.fixes[i], by19.fixes[i]);
+    }
+
+    const CaptureRun whole = stream_capture(capture, capture.size());
+    EXPECT_EQ(whole.counters.bytes, by19.counters.bytes);
+    EXPECT_EQ(whole.counters.sentences, by19.counters.sentences);
+    EXPECT_EQ(whole.counters.used, by19.counters.used);
+    EXPECT_EQ(whole.counters.bad_checksum, 0u);
+    EXPECT_EQ(whole.counters.malformed, 0u);
+    EXPECT_EQ(whole.counters.incomplete_epochs, 0u);
+    EXPECT_EQ(whole.counters.no_fix_epochs, 0u);
+    EXPECT_EQ(whole.counters.fixes + whole.counters.fixes_skipped, by19.counters.fixes);
+    EXPECT_EQ(whole.fixes.size(), whole.counters.fixes);
+    for (const GpsFix& fix : whole.fixes) {
+        size_t match = 0;
+        while (match < by19.fixes.size() && by19.fixes[match].utc_time != fix.utc_time) {
+            ++match;
+        }
+        ASSERT_LT(match, by19.fixes.size()) << fix.utc_time;
+        expect_same_fix(fix, by19.fixes[match]);
+    }
 }
