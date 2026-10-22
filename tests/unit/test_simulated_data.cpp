@@ -196,9 +196,9 @@ TEST(SimulatedDataTest, NoiseIsCenteredOnBaseValues) {
     EXPECT_GT(sample_sigma(pressure), 0.0);
 }
 
-// The stated noise level is the noise level: pressure sigma 0.2 hPa
-// (the comment in simulated_data.cpp), which is what the Kalman baro
-// variance of 3 m^2 was derived from. (REQ-SENS-006, REQ-PROC-004)
+// The stated noise level is the noise level: the pressure sigma of
+// SimulationNoise, measured on the stationary capture (FTS-NP-001), within
+// a quarter of it over 500 samples. (REQ-SENS-006, REQ-PROC-004)
 TEST(SimulatedDataTest, PressureNoiseHasStatedSpread) {
     SimulatedDataGenerator generator(42);
     std::vector<float> pressure;
@@ -206,8 +206,9 @@ TEST(SimulatedDataTest, PressureNoiseHasStatedSpread) {
         pressure.push_back(generator.generate(static_cast<uint64_t>(i) * kIntervalMs).pressure_hpa);
     }
     const double sigma = sample_sigma(pressure);
-    EXPECT_GT(sigma, 0.15);
-    EXPECT_LT(sigma, 0.25);
+    const double stated = SimulationNoise{}.pressure_sigma_hpa;
+    EXPECT_GT(sigma, 0.75 * stated);
+    EXPECT_LT(sigma, 1.25 * stated);
 }
 
 // The source adds the clock: timestamps advance by the interval.

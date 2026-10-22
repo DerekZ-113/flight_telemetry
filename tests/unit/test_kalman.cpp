@@ -100,10 +100,11 @@ TEST(KalmanTest, LargeRMovesStateLess) {
     EXPECT_LE(skeptical.altitude(), 110.0f);
 }
 
-// End-to-end: the simulator adds sigma 0.2 hPa (about 1.7 m) of pressure
-// noise. The fused output must scatter far less than the raw barometric
-// altitude, or the filter is not filtering. The 0.5 factor is a loose
-// bound; the measured ratio at the current tuning is about 0.13 (0.15
+// End-to-end: the simulator adds sigma 0.0282 hPa (about 0.23 m) of
+// pressure noise, the sensor's own (FTS-NP-001). The fused output must
+// scatter far less than the raw barometric altitude, or the filter is not
+// filtering. The 0.5 factor is a loose bound; the measured ratio at the
+// current tuning is about 0.21 (0.13 at the placeholder tuning, 0.15
 // before the simulator's GPS went to 1 Hz).
 // (REQ-PROC-003)
 TEST(KalmanTest, ConvergenceReducesNoise) {
@@ -378,7 +379,9 @@ TEST(KalmanTest, BornFromTheGpsWhenTheBarometerNeverReads) {
 // frame, where the same reading taken as an update would have read a
 // descent nobody flew; with no fresh reading the fused fields are 0 and
 // NO_COMPUTED_DATA, and the first reading after births the filter as at
-// power-on.
+// power-on. The descent's size follows the initial velocity variance:
+// -0.49 m/s at the shipped tuning, against the bound's -0.1 (-4.66 m/s
+// at the placeholder 1 (m/s)^2, when the bound was -1.0).
 TEST(KalmanTest, NewVehicleRebirthsTheFilterAtItsFirstReading) {
     TelemetryProcessor flagged;
     TelemetryProcessor unflagged;
@@ -401,7 +404,7 @@ TEST(KalmanTest, NewVehicleRebirthsTheFilterAtItsFirstReading) {
     TelemetryFrame switched = aircraft(ts, 100.0f, true);
     const TelemetryFrame update = unflagged.process(switched);
     EXPECT_GT(update.fused_altitude_m, 100.0f);         // without the flag: an update toward the step
-    EXPECT_LT(update.vertical_speed_mps, -1.0f);        // and a descent nobody flew
+    EXPECT_LT(update.vertical_speed_mps, -0.1f);        // and a descent nobody flew: -0.49 m/s (above)
     set_flag(switched, FrameFlag::NEW_VEHICLE);
     const TelemetryFrame reborn = flagged.process(switched);
     EXPECT_EQ(reborn.fused_altitude_m, 100.0f);         // born at the new vehicle's reading
@@ -428,18 +431,22 @@ TEST(KalmanTest, NewVehicleRebirthsTheFilterAtItsFirstReading) {
 // TC-011 step 9 (c). Both readings fresh on the birth cycle: the filter is
 // born from the barometer, at the barometric variance, and the GPS reading
 // is then an update on the same frame. The gain arithmetic pins the order:
-// after the barometric update P00 is (1 - 3/(3+3)) x 3 = 1.5, so the GPS
-// moves the estimate by 1.5/(1.5+25) of the disagreement, a few percent of
-// the way. A GPS-born filter would sit at the GPS altitude instead. This is
-// every session that reads a barometer on its first cycle, so the order
-// keeps their bytes as they were before 0.12.0. (REQ-PROC-003, REQ-PROC-004)
+// after the barometric update P00 is (1 - R/(R+R)) x R = R/2, so the GPS
+// moves the estimate by (R/2)/(R/2 + 25) of the disagreement, a small
+// fraction of the way. A GPS-born filter would sit at the GPS altitude
+// instead. This is every session that reads a barometer on its first
+// cycle, so the order keeps their bytes as they were before 0.12.0. The
+// arithmetic follows the shipped variances. (REQ-PROC-003, REQ-PROC-004)
 TEST(KalmanTest, BarometerWinsWhenBothAreFreshOnTheBirthCycle) {
     TelemetryProcessor processor;
     TelemetryFrame f = fresh_frame(0);
     f.gps_altitude_m = 100.0f;
     const TelemetryFrame out = processor.process(f);
     const float baro = out.baro_altitude_m;
-    const float gps_gain = 1.5f / (1.5f + 25.0f);
+    const ProcessorConfig tuning{};
+    const float r = tuning.baro_measurement_variance_m2;
+    const float p00 = (1.0f - r / (r + r)) * r;
+    const float gps_gain = p00 / (p00 + tuning.gps_measurement_variance_m2);
     EXPECT_NEAR(out.fused_altitude_m, baro + gps_gain * (100.0f - baro), 1e-3f);
     EXPECT_LT(std::fabs(out.fused_altitude_m - baro), 0.1f * std::fabs(100.0f - baro));
     EXPECT_EQ(out.fused_altitude_validity, Validity::NORMAL);

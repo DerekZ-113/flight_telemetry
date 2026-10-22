@@ -3,8 +3,8 @@
 Two oracles. Synthetic logs written with numpy's seeded generator, where every planted
 sigma, bias, drift and run length is known exactly and the tolerances are multiples of
 the estimator's standard error. Then the binary's own seed-42 log from the session
-fixture, whose true sigmas are the literals in src/drivers/simulated_data.cpp; those
-tolerances are wide because the realization differs between libc++ and libstdc++.
+fixture, whose true sigmas are the configuration's `simulation.noise` (SimulationNoise's
+defaults, measured on the stationary capture since 2026-10-21, FTS-NP-001); those tolerances are wide because the realization differs between libc++ and libstdc++.
 """
 from __future__ import annotations
 
@@ -25,9 +25,10 @@ WHITE = {"pressure_hpa": 0.03, "temperature_c": 0.005, "baro_altitude_m": 0.25,
          "accel_x": 0.02, "accel_y": 0.02, "accel_z": 0.02, "gyro_x": 0.02, "gyro_y": 0.02, "gyro_z": 0.02}
 MEANS = {"pressure_hpa": 1013.0, "temperature_c": 25.0, "baro_altitude_m": 2.0, "accel_z": 9.81,
          "accel_x": 0.05, "gyro_y": 2.5}     # 0.05 m/s^2 of x offset, 2.5 deg/s of y bias
-SIM_SIGMAS = {"pressure_hpa": 0.2, "temperature_c": 0.1, "accel_x": 0.05, "accel_y": 0.05, "accel_z": 0.05,
-              "gyro_x": 0.1, "gyro_y": 0.1, "gyro_z": 0.1}      # simulated_data.cpp
-SIM_BARO_VARIANCE_M2 = (0.2 * 8.327) ** 2                       # 2.774 m^2 at 1013.00 hPa
+SIM_SIGMAS = {"pressure_hpa": 0.0282, "temperature_c": 0.0114, "accel_x": 0.0130, "accel_y": 0.0130, "accel_z": 0.0130,
+              "gyro_x": 0.0254, "gyro_y": 0.0254, "gyro_z": 0.0254}   # SimulationNoise, measured (FTS-NP-001)
+SIM_BARO_SIGMA_M = 0.0282 * 8.327                                # 0.2348 m at 1013.00 hPa
+SIM_BARO_VARIANCE_M2 = SIM_BARO_SIGMA_M ** 2                     # 0.0551 m^2
 
 
 def stationary_log(path, n, rng, sigmas, means=None, drift=None):
@@ -284,8 +285,8 @@ def test_gps_fresh_once_per_second(sim_report):
 def test_baro_sigma_in_metres_two_ways(sim_report):
     derived = sim_report["derived"]
     assert derived["baro_sigma_m_white"] == pytest.approx(derived["baro_sigma_m_via_slope"], rel=0.01)
-    assert abs(derived["baro_sigma_m_white"] / 1.665 - 1) < 0.15
-    assert abs(derived["baro_sigma_m_total"] / 1.665 - 1) < 0.15
+    assert abs(derived["baro_sigma_m_white"] / SIM_BARO_SIGMA_M - 1) < 0.15
+    assert abs(derived["baro_sigma_m_total"] / SIM_BARO_SIGMA_M - 1) < 0.15
     assert derived["isa_slope_m_per_hpa"] == pytest.approx(-8.327, abs=0.01)
 
 

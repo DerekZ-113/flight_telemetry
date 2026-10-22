@@ -1,0 +1,24 @@
+written: 2026-10-21T23:52:07Z
+02e36bc8ecf96b810ccb4821366842ae43924fbf
+Linux flightpi 6.18.50+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.18.50-1+rpt1 (2026-09-11) aarch64 GNU/Linux
+gcc (Debian 14.2.0-19) 14.2.0
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+chip IDs: 0x76 0x60, 0x68 0x68
+IMU: GY-521 unit 3 (HW-123)
+power and heat: throttled=0x0, temp=32.2'C
+room: 71.9 °F, at the start
+Logged to logs/telemetry_005.bin  (replay with: telemetry --replay <file>)
+Validity:  every computed field NORMAL on 45000 of 45000 frames (first on frame 0); NO_COMPUTED_DATA on 0 frames, FAILURE_WARNING on 0
+Voter:     45000 frames, lanes in the vote 1 2 3, no majority on 0 frames, voter events 0
+Timing:    45000 cycles at 20 ms, jitter min/mean/max = 59.877 / 81.3521 / 177.965 us, missed cycles = 0  (logs/telemetry_jitter.csv)
+GPS:       disabled (sensors.gps.enabled)
+Sanity check: pressure_to_altitude(1013.25) = 0 m (should be 0.0)
+Sanity check: pressure_to_altitude(898.76) = 1000.04 m (should be ~1000)
+a94afd2b17b42ef61b1d32eefe3e0708437c47bcd1046450c09664140adc552f  logs/telemetry_000.bin
+079c32d889794854c79afda3b9af4c390b1b951a83fd48c2db4961f16a101b36  logs/telemetry_001.bin
+9280fca82223f2d31810bf4e49d074e88d679a937926eb578c6247ce30cda426  logs/telemetry_002.bin
+528821bc8a12584137f0f7f00ccb549bb29ae49788b2be51bb7c999c9d1910d5  logs/telemetry_003.bin
+77d14c0ad3c9d76722cee92ec3a7a7153dc850b3e24952b2cae6fafc7db071e7  logs/telemetry_004.bin
+60cb209f05649986020ce0e357d92f1ae55f1be5e5ce25bd2aa73ebb461eeb38  logs/telemetry_005.bin
+825f7c29b8f7b596f4667d170dbd5e049972ec5cd548347ba1859d402a8604c4  logs/telemetry_jitter.csv
+ff747e4f568f8d1253d414e41cbc03bf8d3c03646ceff97ce9bbbf86b0b4bf57  logs/telemetry_config.yaml

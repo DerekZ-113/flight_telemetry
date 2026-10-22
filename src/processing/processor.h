@@ -21,12 +21,12 @@
 //
 // Variances are sigma squared: m^2, (m/s)^2, (m/s^2)^2.
 struct ProcessorConfig {
-    // Barometric altitude noise. The simulator adds sigma 0.2 hPa of
-    // pressure noise, and near sea level 1 hPa is about 8.4 m, so sigma
-    // is about 1.7 m and variance about 3 m^2. Also the filter's initial
-    // altitude variance: it is born from one barometric reading, so its
-    // uncertainty is that reading's (REQ-PROC-004).
-    float baro_measurement_variance_m2 = 3.0f;
+    // Barometric altitude noise, measured on the stationary capture of
+    // 2026-10-21: the white part of the barometric altitude's scatter,
+    // ADEV(tau0)^2, sigma 0.235 m (FTS-NP-001 sections 3.2 and 6). Also the
+    // filter's initial altitude variance: it is born from one barometric
+    // reading, so its uncertainty is that reading's (REQ-PROC-004).
+    float baro_measurement_variance_m2 = 0.0551f;
 
     // GPS altitude noise. The simulator uses sigma 2 m, but a real NEO-6M
     // is closer to sigma 5 m vertically, so the filter is told 25 m^2:
@@ -35,9 +35,12 @@ struct ProcessorConfig {
     // fixing is analysed (the stationary capture runs with it off).
     float gps_measurement_variance_m2 = 25.0f;
 
-    // Initial vertical velocity uncertainty. The filter starts at 0 m/s
-    // with no evidence, so this is deliberately generous (sigma 1 m/s).
-    float initial_velocity_variance = 1.0f;
+    // Initial vertical velocity uncertainty. The filter starts at 0 m/s,
+    // and a telemetry unit boots on the ground: chosen by replaying the
+    // capture through 1.0, 0.1 and 0.01 (FTS-NP-001 section 3.5), the
+    // largest with no startup transient above the room's own pressure
+    // wander that still sees 90% of a 1 m/s climb at birth within 2 s.
+    float initial_velocity_variance = 0.1f;
 
     // Unmodelled vertical acceleration (sigma 1 m/s^2): the process noise
     // strength, how much the constant-velocity assumption is expected to

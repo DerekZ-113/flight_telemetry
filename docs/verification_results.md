@@ -561,12 +561,12 @@ Read from the run's log and printed output: no event on the other channel during
 
 - CI run of record for these commits, and for the ZeroMQ and freshness commits if theirs are not yet recorded.
 - The Linux branch of `src/drivers/i2c_bus.cpp` has not been compiled on this Mac; its first compile is the CI runner's, with GCC and `-Werror`. A warning there is a finding for this entry.
-- The BME280 rename and any address change, if the chip IDs read on the Pi differ from the provisional values (FTS-DD-001 §12). (2026-10-20: the chip reads 0x60, a BME280, at the provisional 0x76, so no address changes; the rename is Derek's decision, with §12's bullet.)
+- The BME280 rename and any address change, if the chip IDs read on the Pi differ from the provisional values (FTS-DD-001 §12). (2026-10-20: the chip reads 0x60, a BME280, at the provisional 0x76, so no address changes; the rename is Derek's decision, with §12's bullet.) (2026-10-21: §12's bullet closed for the identity, FAULT-008's and FAULT-009's limits unchanged on the BME280's datasheet. No rename for v0.1.0, by Derek's decision: the driver is named for the BMP280-compatible interface it implements; the rename is on the roadmap.)
 - FAULT-010's positive-rail gap: at ±2 g the count 32767 converts to 19.6194 m/s², below the 19.62 limit the detector tests with `>=`, so positive saturation never faults. Parked for the faults topic.
 - FAULT-004's single bus-level event: the bus's `errno` stops at the live source. Parked for the faults topic.
 - The GPS driver (Week 2 map, Day 14) must set `gps_read_ok` only on a cycle in which a sentence completed (carried from Entry 7).
-- The y rate's sign in the driver's axis mapping (§8.6, TC-014 step 13). (Fixed 2026-10-21, §8.9; TC-014 step 13's motion criterion on the Pi pending.)
-- A SIGINT and SIGTERM handler for a clean stop, a Sprint 3 candidate with a requirement first: a run stopped with Ctrl-C or `kill` would then restore the GPS port's settings (Entry 13 §13.10), print its exit summary, which the wire pull of §8.6 lost, and close the log.
+- The y rate's sign in the driver's axis mapping (§8.6, TC-014 step 13). (Fixed 2026-10-21, §8.9; closed the same day, TC-014 step 13's motion criterion passing on unit 3, §8.10.)
+- A SIGINT and SIGTERM handler for a clean stop, a Sprint 3 candidate with a requirement first: a run stopped with Ctrl-C or `kill` would then restore the GPS port's settings (Entry 13 §13.10), print its exit summary, which the wire pull of §8.6 lost, and close the log. (2026-10-21: a demo run stopped with Ctrl-C lost its summary and its last two frames, the log ending on the stream buffer's last write, Entry 21 §21.9.)
 
 ### 8.8 Finding: GY-521 units 1 and 2 of one pack, nonconforming
 
@@ -605,7 +605,7 @@ The pure gain leaves twice the pure offset's residual and is ruled out, by the e
 | **Fixed in** | The commit that adds this section: `Mpu6050::read()` negates the chip's y rate; FTS-DD-001 §6 corrected, the frame documented per field |
 | **Evidence** | §8.6, TC-014 step 13; the session's terminal text of 2026-10-20, pitch and roll printed once a second through the tilt runs |
 | **Guards** | `Mpu6050Test.AxisMappingNegatesOnlyTheYRate` (TC-013 step 8); TC-014 step 13's motion criterion, added with the fix |
-| **Status** | Fixed in code; closed when TC-014 step 13 passes its motion criterion on the Pi with the fixed driver |
+| **Status** | Closed 2026-10-21: TC-014 step 13 passes its motion criterion on unit 3 with the fixed driver, at `02e36bc` (§8.10) |
 
 **The cause.** As mounted, the chip is right-handed with x forward along the board's X arrow, y left along its Y arrow and z up. A nose-up rotation turns +x toward +z, a negative rotation about +y, so the chip reports it as a negative y rate, while the filter adds `gyro_y` to pitch (`complementary_filter.cpp:52`) and the accelerometer's pitch is positive nose up: the two terms fought on every pitch motion. A right roll turns +y toward +z, a positive rotation about +x, so the roll terms agreed.
 
@@ -616,6 +616,20 @@ The pure gain leaves twice the pure offset's residual and is ruled out, by the e
 **The convention of the logs before it.** The bench's live logs of 2026-10-20 and 21 carry the chip's sign on `gyro_y`, positive nose down: the capture on unit 1 (its y rate averages −0.75 deg/s in that sign), TC-002 step 8's log and the 50-frame runs. Their replays reproduce their own transients, as replay should, and a gyroscope bias reported from them is named in the chip's sign (§8.6, §8.8). The log format does not change: the layout is the same, and no header says which convention a field carries.
 
 **Not this finding.** On unit 1 every roll tilt also overshot and sagged back. That is the unit's z offset (§8.8), which compresses the accelerometer's roll angle below the angle the gyroscope integrates; a conforming unit shows neither.
+
+### 8.10 On-target results with §8.9's fix, 2026-10-21
+
+The Pi rebuilt at `02e36bc`, the pitch-rate fix of `63a3849` and the port fix after it, with 23 of 23 in `Mpu6050Test` and `PosixSerialPortTest` on the Pi; GY-521 unit 3.
+
+| Step | Result | Verdict |
+|---|---|---|
+| TC-014 step 13 | `telemetry --live --cycles 2500`, 50 s, every frame printed to a file (`tilt_fix.txt`, 2,500 frames) and every 25th Pitch/Roll line watched at the bench. The X-arrow end lifted: pitch 2.54, 5.59, 18.91° on successive lines, held 17.8 to 19.5°. The Y-arrow side lifted, a right roll: roll −2.67, 5.56, 9.58°, held 8.9 to 10.3°, with a 0.7° settle during the hold, not the lift. Both set-downs straight back with no overshoot; each axis still while the other moved. The exit lines: every computed field NORMAL on 2,500 of 2,500 frames from frame 0, voter lanes 1 2 3 with no majority on 0 frames, jitter 61.4 / 84.6 / 135.2 µs, 0 missed. Nose up and a right roll read positive. At the frame rate, from the file: from the first frame each lift leaves its rest by 0.3° to the frame at 90% of the new attitude (pitch 2.92 to 3.22 s, 16 frames; roll 15.26 to 15.62 s, 19 frames), no frame moves away from it | passes: the settled signs and the motion criterion |
+
+**What the criterion was read on.** "During each tilt" was read as from the first frame of the motion, 0.3° off the rest, to 90% of the way to the hold. Outside that window the angle moves away by small amounts: settling onto each hold, up to 0.29° on pitch and 0.13° on roll, and in the first frames of the pitch set-down, up to 0.08°, as the hand begins to move; §8.9's wrong-way swings were 4.7 to 13.8°. On the operator's reading, one line in 25, no line moved away. The card names neither its window nor its resolution; whether it should is a wording item, and the verdict does not rest on it.
+
+**The gyroscope at rest.** Over the 23 s at rest after the tilts (25 to 48 s) the x rate averages −1.583 deg/s and the filter's roll sits −1.550° from the accelerometer's, against 0.98 × −1.583 = −1.551°; pitch −0.038° against 0.98 × −0.037 = −0.037° (FTS-DD-001 §6, FTS-NP-001 Section 5.3). After the seed at frame 0 the roll's gap to that offset closes with a time constant of about 1.1 s, fitted over the first two seconds, against the filter's 0.98 s. The −1.63° read at the bench took the seed, one accelerometer sample at −1.06°, as the rest attitude; over the 23 s the accelerometer's roll averages −1.14°.
+
+**The gyroscope's first frames.** Frame 0 read (7.83, −16.60, −47.18) deg/s and frame 1 (−0.73, −1.45, −5.67); by frame 3 every axis was within 0.2 deg/s of its rest value. The chip powers up asleep and `Mpu6050::init()` wakes it, so this is the gyroscope still settling on the first run after power-up. The attitude filter seeds from the accelerometer on frame 0 and never integrates its rate, so the trace is frames 1 and 2, about 0.03° of pitch. The two captures' first frames show no such rates (Entry 9 §9.6); a capture that began this way would carry them into its statistics (§9.7).
 
 ---
 
@@ -669,15 +683,85 @@ No C++ source changed; the C++ figures are Entry 8's. No Python coverage policy 
 
 ### 9.6 On-target results
 
-Reserved for the capture of 2026-10-13 (TC-015 steps 9 to 12): the provenance, the reader's summary (45,000 frames in five files, one GPS event, zero torn bytes), the measured table and the derived constants, the before/after replay of file 000 with the initial-velocity-variance candidates, the re-baselined seed-42 numbers after the simulator's sigmas change, the C++ suite and pytest after the constants commit, cppcheck, and the coverage preview.
+TC-015 steps 9 to 12, on the capture of record of 2026-10-21 (GY-521 unit 3, at `02e36bc`), with the capture of 2026-10-20 (unit 1, at `c510034`) beside it as a second barometer capture. The barometer is a BME280 (ID 0x60, Entry 8 §8.6) driven through the BMP280's registers by `Bmp280`. The provenance is FTS-NP-001 Section 4; the tables are its Sections 5 to 8.
+
+**Step 9.** `telemetry --live --cycles 45000` with the board flat and untouched, 16:35 to 16:50 PDT. Under `captures/noise-2026-10-21-unit3/`: the six logs, the jitter CSV, the configuration record, the metadata with the eight SHA-256 sums (verified on the Mac with `shasum -c`), and the analysis's `noise.json`. Unit 1's capture stays out of the repository by `.gitignore`'s rule, a capture being committed when it sets constants. The reader: 45,000 frames in six files reading as one run, every timestamp step 20 ms, 0 torn bytes, 0 events; fresh barometer 45,000, IMU 45,000, GPS 0. The binary's exit lines: every computed field NORMAL on 45,000 of 45,000 from frame 0, voter lanes 1 2 3 with no majority on 0 frames and 0 voter events, 0 missed cycles, jitter 59.9 / 81.4 / 178.0 µs.
+
+Against the card's expected results:
+- 45,000 frames reading as one run, 0 torn bytes, 0 missed cycles: met. In six files and with no event, where the card said five files and the GPS timeout: those two lines predate format version 3 and REQ-FAULT-007 (a disabled GPS is NOT_AVAILABLE with no event) and are corrected with this entry.
+- Pressure sigma a few pascals: met by the white part, 2.82 Pa; the plain sigma, 7.7 Pa, carries the room's pressure (FTS-NP-001 Section 5.2).
+- Barometric altitude sigma 0.2 to 0.35 m: met by the white part, 0.235 m; the plain sigma is 0.645 m.
+- Gyroscope sigma about 0.02 deg/s with a bias of a few deg/s: met, 0.0245 to 0.0270 deg/s, the bias −1.58, −0.06 and −1.51 deg/s.
+- Accelerometer sigma about 0.02 m/s²: met, 0.0102 to 0.0169 m/s².
+- No identical run near 10 on a stuck-tracked channel: met at 7, the longest (gyro_x). FTS-NP-001 Section 3.1's "under 3" is not met: the gyroscope's sigma is three of its LSBs (FTS-NP-001 Section 8).
+- The barometer's detrended ρ₁ within sampling error of zero: not met, 0.867, the room's pressure. The IMU's positive, about 0.1 to 0.3, with σ/ADEV(τ₀) above 1: met, 0.08 to 0.16 and 1.04 to 1.09.
+
+**Verdict, as written: fails** on one criterion, the pressure repeats: 924 against five times float32's chance count of 10. Every other criterion passes: no event, 45,000 frames, the detrended ρ₁ positive, not negative. The repeats are the chip's quantization, not a read faster than the conversion (§9.9, FTS-NP-001 Section 5.2): every one falls where the temperature repeated too, at the rate chance predicts on the conversion's 18-bit step. The card's repeat criterion was amended on 2026-10-21, after this capture, which is judged without it, by Derek's decision: chance on the chip's own step (FTS-TP-001 TC-015, FTS-NP-001 Section 2.2). Both captures pass under it.
+
+**Step 10.** `analysis/noise_profile.py` on both captures (the command in FTS-NP-001 Section 4), the four figures of the capture of record to `docs/img/`, the JSON beside each capture; the tables into FTS-NP-001 0.2.0 with the provenance filled. The datasheet figure §9.7 left open is confirmed on the chip's own datasheet: 2.1 Pa RMS at ×4 and ×1 with the filter off (BST-BME280-DS001-24 §3.6, Table 12).
+
+**Step 11.** The constants into `config/telemetry_config.yaml` and the defaults together: the barometric variance 0.0551 m² (`ProcessorConfig::baro_measurement_variance_m2`, the initial altitude variance following it), the initial velocity variance 0.1 (m/s)², and the simulator's four sensor sigmas 0.0282 hPa, 0.0114 °C, 0.0130 m/s² and 0.0254 deg/s (`SimulationNoise`). The barometric variance is ADEV(τ₀)² under FTS-NP-001 Section 3.2 as amended on 2026-10-21 by Derek's decision: the rule as written gave the detrended variance, 0.4152 m², because the correlated part is the room's pressure (§9.9). The simulator's barometer sigmas follow it (Section 3.3 as amended) and the IMU's are the RMS over the axes. The suites, the re-baselined tests and the byte checks are §9.8.
+
+**Step 12.** File 000 of the capture of record replayed on the Mac through R = 3, 0.0551 and 0.4152 m² and the three initial velocity variances (FTS-NP-001 Section 8). At the measured R the filter sees 90% of a 1 m/s climb after 1.28 s, 3.50 s before; the startup peaks are 0.870, 0.290 and 0.292 m/s for 1.0, 0.1 and 0.01. No candidate meets Section 3.5's 0.2 m/s as written, the two smaller candidates' peaks being the room's pressure at 2.56 s, which the R = 3 m² filter shows too. Section 3.5 was amended on 2026-10-21 by Derek's decision to read the bound on the prior's own transient, a peak's excess over the smallest candidate's, and chose 0.1 (m/s)²: no excess, and a birth response of 0.96 s.
+
+**The second capture.** Unit 1, 2026-10-20, 22:32 to 22:47 PDT, at `c510034`, before the pitch-rate fix: 45,000 frames, the same clean run (Entry 8 §8.6), its accelerometer z the unit's offset (§8.8). Its barometer, the same board at another site, repeats the white part within 10% (2.57 Pa, R 0.0459 m²) and the repeats' explanation: 971, all at a repeated temperature, 6.3% of those pairs against 7.3% by chance.
+
+**The chip.** Recorded here and in FTS-NP-001 as the BME280 it is. The driver keeps the BMP280's name, for the BMP280-compatible interface it implements (FTS-DD-001 §12, decided 2026-10-21).
 
 ### 9.7 Open
 
-- The capture and everything in §9.6.
+- The capture and everything in §9.6. (Closed 2026-10-21: §9.6, §9.8.)
 - Python in CI: the suite runs locally; the CI topic adds the step (FTS-TP-001 §7). (Closed by Entry 10: the "Integration tests" step.)
 - `--replay` takes one file, so a rotated capture is replayed one file at a time (FTS-DD-001 §12).
 - A stale rotated file from an aborted earlier capture would join a later run's sequence seamlessly; the frame total, the mtime warning, and clearing `logs/` before the capture are the guards (FTS-DD-001 §3).
-- The BMP280 datasheet's per-mode noise figure at ×4 oversampling is still to be confirmed for FTS-NP-001 §3.1.
+- The BMP280 datasheet's per-mode noise figure at ×4 oversampling is still to be confirmed for FTS-NP-001 §3.1. (Closed 2026-10-21: the chip is a BME280, and its datasheet gives 2.1 Pa at ×4 and ×1 with the filter off, BST-BME280-DS001-24 §3.6 Table 12, inside the expectation's band.)
+- REQ-PROC-004 stays Partial: TC-015 step 9 failed as written (§9.6), and the GPS variance stays the datasheet's until a capture with the receiver fixing is analysed. A second capture of unit 3 on another day, under the amended card, would pass step 9 and is the second capture FTS-NP-001 §3.6's bias rule asks for.
+- The analysis script's update (§9.9), in its own commit before the release: the repeats' chance model and the R rule as amended, and its "Simulator sigma today" column and placeholders, which print the values before FTS-NP-001 0.2.0.
+- A capture begun on the IMU's first run after power-up carries the gyroscope's start-up in its first frames (Entry 8 §8.10), which the analysis counts: the next capture starts after a run has woken the chip, or the script's update skips the first second.
+- The stuck margin on the gyroscope, 3 on gyro_x (FTS-NP-001 Section 8): an input to the campaign sourced from the capture (FTS-DD-001 §12).
+- The campaign of record (TC-036) at the measured constants: FTS-FI-001's text and predictions describe the simulator's noise before them.
+
+### 9.8 The measured constants landed: the re-baseline and the byte checks (macOS preview)
+
+The constants of §9.6's step 11, built on the Mac with Apple clang 21.0.0, a fresh unoptimized build, in one commit with the configuration's text (the six values and the block's comment) and the defaults in `src/processing/processor.h` and `src/drivers/simulated_data.h`. The tests whose numbers came from the old values moved with them:
+
+| Test | Before | Now |
+|---|---|---|
+| `ConfigTest.VariancesPositive`, `SigmasPositive` and `EveryKeyReportsEachKindOfFault`, which edit the shipped file's text | the old values as the text they replace | the new values |
+| `KalmanTest.NewVehicleRebirthsTheFilterAtItsFirstReading` | the unflagged filter's vertical speed below −1.0 m/s | below −0.1 m/s: the descent nobody flew is smaller at the smaller initial velocity variance, −0.49 m/s at the shipped tuning against −4.66 at 1 (m/s)², so the bound keeps its margin of about five; the measured value is in the test's comment |
+| `KalmanTest.BarometerWinsWhenBothAreFreshOnTheBirthCycle` | the GPS's gain from the literal 3 m² | computed from `ProcessorConfig{}`'s variances |
+| `SimulatedDataTest.PressureNoiseHasStatedSpread` | sigma within 0.15 to 0.25 hPa | within 0.75 to 1.25 times `SimulationNoise{}`'s |
+| `test_noise_profile.py`, TC-015 steps 7 and 8 | the simulator's 0.2 hPa, 0.1 °C, 0.05 m/s², 0.1 deg/s, 1.665 m and 2.774 m² | 0.0282 hPa, 0.0114 °C, 0.0130 m/s², 0.0254 deg/s, 0.235 m and 0.0551 m² |
+
+`KalmanTest.ConvergenceReducesNoise`'s comment gives its new ratio, 0.21 (0.13 before). The results: `ctest` 584 of 584, the campaign's CI subset among them with every prediction met at the new noise; pytest 182 of 182 in 132 s; cppcheck 2.21.0, CI's invocation, 0 findings over 43 files. The seed-42 session through the analysis (FTS-NP-001 Section 5.6): every sigma within 5% of the simulator's, the derived R 0.0599 m² against 0.0551, the longest run 2.
+
+**The byte checks.** The five runs of Entry 22 §22.4, recorded once with the constants, each compared with its predecessor field by field:
+
+| Item | Observed |
+|---|---|
+| The seed-42 session, `--cycles 500` | `a7ece091e126cf3d7e5f88dd5f96d32b6b502c804128006877d80fc215a4e770`. Against `f1dc959a…`: the header equal and 22,271 bytes differing, all of them in the noisy readings and the fields computed from them: pressure, temperature, the six IMU axes, the barometric altitude, pitch, roll and the fused altitude on all 500 frames, the vertical speed on 499 (frame 0's is the birth's zero). Nothing else moved: the timestamps, the GPS fields, the statuses, the validity bytes, the voter's status, the sequence and the flags |
+| Its replay | `b6fa7ea60d14589ea931a3b8ccdfbab83b4db833aa2abd52356aa7563cc36c3e`: every record identical, the header differing in byte 11 alone (`11 2 3`) |
+| The demo, `--motion demo --cycles 7500` | `d1ac86b51c329d45862036d14c8669049fa5f1a8161f9fd7e5f8c735df615d03`: 907,516 bytes, the same fields moved as in the session; every validity NORMAL from frame 0, no event |
+| The demo with `--lane-fault 2@60` | `eaaa52491d82e0f4dd07141535779acc49317f561a422ab1ba7949df2a97cdd2`. Against the unaltered demo, no frame differs in any field but `voter_status`, 0x0001 up to 60,040 ms and 0x0005 from 60,060 ms; three events, LANE_FAULT_INJECTED and LANE_DISAGREEMENT at 60,000 ms and LANE_FAULTED at 60,040 ms, each naming lane 2, as in Entry 21 §21.4 |
+| Its replay | `455c5b8edc51c866cf1c12107711e380f139910bc59df830297368d6f2b08354`: every record identical, the header differing in byte 11 alone |
+
+These are the Mac's five from this commit on; Entry 22 §22.4's stand for the commits before it. TC-026 step 8 and FTS-DS-001 §7 cite the new ones.
+
+### 9.9 Finding: the noise analysis's barometer rules assumed the wrong mechanisms
+
+| | |
+|---|---|
+| **Found** | 2026-10-21, on the capture of record (TC-015 step 9) and the capture of 2026-10-20 |
+| **Severity** | None for the flight code, whose constants were set by decision rather than by the rules. For the measurement: the R rule as written would have set R to 0.4152 m², 7.5 times the sensor's white noise, and a filter 0.84 s slower to see a climb (FTS-NP-001 Section 8); the repeat check stopped the analysis on a cause that was not there |
+| **Affected** | FTS-NP-001 0.1.0: §2.2's repeat estimator, §3.2's R rule and repeat check; TC-015 step 9's pass/fail; `analysis/noise_profile.py` (`derive_constants`, the repeat warning), and TC-015 step 6's test of the warnings as written |
+| **Fixed in** | The documents, in the commit that adds this section: FTS-NP-001 0.2.0 and TC-015's pass/fail amended, dated 2026-10-21 after the capture, which is judged without them. The script in its own commit before the release |
+| **Evidence** | §9.6; FTS-NP-001 Sections 5.2 and 8; the capture of record under `captures/`, and the capture of 2026-10-20 |
+| **Guards** | None yet for the amended rules; the script's update brings their tests |
+| **Status** | Open until the script's update |
+
+**The two premises.** The repeat check counted chance on float32's step, about 0.006 Pa near 1011 hPa; the chip's conversion has 18 bits at ×4 with the filter off, a step of about 0.66 Pa, so independent conversions repeat a hundred times more often than the check allowed, and the compensated output repeats only when the temperature conversion does too. The R rule's correlated branch read a positive detrended ρ₁ as correlation in the sensor's per-sample noise; with the filter off the conversions are independent, and the correlation was the room's pressure, slower than 0.1 s, which a still board measures correctly.
+
+**How it was missed.** Both rules were written before any real data and checked only against synthetic logs whose noise was white or AR(1) by construction and was not quantized on a conversion's step: the oracles tested the estimators, not the premises.
 
 ---
 
@@ -1091,7 +1175,7 @@ The first CI run with this entry's commits (`37e1fad`, the receiver, and `4783b9
 
 ### 13.8 On-target results
 
-Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10-21 (step 22's backlog check, steps 23 and 24, the capture for step 17) with a sky view, the GT-U7 on the Pi's USB both days. Still reserved: step 17's fixture, the capture turned into `tests/unit/data/gt_u7_capture.nmea` with every position shifted by one constant and the checksums recomputed, with its provenance and its redaction. REQ-SENS-005 stays Partial on it and on §13.10.
+Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10-21 (step 22's backlog check, steps 23 and 24, the capture for step 17) with a sky view, the GT-U7 on the Pi's USB both days. Still reserved: step 17's fixture, the capture turned into `tests/unit/data/gt_u7_capture.nmea` with every position shifted by one constant and the checksums recomputed, with its provenance and its redaction. REQ-SENS-005 stays Partial on it, and stayed on §13.10 until step 25 closed it on 2026-10-21 (§13.11).
 
 **The port.** The board's own micro-USB: `cdc_acm` enumerates a "u-blox 7 - GPS/GNSS Receiver" (idVendor 1546, idProduct 01a7) at full speed as `/dev/ttyACM0`, read at 9600 baud through a copy of the configuration with `sensors.gps.enabled` true and `sensors.gps.device` `/dev/ttyACM0`. The first fixes: quality 1 from 4 satellites at a window on 2026-10-20; quality 2 from 8 on 2026-10-21, a differential fix with SBAS corrections, which the driver takes as it takes quality 1.
 
@@ -1121,7 +1205,7 @@ Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10
 - FTS-DD-001 §12: GPS fix latency (the frame keeps the cycle's time; a fix is up to half a second old at 9600 baud); 2D fixes (quality 1 for 2D and 3D alike; GSA or a satellite count, parked with the fix-quality byte); the Kalman filter born from the barometer only, now decidable once a capture with a fix exists; the GPS variance retained at 25 m² until such a capture is analysed.
 - FAULT-003b's own event, with the fix-quality byte at the next format bump.
 - Unverifiable here (no GCC): the branch counts of the new code on the record, and whether the runner's pseudo-terminal behaves as the Mac's did. (Settled in §13.7: the counts above, five real gaps among them; the pseudo-terminal behaved the same.)
-- §13.10's finding: fixed in code with REQ-SENS-005's sentence and its test (2026-10-21); TC-018 step 25 on the Pi closes it.
+- §13.10's finding: fixed in code with REQ-SENS-005's sentence and its test (2026-10-21); TC-018 step 25 on the Pi closes it. (Closed 2026-10-21, §13.11.)
 - The configuration on the stable `/dev/serial/by-id/` path and the driver reopening its device after a run of read errors (§13.8, step 23): candidates for the faults topic.
 - Step 21's `resyncs` (§13.8): 0 read against the card's 1 or 2; the wording is Derek's.
 
@@ -1135,11 +1219,21 @@ Run on 2026-10-20 (steps 20 to 22) at the bench of Entry 8 §8.6, and on 2026-10
 | **Fixed in** | The commit that adds REQ-SENS-005's second sentence (FTS-SRD-001 0.20.0): `PosixSerialPort` puts back at close the settings it found at open |
 | **Evidence** | §13.8; on 2026-10-21 after step 24's run, nothing done to the port since: `stty -F /dev/ttyACM0 -a` read `min = 0; time = 0`, and after `stty -F /dev/ttyACM0 min 1`, `cat` read 3,047 bytes in 5 s with no replug |
 | **Guards** | `PosixSerialPortTest.CloseRestoresTheSettingsFoundAtOpen` (TC-018 step 6); TC-018 step 25 on the Pi |
-| **Status** | Fixed in code; closed when TC-018 step 25 passes on the Pi |
+| **Status** | Closed 2026-10-21: TC-018 step 25 passes on the Pi at `02e36bc` (§13.11) |
 
 **The cause.** At open, `PosixSerialPort` reads the device's settings and changes them: raw mode (`cfmakeraw`), `CLOCAL | CREAD`, no flow control, one stop bit, `IGNBRK`, the speed, and `VMIN` 0 with `VTIME` 0, which the read path needs: on Linux an empty non-blocking read then returns 0 bytes, where with `VMIN` 1 it fails with `EAGAIN`, which the driver counts as another process reading the device (`serial_port.h`). At close it restores none of them, and a terminal's settings outlive the descriptors that set them. With `VMIN` 0 and `VTIME` 0 left behind, a blocking `read()` returns 0 at once whenever no byte is waiting, and `cat` takes 0 for the end of the file and exits: the silent loop, the 0 bytes and the empty capture. The receiver never stopped. The replugs only seemed to help because the `stty ... raw` run after each one set min back to 1; the kernel's two `dwc_otg_hcd_urb_dequeue` warnings at 23:29:59 on 2026-10-20 were unrelated.
 
 **The fix.** REQ-SENS-005 gained a sentence first (FTS-SRD-001 0.20.0), as REQ-PROC-002 gained its re-seed in 0.4.0. `PosixSerialPort` keeps the settings `tcgetattr` returned at open and puts them back with `tcsetattr` before the descriptor closes, in the destructor and on the constructor's one failure path after the settings could have taken (the flush); `VMIN` 0 stays while the program holds the port. `PosixSerialPortTest.CloseRestoresTheSettingsFoundAtOpen` (TC-018 step 6) sets known settings on a pseudo-terminal's slave, canonical with `VMIN` 1, and reads them through a second descriptor while the port holds the slave (`VMIN` 0, not canonical) and after it closes: equal field by field, but for `PENDIN`, a state bit macOS's kernel sets when a line returns to canonical mode. Without the restore it fails five assertions. On the Pi, TC-018 step 25: `stty -a` before and after a run with the receiver, the two readings equal, and `cat` reads with no `stty`. The fix covers every normal exit, not a run stopped with Ctrl-C (`main` has no SIGINT handler, Entry 8 §8.6) or killed, after which `stty -F <device> min 1` still repairs the device; a handler for both is a Sprint 3 candidate (Entry 8 §8.7).
+
+### 13.11 On-target results, 2026-10-21: TC-018 step 25
+
+The Pi rebuilt at `02e36bc`, with 23 of 23 in `PosixSerialPortTest` and `Mpu6050Test` on it; the GT-U7 on the board's USB as `/dev/ttyACM0`, read through a copy of the configuration with the receiver enabled.
+
+| Step | Result | Verdict |
+|---|---|---|
+| 25 | `stty -F /dev/ttyACM0 -a` before and after a 250-cycle run: the two readings equal, `diff` empty. Then `cat` read 2,742 bytes in 5 s, with no `stty` and no replug between. The run's line: `GPS: 52 sentences (10 GGA/RMC) on /dev/ttyACM0 (9600 baud): 5 fixes (1 discarded in the first second), 0 epochs without a fix`, every error counter 0, 3,095 bytes; the last fix quality 1 with 7 satellites at UTC 233229.00 | passes |
+
+The run's full output held a position, so only the counter line was kept and the file deleted, by §13.8's rule. §13.10 closes with this step, and REQ-SENS-005 stays Partial on step 17's fixture alone.
 
 ---
 
@@ -1946,7 +2040,7 @@ Against the card's expectations:
 | | |
 |---|---|
 | **Found** | 2026-10-20, TC-009 step 8, `main`'s second run (§20.9) |
-| **Severity** | REQ-TIME-003's 1 ms maximum exceeded on one cycle of the night's 15,000 timed cycles (none in the capture's 45,000, Entry 8 §8.6). The cycle stayed inside its 20 ms period, so nothing was missed and no frame lost; a stall past the period would have missed one |
+| **Severity** | REQ-TIME-003's 1 ms maximum exceeded on one cycle of the night's 15,000 timed cycles (none in either capture's 45,000, Entry 8 §8.6 and Entry 9 §9.6). The cycle stayed inside its 20 ms period, so nothing was missed and no frame lost; a stall past the period would have missed one |
 | **Affected** | The loop's timing on the Pi with every frame printed to a file on the SD card (suspected, not shown). The scheduler did its part: the deadline was absolute and the next cycle on time |
 | **Fixed in** | Open |
 | **Evidence** | `jitter_m2.csv`: cycle 8, `jitter_ns` 16,810,253, `missed_cycles` 0; that run's next four 124.9, 118.6, 117.5 and 117.4 µs; every other cycle of the night's five TC-009 runs at or under 155.4 µs; no kernel message since the boot at 22:18; `get_throttled` 0x0 |
@@ -1954,6 +2048,8 @@ Against the card's expectations:
 | **Status** | Open; REQ-TIME-003 stays Partial until it is understood |
 
 **Hypothesis, untested: a file-system stall on the SD card.** The TC-009 runs printed every frame into a file in the home folder, on the card, 19 lines a frame each flushed by `std::endl`, and `main`'s second run started right after `a7461a3`'s output and its jitter file's copy had been written. The capture printed into `/tmp` and never passed 0.19 ms in 45,000 cycles; step 7 printed to the card too and stayed under 0.14 ms, so one run's spike shows no pattern either way. The test: step 8's four runs repeated with the output to `/dev/null`, with `findmnt /tmp` to confirm that the capture's output never reached the card.
+
+**A data point for the retest, 2026-10-21, not an explanation.** The capture of record on unit 3 (Entry 9 §9.6), 45,000 cycles at `02e36bc` with its output going to a file: the worst cycle 178.0 µs late, the mean 81.35 µs, 0 missed; nothing near 16.8 ms in 15 minutes. With the first capture, 90,000 cycles have now run without a repeat. The retest above stands.
 
 ## Entry 21 — 2026-10-18 and 19, The fault-injection campaign: a seeded Monte Carlo harness over the detector and the voter, the demonstration lane fault and its replay, the statistics and the report (macOS preview)
 
@@ -2185,10 +2281,25 @@ The one untaken branch is a decision, not an exception edge, on `lane_fault_inje
 
 - §21.7's run of this branch, after the push: the subset's 45 cells on GCC and libstdc++; the coverage of `lane_fault_injector.cpp` and `recorded_injections.cpp` on the record; cppcheck on the 45 files.
 - The campaign of record, after the bench session, at the commit that holds the measured constants (TC-036). It changes the uncovered cells' consequences and nothing the thresholds fix.
-- TC-037 step 9: the demo recorded with `--lane-fault 2@60` and replayed paced to the page, lane 2's cell amber from 60.06 s (a hand record).
+- TC-037 step 9: the demo recorded with `--lane-fault 2@60` and replayed paced to the page, lane 2's cell amber from 60.06 s (a hand record). (Run 2026-10-21 and passing, §21.9.)
 - FAULT-024 at the detector, a non-finite raw value declared OUT_OF_RANGE: the follow-up the plan recommended (FTS-DD-001 §12).
 - The README's line on "six GCC exception-unwind edges marked per line" stands against the source's eight markers (`LCOV_EXCL_EXCEPTION_BR_LINE`, Entry 20 §20.7 the eighth). This is pre-existing and left for its author. (Closed by Entry 23: the README points to §1.3, the standing list.)
 - Entry 20's TC-009 step 8 stands, as do Entry 19's (Phase B, FAULT-003b) and Entry 18's open items.
+
+### 21.9 TC-037 step 9, 2026-10-21
+
+Run on the Mac by Derek with the main checkout's `build-hash` binary and the configuration of `main` before the measured constants (the record beside each log reads R 3.0 m² and 0.2 hPa); the demo flight with `--lane-fault 2@60`, published to the bridge and the page, then replayed paced to the page.
+
+| Item | Result |
+|---|---|
+| The recording | 3,500 cycles: `Lane fault: lane 2 from 60000 ms, bit 22 of its fused altitude flipped on every cycle`; every computed field NORMAL on 3,500 of 3,500; `Voter:` lanes in the vote 1 3, no majority on 0 frames, voter events 2; 0 missed. The Mac's jitter, 28 / 2,642.89 / 10,284 µs with the bridge and the page running, is no measure of REQ-TIME-003, which is the Pi's |
+| Its paced replay | the fault re-applied from the log; 3,500 frames, end of log reached; every field NORMAL; lanes 1 3, voter events 2; lateness 1 / 2,568.28 / 22,711 µs, one frame late by a period or more |
+| The two logs, compared | every record identical (`cmp` silent past the 16-byte header; `cmp -l` one line, `11 2 3`, SIMULATED against REPLAY); 3,500 frames in each, 0 to 69,980 ms, every validity NORMAL; `voter_status` 0x0001 up to 60,040 ms and 0x0005 from 60,060 ms in both; the same three events in both, LANE_FAULT_INJECTED and LANE_DISAGREEMENT at 60,000 ms and LANE_FAULTED at 60,040 ms, each naming lane 2 |
+| The page | lane 2's cell turned amber at about frame 3,000, in the recording and in the replay; the replay was run a second time and watched from frame 2,950 to 3,050 to confirm |
+
+**Verdict: passes.** The card asks for amber from 60.06 s, frame 3,003, in the recording and in the replay alike: the two logs carry the voter's status that colours the cell, 0x0005 from 60,060 ms, in every record identically, and the page showed the change at that point in both, read by eye to within a few frames.
+
+**The run before it, stopped with Ctrl-C.** A first recording of 7,500 cycles was stopped with Ctrl-C at about 103.6 s and printed no exit summary. Its log holds 5,178 complete frames, 0 to 103,540 ms, and an 83-byte torn record, while the terminal had printed frames to 103,580 ms: the file is 626,688 bytes, exactly 153 blocks of 4,096, so it ends where the `std::ofstream`'s buffer last went to disk, and the tail still in the buffer, the next two frames, was lost with the process. The jitter file, 229,376 bytes, also ends on a 4,096-byte boundary. The reader keeps the complete records and counts the torn bytes; its replay is the 5,178 frames. This is evidence for the SIGINT and SIGTERM candidate (Entry 8 §8.7): a handled stop would flush and close the log and print the summary. The logs are kept outside the repository with the demo's material.
 
 ## Entry 22 — 2026-10-19, The detector's non-finite check (FAULT-024): the campaign's cells U06 and U07 measured before and after (macOS preview)
 

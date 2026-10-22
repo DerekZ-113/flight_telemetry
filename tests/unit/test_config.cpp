@@ -478,8 +478,8 @@ TEST(ConfigTest, PressureAndTemperatureBoundsOrdered) {
 }
 
 TEST(ConfigTest, VariancesPositive) {
-    for (const char* key : {"baro_measurement_variance_m2: 3.0", "gps_measurement_variance_m2: 25.0",
-                            "initial_velocity_variance: 1.0", "accel_noise_variance: 1.0"}) {
+    for (const char* key : {"baro_measurement_variance_m2: 0.0551", "gps_measurement_variance_m2: 25.0",
+                            "initial_velocity_variance: 0.1", "accel_noise_variance: 1.0"}) {
         const std::string line = key;
         const std::string name = line.substr(0, line.find(':'));
         expect_one_problem(load_edited(line, name + ": 0"), "processing." + name + ": must be greater than 0 (got 0)");
@@ -539,14 +539,14 @@ TEST(ConfigTest, GpsIntervalAtLeastOne) {
 
 // Every sigma positive: std::normal_distribution requires it.
 TEST(ConfigTest, SigmasPositive) {
-    for (const char* key : {"pressure_sigma_hpa: 0.2", "temperature_sigma_c: 0.1", "accel_sigma_mps2: 0.05",
-                            "gyro_sigma_dps: 0.1", "latitude_sigma_deg: 0.00002", "longitude_sigma_deg: 0.00002",
+    for (const char* key : {"pressure_sigma_hpa: 0.0282", "temperature_sigma_c: 0.0114", "accel_sigma_mps2: 0.0130",
+                            "gyro_sigma_dps: 0.0254", "latitude_sigma_deg: 0.00002", "longitude_sigma_deg: 0.00002",
                             "gps_altitude_sigma_m: 2.0"}) {
         const std::string line = key;
         const std::string name = line.substr(0, line.find(':'));
         expect_one_problem(load_edited(line, name + ": 0"), "simulation.noise." + name + ": must be greater than 0 (got 0)");
     }
-    expect_one_problem(load_edited("gyro_sigma_dps: 0.1", "gyro_sigma_dps: -0.1"),
+    expect_one_problem(load_edited("gyro_sigma_dps: 0.0254", "gyro_sigma_dps: -0.1"),
                        "simulation.noise.gyro_sigma_dps: must be greater than 0 (got -0.1)");
 }
 
@@ -596,9 +596,9 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"pressure_max_hpa: 1100", "1100", "fault.pressure_max_hpa", Rule::Number},
         {"temperature_min_c: -40", "-40", "fault.temperature_min_c", Rule::Number},
         {"temperature_max_c: 85", "85", "fault.temperature_max_c", Rule::Number},
-        {"baro_measurement_variance_m2: 3.0", "3.0", "processing.baro_measurement_variance_m2", Rule::Positive},
+        {"baro_measurement_variance_m2: 0.0551", "0.0551", "processing.baro_measurement_variance_m2", Rule::Positive},
         {"gps_measurement_variance_m2: 25.0", "25.0", "processing.gps_measurement_variance_m2", Rule::Positive},
-        {"initial_velocity_variance: 1.0", "1.0", "processing.initial_velocity_variance", Rule::Positive},
+        {"initial_velocity_variance: 0.1", "0.1", "processing.initial_velocity_variance", Rule::Positive},
         {"accel_noise_variance: 1.0", "1.0", "processing.accel_noise_variance", Rule::Positive},
         {"complementary_alpha: 0.98", "0.98", "processing.complementary_alpha", Rule::Fraction},
         {"sea_level_pressure_hpa: 1013.25", "1013.25", "processing.sea_level_pressure_hpa", Rule::Positive},
@@ -614,10 +614,10 @@ TEST(ConfigTest, EveryKeyReportsEachKindOfFault) {
         {"seed: 42", "42", "simulation.seed", Rule::Whole, "-1", "must be 0 to 4294967295 (got -1)", "4294967296",
          "must be 0 to 4294967295 (got 4294967296)"},
         {"gps_interval_ms: 1000", "1000", "simulation.gps_interval_ms", Rule::Whole, "0", "must be at least 1 (got 0)"},
-        {"pressure_sigma_hpa: 0.2", "0.2", "simulation.noise.pressure_sigma_hpa", Rule::Positive},
-        {"temperature_sigma_c: 0.1", "0.1", "simulation.noise.temperature_sigma_c", Rule::Positive},
-        {"accel_sigma_mps2: 0.05", "0.05", "simulation.noise.accel_sigma_mps2", Rule::Positive},
-        {"gyro_sigma_dps: 0.1", "0.1", "simulation.noise.gyro_sigma_dps", Rule::Positive},
+        {"pressure_sigma_hpa: 0.0282", "0.0282", "simulation.noise.pressure_sigma_hpa", Rule::Positive},
+        {"temperature_sigma_c: 0.0114", "0.0114", "simulation.noise.temperature_sigma_c", Rule::Positive},
+        {"accel_sigma_mps2: 0.0130", "0.0130", "simulation.noise.accel_sigma_mps2", Rule::Positive},
+        {"gyro_sigma_dps: 0.0254", "0.0254", "simulation.noise.gyro_sigma_dps", Rule::Positive},
         {"latitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.latitude_sigma_deg", Rule::Positive},
         {"longitude_sigma_deg: 0.00002", "0.00002", "simulation.noise.longitude_sigma_deg", Rule::Positive},
         {"gps_altitude_sigma_m: 2.0", "2.0", "simulation.noise.gps_altitude_sigma_m", Rule::Positive},
