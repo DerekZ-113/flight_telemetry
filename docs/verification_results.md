@@ -716,8 +716,8 @@ Against the card's expected results:
 - A stale rotated file from an aborted earlier capture would join a later run's sequence seamlessly; the frame total, the mtime warning, and clearing `logs/` before the capture are the guards (FTS-DD-001 §3).
 - The BMP280 datasheet's per-mode noise figure at ×4 oversampling is still to be confirmed for FTS-NP-001 §3.1. (Closed 2026-10-21: the chip is a BME280, and its datasheet gives 2.1 Pa at ×4 and ×1 with the filter off, BST-BME280-DS001-24 §3.6 Table 12, inside the expectation's band.)
 - REQ-PROC-004 stays Partial: TC-015 step 9 failed as written (§9.6), and the GPS variance stays the datasheet's until a capture with the receiver fixing is analysed. A second capture of unit 3 on another day, under the amended card, would pass step 9 and is the second capture FTS-NP-001 §3.6's bias rule asks for.
-- The analysis script's update (§9.9), in its own commit before the release: the repeats' chance model and the R rule as amended, and its "Simulator sigma today" column and placeholders, which print the values before FTS-NP-001 0.2.0.
-- A capture begun on the IMU's first run after power-up carries the gyroscope's start-up in its first frames (Entry 8 §8.10), which the analysis counts: the next capture starts after a run has woken the chip, or the script's update skips the first second.
+- The analysis script's update (§9.9), in its own commit before the release: the repeats' chance model and the R rule as amended, and its "Simulator sigma today" column and placeholders, which print the values before FTS-NP-001 0.2.0. (Done 2026-10-21, §9.10.)
+- A capture begun on the IMU's first run after power-up carries the gyroscope's start-up in its first frames (Entry 8 §8.10), which the analysis counts: the next capture starts after a run has woken the chip.
 - The stuck margin on the gyroscope, 3 on gyro_x (FTS-NP-001 Section 8): an input to the campaign sourced from the capture (FTS-DD-001 §12).
 - The campaign of record (TC-036) at the measured constants: FTS-FI-001's text and predictions describe the simulator's noise before them.
 
@@ -754,14 +754,38 @@ These are the Mac's five from this commit on; Entry 22 §22.4's stand for the co
 | **Found** | 2026-10-21, on the capture of record (TC-015 step 9) and the capture of 2026-10-20 |
 | **Severity** | None for the flight code, whose constants were set by decision rather than by the rules. For the measurement: the R rule as written would have set R to 0.4152 m², 7.5 times the sensor's white noise, and a filter 0.84 s slower to see a climb (FTS-NP-001 Section 8); the repeat check stopped the analysis on a cause that was not there |
 | **Affected** | FTS-NP-001 0.1.0: §2.2's repeat estimator, §3.2's R rule and repeat check; TC-015 step 9's pass/fail; `analysis/noise_profile.py` (`derive_constants`, the repeat warning), and TC-015 step 6's test of the warnings as written |
-| **Fixed in** | The documents, in the commit that adds this section: FTS-NP-001 0.2.0 and TC-015's pass/fail amended, dated 2026-10-21 after the capture, which is judged without them. The script in its own commit before the release |
+| **Fixed in** | The documents, in the commit that adds this section: FTS-NP-001 0.2.0 and TC-015's pass/fail amended, dated 2026-10-21 after the capture, which is judged without them. The script in the commit that adds §9.10 |
 | **Evidence** | §9.6; FTS-NP-001 Sections 5.2 and 8; the capture of record under `captures/`, and the capture of 2026-10-20 |
-| **Guards** | None yet for the amended rules; the script's update brings their tests |
-| **Status** | Open until the script's update |
+| **Guards** | TC-015 step 6's tests of §9.10: `test_r_rule_takes_the_white_part_under_a_slow_wander`, `test_repeats_on_the_conversion_step_are_chance` |
+| **Status** | Closed 2026-10-21 (§9.10) |
 
 **The two premises.** The repeat check counted chance on float32's step, about 0.006 Pa near 1011 hPa; the chip's conversion has 18 bits at ×4 with the filter off, a step of about 0.66 Pa, so independent conversions repeat a hundred times more often than the check allowed, and the compensated output repeats only when the temperature conversion does too. The R rule's correlated branch read a positive detrended ρ₁ as correlation in the sensor's per-sample noise; with the filter off the conversions are independent, and the correlation was the room's pressure, slower than 0.1 s, which a still board measures correctly.
 
 **How it was missed.** Both rules were written before any real data and checked only against synthetic logs whose noise was white or AR(1) by construction and was not quantized on a conversion's step: the oracles tested the estimators, not the premises.
+
+### 9.10 The analysis script's update (macOS preview)
+
+§9.9's amended rules in `analysis/noise_profile.py`, in their own commit:
+- **The R rule** (`r_baro_rule`): with the detrended ρ₁ significantly positive, the Allan ratio √5 ADEV(5τ₀)/ADEV(τ₀) decides. Within 10% of 1, the tolerance TC-015 step 2 holds the Allan law of white noise to, the conversions' noise is white and R is ADEV(τ₀)²; beyond it, the detrended variance as before. Each channel's report carries its ratio (`white_short_ratio`).
+- **The repeat check** (`pressure_repeat_check`): the pressure's repeats against float32's chance count plus the temperature's repeats × q/(2σ√π) on the conversion's 0.66 Pa step (`PRESSURE_STEP_PA`), with how many fell at a repeated temperature; the warning when the repeats pass five times that. FTS-NP-001 §2.2 and TC-015's amended criterion now name float32's term, which the first wording left out and a log off any lattice needs.
+- **The comparison column**: the simulator's sigmas of today, held equal to the configuration's `simulation.noise` by a test, and the BME280's datasheet figures (2.1 Pa, Table 12; 0.005 °C, Table 14).
+- **P0_vel**: no value of its own, a replay deciding it (FTS-NP-001 Section 3.5), where the script had printed the placeholder, 1.0, as the value.
+- **The Allan table**: each column computed at its own averaging time. It had read the log grid's nearest point, 0.12 s for its 0.1 s column, so FTS-NP-001 0.2.0 as first committed carried four 0.12-s values in Section 5.1 and a ratio "within 1%" in Section 3.2; both are corrected with this commit. At exactly five samples the capture's ratio is 1.07 (0.95, 0.92 and 1.02 at two to four), and the curve leaves τ^−½ beyond it (1.10 at six, 1.37 at ten).
+- The JSON's schema is `FTS-NP-001/2`.
+
+The tests, TC-015 step 6, each failing against the script before the update:
+
+| Test | What it plants and asserts |
+|---|---|
+| `test_r_rule_takes_the_white_part_under_a_slow_wander` | white noise of 0.235 m under a 0.6 m wander with a 20 s correlation time, the capture's shape: detrended ρ₁ 0.88, ratio 1.04, R within 3% of the white variance (0.2% off) where the detrended variance is 0.45 m², no warning |
+| `test_repeats_on_the_conversion_step_are_chance` | independent conversions on the 0.66 Pa step with 2.8 Pa of noise, the temperature conversion walking and shifting the compensated value by 0.0137 Pa a count: 1,035 repeats, all at a repeated temperature, against 1,033 by chance and 27 by float32's alone, the count the check was first written with; no warning |
+| `test_allan_table_at_its_named_averaging_times` | the table's columns at 0.02, 0.1, 1, 10 and 100 s exactly, the Markdown printing them |
+| `test_simulator_sigmas_match_the_configuration` | the comparison's sigmas equal the shipped file's four |
+| two extended | the AR(1) case asserts its ratio, 1.45, beyond the tolerance; the white log's P0_vel is left to the replay |
+
+On the two captures, rerun: the capture of record gives R 0.05513 m² by ADEV(τ₀)², the ratio 1.07, the detrended ρ₁ 0.867, and the repeats 924, all at a repeated temperature, against 993 by chance (10 from float32, 983 on the step), with no warning; `captures/noise-2026-10-21-unit3/noise.json` is rewritten and its four figures come out byte-identical. The capture of 2026-10-20 gives R 0.04586 m², the ratio 1.05, 971 against 1,147, no warning. Both agree with FTS-NP-001 Section 6 and the configuration.
+
+Results: `test_noise_profile.py` 30 of 30; pytest 186 of 186 in 133 s; no C++ changed.
 
 ---
 

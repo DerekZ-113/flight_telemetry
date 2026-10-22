@@ -1,6 +1,6 @@
 {
-  "schema": "FTS-NP-001/1",
-  "generated_utc": "2026-10-22T00:00:19+00:00",
+  "schema": "FTS-NP-001/2",
+  "generated_utc": "2026-10-22T02:06:00+00:00",
   "label": "2026-10-21-unit3",
   "command": "/Users/derekz/Documents/Development/flight_telemetry/.claude/worktrees/noise-capture-v0-1-0-55637d/analysis/noise_profile.py captures/noise-2026-10-21-unit3 --jitter captures/noise-2026-10-21-unit3/telemetry_jitter.csv --figures docs/img --json captures/noise-2026-10-21-unit3/noise.json --label 2026-10-21-unit3",
   "inputs": {
@@ -67,12 +67,13 @@
       "max": 1011.7352294921875,
       "adev_tau0": 0.028162167738218682,
       "sigma_over_adev_tau0": 2.7461654143320375,
+      "white_short_ratio": 1.067978192675946,
       "rho1": 0.867368152219373,
       "detrended_sigma": 0.077287839215274,
       "rho1_detrended": 0.8671969583162005,
       "trend_per_hour": -0.03857876712932332,
       "repeats": 924,
-      "repeats_by_chance": 10.018319278657579,
+      "repeats_by_chance": 992.5581829168857,
       "step": 6.103515625e-05,
       "lsb": null,
       "longest_run": 4,
@@ -180,10 +181,43 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.028162167738218682,
+          0.013450655930652469,
+          0.009476726630584414,
+          0.014789355832712391,
+          0.03971244567403117
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.2,
-        "datasheet_sigma": null,
-        "datasheet_note": "BMP280 x4 oversampling, IIR off: a few Pa RMS (datasheet table, confirm)"
+        "simulator_sigma": 0.0282,
+        "datasheet_sigma": 0.021,
+        "datasheet_note": "BME280 x4 and x1, filter off: 2.1 Pa typical (BST-BME280-DS001-24 Table 12)"
+      },
+      "repeat_check": {
+        "repeats": 924,
+        "at_repeated_temperature": 924,
+        "temperature_repeats": 14862,
+        "step_pa": 0.66,
+        "sigma_pa": 2.816216773821868,
+        "by_chance_float32": 10.018319278657579,
+        "by_chance_on_step": 982.5398636382281,
+        "by_chance": 992.5581829168857
       }
     },
     "temperature_c": {
@@ -196,6 +230,7 @@
       "max": 22.8799991607666,
       "adev_tau0": 0.011403079442175756,
       "sigma_over_adev_tau0": 13.369083910112483,
+      "white_short_ratio": 0.8284376741968487,
       "rho1": 0.9942811623835981,
       "detrended_sigma": 0.12062275307053737,
       "rho1_detrended": 0.9909462683860956,
@@ -309,10 +344,33 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.011403079442175756,
+          0.004224710834739759,
+          0.002099396966811776,
+          0.008876652142275917,
+          0.0628941185374933
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.1,
-        "datasheet_sigma": null,
-        "datasheet_note": "0.01 degC resolution; not stuck-tracked"
+        "simulator_sigma": 0.0114,
+        "datasheet_sigma": 0.005,
+        "datasheet_note": "x1: 0.005 degC typical (Table 14), reported at 0.01 degC; not stuck-tracked"
       }
     },
     "baro_altitude_m": {
@@ -325,6 +383,7 @@
       "max": 17.970104217529297,
       "adev_tau0": 0.23479981946253756,
       "sigma_over_adev_tau0": 2.7461773679207626,
+      "white_short_ratio": 1.0679971246940665,
       "rho1": 0.8673692836671231,
       "detrended_sigma": 0.6443849071171461,
       "rho1_detrended": 0.8671984709891313,
@@ -438,9 +497,32 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.23479981946253756,
+          0.11214575522210374,
+          0.07901463831001743,
+          0.12331097267128446,
+          0.33110457091964557
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 1.6654,
-        "datasheet_sigma": null,
+        "simulator_sigma": 0.23482139999999999,
+        "datasheet_sigma": 0.17486700000000002,
         "datasheet_note": "pressure through the ISA slope, about 8.3 m/hPa near sea level"
       }
     },
@@ -454,6 +536,7 @@
       "max": 0.506546676158905,
       "adev_tau0": 0.010176725865441938,
       "sigma_over_adev_tau0": 1.0553351552217782,
+      "white_short_ratio": 1.0753033187368106,
       "rho1": 0.10212051513298867,
       "detrended_sigma": 0.010731053173881374,
       "rho1_detrended": 0.10064923117994835,
@@ -567,8 +650,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.010176725865441938,
+          0.004893888382239706,
+          0.0015788292005666025,
+          0.0005744017040491867,
+          0.00029861850968478283
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.05,
+        "simulator_sigma": 0.013,
         "datasheet_sigma": 0.017548661487418352,
         "datasheet_note": "400 ug/rtHz x sqrt(20 Hz)"
       }
@@ -583,6 +689,7 @@
       "max": 0.15208373963832855,
       "adev_tau0": 0.009724581438717699,
       "sigma_over_adev_tau0": 1.049598813812717,
+      "white_short_ratio": 1.0682234201398293,
       "rho1": 0.09227875853454566,
       "detrended_sigma": 0.010198623558954041,
       "rho1_detrended": 0.09080150606885239,
@@ -696,8 +803,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.009724581438717699,
+          0.0046456662983521925,
+          0.0014625243837321606,
+          0.0004505386210824952,
+          0.0002711218838281305
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.05,
+        "simulator_sigma": 0.013,
         "datasheet_sigma": 0.017548661487418352,
         "datasheet_note": "400 ug/rtHz x sqrt(20 Hz)"
       }
@@ -712,6 +842,7 @@
       "max": 9.78245735168457,
       "adev_tau0": 0.01627095602446346,
       "sigma_over_adev_tau0": 1.0407102050070587,
+      "white_short_ratio": 1.0829293648196319,
       "rho1": 0.07671036057185088,
       "detrended_sigma": 0.016928655640230782,
       "rho1_detrended": 0.07619947614931934,
@@ -825,8 +956,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.01627095602446346,
+          0.007880035960392457,
+          0.002637185344112607,
+          0.0008032239862034043,
+          0.000691404846274445
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.05,
+        "simulator_sigma": 0.013,
         "datasheet_sigma": 0.017548661487418352,
         "datasheet_note": "400 ug/rtHz x sqrt(20 Hz)"
       }
@@ -841,6 +995,7 @@
       "max": -1.465648889541626,
       "adev_tau0": 0.022605831216209744,
       "sigma_over_adev_tau0": 1.084883740180243,
+      "white_short_ratio": 1.153214773216559,
       "rho1": 0.15034872097706956,
       "detrended_sigma": 0.024508667170599692,
       "rho1_detrended": 0.14923629289046833,
@@ -954,8 +1109,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.022605831216209744,
+          0.011658580500098227,
+          0.003943025508272091,
+          0.0016205798535254047,
+          0.002229715346837289
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.1,
+        "simulator_sigma": 0.0254,
         "datasheet_sigma": 0.022360679774997897,
         "datasheet_note": "0.005 deg/s/rtHz x sqrt(20 Hz)"
       }
@@ -970,6 +1148,7 @@
       "max": 0.07633587718009949,
       "adev_tau0": 0.024800939683484402,
       "sigma_over_adev_tau0": 1.088745720571325,
+      "white_short_ratio": 1.1395003756538986,
       "rho1": 0.1563785857201651,
       "detrended_sigma": 0.0269935774059821,
       "rho1_detrended": 0.15585882170590296,
@@ -1083,8 +1262,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.024800939683484402,
+          0.012638560352489468,
+          0.004331620719264416,
+          0.0015829558208553193,
+          0.0034152865982363524
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.1,
+        "simulator_sigma": 0.0254,
         "datasheet_sigma": 0.022360679774997897,
         "datasheet_note": "0.005 deg/s/rtHz x sqrt(20 Hz)"
       }
@@ -1099,6 +1301,7 @@
       "max": -1.4045801162719727,
       "adev_tau0": 0.022731998199599982,
       "sigma_over_adev_tau0": 1.0911430820062744,
+      "white_short_ratio": 1.178056965382681,
       "rho1": 0.16009917746136984,
       "detrended_sigma": 0.024739895554823445,
       "rho1_detrended": 0.15574995297018052,
@@ -1212,8 +1415,31 @@
           0.5
         ]
       },
+      "allan_table": {
+        "tau_s": [
+          0.02,
+          0.1,
+          1.0,
+          10.0,
+          100.0
+        ],
+        "adev": [
+          0.022731998199599982,
+          0.011976196200460922,
+          0.003939448180077296,
+          0.0014215428062285462,
+          0.0025096845205097975
+        ],
+        "rel_error": [
+          0.004714045207910317,
+          0.010540925533894598,
+          0.03333333333333333,
+          0.10540925533894598,
+          0.3333333333333333
+        ]
+      },
       "reference": {
-        "simulator_sigma": 0.1,
+        "simulator_sigma": 0.0254,
         "datasheet_sigma": 0.022360679774997897,
         "datasheet_note": "0.005 deg/s/rtHz x sqrt(20 Hz)"
       }
@@ -1229,13 +1455,13 @@
     "baro_sigma_m_via_slope": 0.23479946227321344,
     "constants": {
       "R_baro_m2": {
-        "value": 0.41523190852037306,
+        "value": 0.05513095521964023,
         "status": "measured",
-        "source": "variance of the linearly detrended baro_altitude_m: rho1 of the detrended series is 0.867, above 0.014, so consecutive samples are correlated and ADEV(tau0)^2 (0.05513) would understate the per-sample variance by 87%",
+        "source": "ADEV(tau0)^2 of baro_altitude_m, the white part: rho1 of the detrended series is 0.867, above 0.014, but the Allan deviation is white from one sample to 5 (ratio 1.068), so the correlation is slower than the sensor's noise, a change of pressure the filter follows; the detrended variance (0.4152) carries it",
         "placeholder": 3.0
       },
       "P0_alt_m2": {
-        "value": 0.41523190852037306,
+        "value": 0.05513095521964023,
         "status": "measured",
         "source": "equals R_baro: the filter is born from one barometric sample",
         "placeholder": 3.0
@@ -1253,9 +1479,9 @@
         "placeholder": 1.0
       },
       "P0_vel": {
-        "value": 1.0,
-        "status": "tuning, chosen by replay",
-        "source": "the vehicle's vertical speed at startup; candidates 1.0, 0.1, 0.01 replayed",
+        "value": null,
+        "status": "chosen by replay",
+        "source": "the vehicle's vertical speed at startup: chosen by replaying the capture's file 000 through 1.0, 0.1 and 0.01 (FTS-NP-001 Section 3.5), not by this analysis",
         "placeholder": 1.0
       }
     },
@@ -1288,20 +1514,17 @@
     },
     "stuck_count": 10,
     "r_baro_rule": {
-      "estimator": "detrended_variance",
-      "value": 0.41523190852037306,
-      "source": "variance of the linearly detrended baro_altitude_m: rho1 of the detrended series is 0.867, above 0.014, so consecutive samples are correlated and ADEV(tau0)^2 (0.05513) would understate the per-sample variance by 87%",
+      "estimator": "adev_tau0",
+      "value": 0.05513095521964023,
+      "source": "ADEV(tau0)^2 of baro_altitude_m, the white part: rho1 of the detrended series is 0.867, above 0.014, but the Allan deviation is white from one sample to 5 (ratio 1.068), so the correlation is slower than the sensor's noise, a change of pressure the filter follows; the detrended variance (0.4152) carries it",
       "rho1_detrended": 0.8671984709891313,
       "threshold": 0.01414213562373095,
+      "white_short_ratio": 1.0679971246940665,
       "adev_tau0_variance": 0.05513095521964023,
       "detrended_variance": 0.41523190852037306,
-      "warnings": [
-        "pressure repeats 924 times against about 10 by float32 chance: the chip may be read faster than it converts; stop and find the cause"
-      ]
+      "warnings": []
     },
-    "warnings": [
-      "pressure repeats 924 times against about 10 by float32 chance: the chip may be read faster than it converts; stop and find the cause"
-    ]
+    "warnings": []
   },
   "outputs": {
     "settle_s": 10.0,
