@@ -4,7 +4,7 @@
 > **Version:** 0.5.0
 > **Status:** Draft
 > **Last Updated:** 2026-10-21
-> **Related:** FTS-SRD-001 v0.20.0 (REQ-DISP-001 to REQ-DISP-008, REQ-RED-002 to REQ-RED-004, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2, 12 and 13), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030 to TC-033), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
+> **Related:** FTS-SRD-001 v0.21.0 (REQ-DISP-001 to REQ-DISP-008, REQ-RED-002 to REQ-RED-004, REQ-LOG-007, REQ-SENS-007, REQ-SENS-011, REQ-FAULT-007), FTS-DD-001 (design, Sections 7, 9, 11.2, 12 and 13), FTS-TP-001 (test plan, TC-022 to TC-026, TC-030 to TC-033), FTS-TM-001 (traceability), FTS-VR-001 (verification results)
 
 ## 1. Purpose and Scope
 

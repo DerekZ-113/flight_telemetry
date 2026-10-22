@@ -3519,8 +3519,8 @@ It claims what this record shows: every requirement traced to code and a test, t
 
 - The `v0.1.0` tag's own run: the passing build on the tagged commit, and cppcheck's gate exercised (REQ-TEST-004). Recorded after the tag. (Recorded in §29.7: the gate passed, and REQ-TEST-004 is Verified.)
 - The open findings of §29.3 and the partial requirements of §29.2; a second stationary capture of unit 3 on another day serves both REQ-PROC-009's condition and TC-015 step 9 (§9.7); the gyroscope's stuck margin of 3 (FTS-NP-001 §8).
-- FTS-TM-001's REQ-FAULT-003 row says FAULT-003b "waits for the frame to carry the field"; the frame has carried it since format version 3, as FTS-FM-001, FTS-DD-001 §11.2 and FTS-TP-001 say. Flagged, not changed.
-- "Every push" outside the README, CLAUDE.md and the workflow's header, which name the triggers precisely since this release: the rationale of REQ-TEST-005 and REQ-TEST-007 (an SRD wording revision), the matrix's REQ-TEST-002 to REQ-TEST-004 rows, and the command reference.
+- FTS-TM-001's REQ-FAULT-003 row says FAULT-003b "waits for the frame to carry the field"; the frame has carried it since format version 3, as FTS-FM-001, FTS-DD-001 §11.2 and FTS-TP-001 say. Flagged, not changed. (Changed 2026-10-21 after the release: the row now says the rule is still to be written.)
+- "Every push" outside the README, CLAUDE.md and the workflow's header, which name the triggers precisely since this release: the rationale of REQ-TEST-005 and REQ-TEST-007 (an SRD wording revision), the matrix's REQ-TEST-002 to REQ-TEST-004 rows, and the command reference. (Changed 2026-10-21 after the release, FTS-SRD-001 0.21.0: each now names the triggers, pushes to `main`, pull requests into `main` and `v*` tags, unchanged since the workflow's first commit. Entries 16 and 27 keep the phrase as written, snapshots of their commits.)
 - The README's architecture diagram, Mermaid, rendered by GitHub and checked there.
 - The first release's demo video.
 
@@ -3561,4 +3561,4 @@ Two more runs on the same tree gave the same figures: pull request 8's on the re
 
 **REQ-TEST-004 is Verified:** cppcheck runs on every build, and the first release-tagged build had zero findings at FTS-TP-001's severity levels under the gate that fails on any. FTS-SRD-001's 68 statements stand at 64 Verified and 4 Partial (FTS-TM-001 §11); §29.2's other four are unchanged.
 
-**Flagged, not changed:** FTS-TP-001 §7 still says ten requirements are Partial, where the matrix counts four. Entry 20 flagged its earlier count the same way and left it for its author.
+**Flagged, not changed:** FTS-TP-001 §7 still says ten requirements are Partial, where the matrix counts four. Entry 20 flagged its earlier count the same way and left it for its author. (Changed 2026-10-21 after the release: §7 now takes the matrix's four.)
