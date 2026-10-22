@@ -1,13 +1,15 @@
 # Continuous integration (REQ-TEST-003, REQ-TEST-004).
 #
-# Three jobs, each on a clean Ubuntu machine, every push. The first is the
-# pass/fail criteria in docs/test_plan.md section 4, in order: the build
-# must be warning-free, every Google Test must pass, every pytest must pass
+# Three jobs, each on a clean Ubuntu machine. GitHub starts them on pushes
+# to main, on v* tags and on pull requests into main, never on a push to
+# another branch alone. The first is the pass/fail criteria in
+# docs/test_plan.md section 4, in order: the build must be warning-free,
+# every Google Test must pass, every pytest must pass
 # (REQ-TEST-002; the suite drives the instrumented binary, so its runs
 # count toward the coverage captured next, test_plan.md 6.1), branch
 # coverage must meet the section 6.3 thresholds, and cppcheck must report
-# zero findings on a release tag (it reports without blocking on ordinary
-# pushes). The second runs the dashboard page's tests and its build
+# zero findings on a release tag (it reports without blocking on every
+# other run). The second runs the dashboard page's tests and its build
 # (test_plan.md 2.5) in parallel, so the C++ job's wall time is unchanged.
 # The third builds the same Google Tests and the fault-injection subset
 # with AddressSanitizer and UndefinedBehaviorSanitizer and runs ctest

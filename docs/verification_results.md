@@ -3163,7 +3163,7 @@ Per-scope branch coverage on GCC: processing, config, timing and logging 100.0%,
 - **`simulated_data.cpp:118`.** GCC counts four edges on the line, one never taken (§17.7). No entry has classified that edge: it may be an exception-unwind edge under CLAUDE.md's rule, or another of GCC's edges.
 - **The branches.** The five pull requests' branches stay on `origin` until Derek deletes them.
 - **The topics' open items.** Each topic's open items stand (Entries 16 to 25). On the Pi that means TC-009 steps 7 and 8, TC-021 step 9 and TC-014 step 13. (Run 2026-10-20: Entry 8 §8.6, Entry 16 §16.9, Entry 20 §20.9.)
-- **The first release:** its tag's name, and the four places that name 0.1.0 (§26.6).
+- **The first release:** its tag's name, and the four places that name 0.1.0 (§26.6). (Closed 2026-10-21 by the release commit: the tag is `v0.1.0`, the name all four already carry, Entry 29 §29.4.)
 
 ## Entry 27 — 2026-10-20, Pre-release hardening: the sanitized build in CI, the actions on Node.js 24, a replay of any log under `--config`, two coverage items, the ISO 26262 crosswalk, the README restructured
 
@@ -3438,4 +3438,90 @@ FTS-FI-001 Section 7 holds eight, none a defect in the code and none a predictio
 ### 28.5 Open
 
 - FTS-FI-001 Section 9's limits stand: unquantized noise, one scenario, one platform. The campaign sourced from the stationary capture stays parked (FTS-DD-001 §12); the capture's gyroscope runs (FTS-NP-001 Section 8) are its first input.
-- README's status and roadmap lines still name the campaign of record as pending.
+- README's status and roadmap lines still name the campaign of record as pending. (Closed 2026-10-21 by the release commit, Entry 29.)
+
+---
+
+## Entry 29 — 2026-10-21, The first release, v0.1.0: the verification summary
+
+FTS-TP-001 §4: "A release is a passing build on a tagged commit, with the coverage and cppcheck reports committed under `coverage/` and `static_analysis/` and summarized in docs/verification_results.md." This entry is that summary. The release commit adds the reports of the run below and otherwise changes documents and comments only, the workflow's header among them, so the run measures the code the tag names: `0becf4c`'s tree, but for those files. The tag's own run is the passing build on the tagged commit and the first to exercise cppcheck's gate; it is recorded after the tag (§29.6).
+
+### 29.1 Measurement of record
+
+CI run 39718471043 on `0becf4c`, the branch's head, on pull request 8, 2026-10-22 03:44:09 to 03:48:36 UTC. The run tested `6839214`, GitHub's merge of the head into `main` at `c510034`; `main` is the head's ancestor, so that merge is `0becf4c`'s own tree (§26.3). All three jobs passed.
+
+| Check | Result |
+|---|---|
+| Runner | `ubuntu-24.04` on all three jobs: image 20261018.339.1 on the C++ job, 20261012.334.1 on `sanitize` and `page` |
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 585 of 585 in 26.0 s (495 unit, 90 fault-injection), none skipped; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 186 of 186 in 137.5 s |
+| lcov over `src/`, 62 files | lines 98.4% (3,207 of 3,259), functions 97.3% (355 of 365), branches 94.9% (1,522 of 1,604) |
+| cppcheck (the runner's package, 2.13.0), 43 files | 0 findings |
+| `sanitize` job (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_SANITIZERS=ON`) | built clean; ctest 585 of 585 in 41.3 s, one skipped by name, `UdpPublisherTest.SocketFailureIsReportedNotThrown` (§27.8); no `AddressSanitizer`, `LeakSanitizer` or `runtime error:` line |
+| `page` job (Node 22) | 89 of 89 in 13 files in 8.91 s; statements 99.17%, branches 99.04%, functions 97.84%, lines 99.71%; `tsc --noEmit && vite build` clean in 125 ms. `setup-node` prints two of Node's deprecations (DEP0040, DEP0169), the action's own, not the page's |
+| Wall time | the C++ job 4 min 24 s; `sanitize` 2 min 11 s; `page` 21 s |
+| The reports | `coverage/html/`, the run's `coverage-html` artifact (`genhtml` over the 62 files), and `static_analysis/cppcheck.txt`, its `cppcheck` artifact (a `Checking` line per file, two for each of the two files with an `#if` on `__linux__`, and no other line), committed as downloaded. `.gitignore` keeps generated reports out of every other commit, so the release commit adds these two by force |
+
+Per-scope branch coverage on GCC, from `scripts/coverage_check.sh`: processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 91.3%, overall 94.9%, each above its threshold.
+
+What moved since Entry 27 §27.9, each by a commit of this release's chain:
+- **Google Test, 581 to 585:** `Bmp280Test.RealChipDumpCompensatesToPlausibleValues` (§8.6), `Mpu6050Test.AxisMappingNegatesOnlyTheYRate` (§8.9), `PosixSerialPortTest.CloseRestoresTheSettingsFoundAtOpen` (§13.10) and `NmeaGpsTest.TheBoardsCaptureGivesTheSameFixesHoweverItIsCut` (§13.12).
+- **pytest, 182 to 186:** TC-015 step 6's four (§9.10).
+- **Lines, 3,205 of 3,256 to 3,207 of 3,259:** the serial port's fix added three (§13.10), two of them taken. The third, `serial_port.cpp:74`, puts the settings back on the constructor's failure path after the flush, a path no test takes, before the fix or since.
+- **Unchanged:** branches, functions, every scope, cppcheck's count and the page's figures.
+
+### 29.2 Requirements
+
+68 statements in FTS-SRD-001 0.20.0: 63 Verified and 5 Partial, none implemented without a test and none not started (FTS-TM-001 §11). What each partial one lacks:
+
+| Requirement | What it lacks |
+|---|---|
+| REQ-SENS-008 | The ADS-B vertical rate and pressure altitude are recorded and consumed by nothing until Phase B |
+| REQ-PROC-004 | The GPS variance is the datasheet's until a capture with the receiver fixing is analysed; TC-015 step 9 failed as written on the pressure-repeat count (§9.6, §9.9), and a second stationary capture under the amended card would serve it |
+| REQ-FAULT-003 | The detector's own event for a GPS fix-quality fault (FAULT-003b): the frame carries the fix quality and the satellite count since format version 3, and the rule that judges them is still to be written (FTS-DD-001 §11.2) |
+| REQ-TIME-003 | One cycle 16.8 ms late on the Pi (§20.10, open), so the maximum is not yet shown under every normal condition |
+| REQ-TEST-004 | cppcheck's gate blocks only on a `v*` tag, so the tag's own run is the first to exercise it; it is recorded after the tag |
+
+### 29.3 The findings
+
+Every finding this record holds, the open ones first:
+
+| Finding | Status |
+|---|---|
+| [§20.10](#2010-finding-one-cycle-168-ms-late-at-the-start-of-a-run-on-the-pi) One cycle 16.8 ms late at the start of a run on the Pi | **Open.** REQ-TIME-003 stays Partial until it is understood; the retest repeats TC-009 step 8 with the output to `/dev/null`. Since then 90,000 cycles of two captures ran without a repeat, a data point and not an explanation |
+| [§8.8](#88-finding-gy-521-units-1-and-2-of-one-pack-nonconforming) GY-521 units 1 and 2 of one pack, nonconforming | **Open in part.** Closed for the bench, unit 3 in service; unit 1's calibration test and a known-good reference IMU, since unit 3 comes from the same pack, are Sprint 3's |
+| [§9.11](#911-the-gyroscope-bias-rule-applied-2026-10-21) The gyroscope-bias rule trips on roll: 0.98 × 1.577 deg/s is 1.546° | **Open.** REQ-PROC-009 proposed in FTS-DD-001 §12, conditional on a second capture of unit 3 on another day agreeing within 0.2 deg/s; its build is Sprint 3's |
+| [§4.3](#43-finding-uninitialized-padding-in-simulated-frames) Uninitialized padding in simulated frames | Closed: value-initialized frames; `SimulatedDataTest.SameSeedSameSequence` |
+| [§5.2](#52-finding-unspecified-padding-in-brace-built-fault-events-on-gcc) Unspecified padding in brace-built fault events on GCC | Closed: no padding since format version 2; `FaultDetectionTest.EventReservedIsZero` |
+| [§5.5](#55-attempted-fix-for-the-noise-and-its-reversal) lcov's documented setting for exception branches removed every branch on the runner | Closed: reverted, the exception edges handled line by line (§5.6, CLAUDE.md's rule) |
+| [§7.1](#71-finding-stale-readings-re-applied-as-measurements) Stale readings re-applied as measurements | Closed: REQ-PROC-006, a reading applied only when fresh |
+| [§8.1](#81-finding-one-rate-sample-integrated-across-an-outage-supersedes-entry-7-76) One rate sample integrated across an outage | Closed: REQ-PROC-002's re-seed after a gap |
+| [§8.9](#89-finding-the-pitch-rates-sign-reversed-in-the-drivers-axis-mapping) The pitch rate's sign reversed in the driver's axis mapping | Closed 2026-10-21 on the Pi (§8.10) |
+| [§9.3](#93-finding-the-startup-transient-belongs-to-the-initial-velocity-variance) The startup transient belongs to the initial velocity variance | Closed 2026-10-21: 0.1 (m/s)² chosen by replay (FTS-NP-001 §3.5) |
+| [§9.9](#99-finding-the-noise-analysiss-barometer-rules-assumed-the-wrong-mechanisms) The noise analysis's barometer rules assumed the wrong mechanisms | Closed 2026-10-21 (§9.10) |
+| [§13.10](#1310-finding-the-gps-ports-settings-are-not-restored-at-close) The GPS port's settings are not restored at close | Closed 2026-10-21 on the Pi (§13.11) |
+| [§18.5](#185-decisions-taken-and-deviations-from-the-plan) The ADS-B selection measured horizontal distance only, so an arrival at 3,500 m displaced the aircraft on final | Closed: the altitude ceiling, REQ-SENS-009 amended (Entry 24) |
+| [§18.5](#185-decisions-taken-and-deviations-from-the-plan) A switch of aircraft was a discontinuity the filter was not told about | Closed: the new-vehicle flag and the re-birth, REQ-PROC-008 (Entry 19) |
+| [§22.5](#225-u06-and-u07-before-and-after-the-check) A NaN pressure left the voter without a majority | Closed: the finiteness check, REQ-FAULT-003 (FAULT-024) |
+| [§23.5](#235-the-bridges-finding) A value that is not a number broke the page's JSON | Closed: null on the wire (REQ-DISP-005) |
+| [§26.5](#265-the-cppcheck-count) The record's cppcheck count, 45 files for the runner's 43 | Closed: the five rows corrected |
+| [§28.4](#284-findings) The campaign of record's eight (FTS-FI-001 Section 7) | Explained, none a defect in the code; what no check covers is FTS-FI-001 Section 8's blind spots |
+
+### 29.4 The four places that name 0.1.0
+
+All four read 0.1.0, the tag's name, and none changed: `CMakeLists.txt:2`'s project version, the User-Agent the libcurl client sends the OpenSky Network (`src/drivers/curl_http_client.h:25`, asserted by `tests/unit/test_curl_http_client.cpp:153`), `dashboard/package.json:4`, and the banner `src/main.cpp:685` prints. Entry 26 §26.6's item closes.
+
+### 29.5 What the release claims, and what it does not
+
+It claims what this record shows: every requirement traced to code and a test, the 63 verified ones verified by the tests named in FTS-TM-001, the coverage gate met, the campaign of record matching its predictions run by run, and the drivers verified on the Raspberry Pi. It does not claim certification or compliance: the practices are DO-178C-aligned, DAL C is assumed and not assigned, nothing was verified independently, no tool is qualified under DO-330, and MC/DC is out of scope (FTS-DD-001 §2).
+
+### 29.6 Open
+
+- The `v0.1.0` tag's own run: the passing build on the tagged commit, and cppcheck's gate exercised (REQ-TEST-004). Recorded after the tag.
+- The open findings of §29.3 and the partial requirements of §29.2; a second stationary capture of unit 3 on another day serves both REQ-PROC-009's condition and TC-015 step 9 (§9.7); the gyroscope's stuck margin of 3 (FTS-NP-001 §8).
+- FTS-TM-001's REQ-FAULT-003 row says FAULT-003b "waits for the frame to carry the field"; the frame has carried it since format version 3, as FTS-FM-001, FTS-DD-001 §11.2 and FTS-TP-001 say. Flagged, not changed.
+- "Every push" outside the README, CLAUDE.md and the workflow's header, which name the triggers precisely since this release: the rationale of REQ-TEST-005 and REQ-TEST-007 (an SRD wording revision), the matrix's REQ-TEST-002 to REQ-TEST-004 rows, and the command reference.
+- The README's architecture diagram, Mermaid, rendered by GitHub and checked there.
+- The first release's demo video.
+
+Closed by this entry: Entry 26 §26.9's first release, its tag's name and the four places, and Entry 28 §28.5's README item.

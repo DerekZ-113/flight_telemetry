@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/drivers/i2c_bus.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/drivers</a> - i2c_bus.h<span style="font-size: 80%;"> (source / <a href="i2c_bus.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">1</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">50.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">1</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstddef&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;string&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : </span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : // The boundary to an I2C bus: the &quot;via I2C&quot; of REQ-SENS-001 through</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : // REQ-SENS-004.</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : //</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // Same pattern as DataSource and Clock. The drivers talk to this interface</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // and never to the operating system, so a driver's register protocol and</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : // arithmetic are tested on a machine with no bus at all, against a fake</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // that serves recorded bytes (tests/unit/fake_i2c_bus.h). The one real</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // implementation, LinuxI2cBus below, is the only code that knows what a</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // device file is.</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : //</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // A register transaction on both chips in this project has the same</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // shape: send the register address, then read or write the bytes. Both</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // chips auto-increment their register pointer, so one call reads a whole</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // block (a burst read). That is what the datasheets ask for: the data</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // registers are latched together, and reading them one at a time could</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // mix bytes from two conversions.</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : //</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // Errors are reported as false, never thrown. A failed transaction is an</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // expected event at 50 Hz (REQ-FAULT-001 budgets 500 ms of them); the</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : // caller turns it into read_ok = false and the fault detector decides when</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : // it has gone on long enough to matter.</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : class I2cBus {</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : public:</span>
+<span id="L30"><span class="lineNum">      30</span>                 :<span class="tlaGNC tlaBgGNC">          54 :     virtual ~I2cBus() = default;</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : </span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     // Write one byte to register `reg` of the device at `address` (7-bit).</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     virtual bool write_register(uint8_t address, uint8_t reg, uint8_t value) = 0;</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : </span>
+<span id="L35"><span class="lineNum">      35</span>                 :             :     // Read `length` consecutive registers starting at `reg` into `buffer`</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             :     // in one burst. False if any part of the transaction failed; the</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             :     // buffer's contents are then unspecified.</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             :     virtual bool read_registers(uint8_t address, uint8_t reg, uint8_t* buffer, size_t length) = 0;</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             : };</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : </span>
+<span id="L41"><span class="lineNum">      41</span>                 :             : // The real bus: a Linux i2c-dev device file such as /dev/i2c-1.</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             : //</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : // One descriptor serves the whole bus. ioctl(I2C_SLAVE) sets which device</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : // the next read() or write() on the descriptor addresses, so it is issued</span>
+<span id="L45"><span class="lineNum">      45</span>                 :             : // before every transaction rather than once at open: two drivers share</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : // this object and alternate addresses every cycle.</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             : //</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             : // RAII on the descriptor. An int has no destructor, so this class gives it</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             : // one: open() in the constructor, close() in the destructor. Copying is</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             : // deleted so no two objects can ever close the same descriptor, and with</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : // the copy constructor declared the compiler generates no move either.</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             : // The constructor never throws; a failed open leaves ok() false and</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             : // error() saying why, the same shape as BinaryLogger and ZmqPublisher.</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             : //</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             : // On a platform without i2c-dev (the development Mac) the same class</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             : // compiles to a stub whose constructor records ENOTSUP and whose</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             : // transactions fail, so one source list builds everywhere and `--live`</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             : // reports a clear reason instead of failing to link.</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             : class LinuxI2cBus : public I2cBus {</span>
+<span id="L60"><span class="lineNum">      60</span>                 :             : public:</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :     explicit LinuxI2cBus(const std::string&amp; device_path);</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             :     ~LinuxI2cBus() override;</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             :     LinuxI2cBus(const LinuxI2cBus&amp;) = delete;</span>
+<span id="L64"><span class="lineNum">      64</span>                 :             :     LinuxI2cBus&amp; operator=(const LinuxI2cBus&amp;) = delete;</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             : </span>
+<span id="L66"><span class="lineNum">      66</span>                 :             :     // False if the device file could not be opened; error() says why.</span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :     bool ok() const;</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             :     const std::string&amp; error() const;</span>
+<span id="L69"><span class="lineNum">      69</span>                 :             : </span>
+<span id="L70"><span class="lineNum">      70</span>                 :             :     // errno of the most recent failed transaction, 0 if none has failed.</span>
+<span id="L71"><span class="lineNum">      71</span>                 :             :     int last_errno() const;</span>
+<span id="L72"><span class="lineNum">      72</span>                 :             : </span>
+<span id="L73"><span class="lineNum">      73</span>                 :             :     bool write_register(uint8_t address, uint8_t reg, uint8_t value) override;</span>
+<span id="L74"><span class="lineNum">      74</span>                 :             :     bool read_registers(uint8_t address, uint8_t reg, uint8_t* buffer, size_t length) override;</span>
+<span id="L75"><span class="lineNum">      75</span>                 :             : </span>
+<span id="L76"><span class="lineNum">      76</span>                 :             : private:</span>
+<span id="L77"><span class="lineNum">      77</span>                 :             :     int fd_ = -1;</span>
+<span id="L78"><span class="lineNum">      78</span>                 :             :     std::string error_;</span>
+<span id="L79"><span class="lineNum">      79</span>                 :             :     int last_errno_ = 0;</span>
+<span id="L80"><span class="lineNum">      80</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

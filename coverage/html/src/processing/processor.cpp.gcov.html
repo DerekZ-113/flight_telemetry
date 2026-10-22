@@ -1,0 +1,317 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/processing/processor.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/processing</a> - processor.cpp<span style="font-size: 80%;"> (source / <a href="processor.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">85</td>
+            <td class="headerCovTableEntry">85</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">62</td>
+            <td class="headerCovTableEntry">62</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;processing/processor.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : #include &quot;processing/altitude.h&quot;</span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : </span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : // Every tuning value comes in through ProcessorConfig (processor.h): the</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : // Kalman variances, the complementary filter's alpha, and the sea-level</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : // reference. Nothing numeric is decided in this file (REQ-CFG-001); what</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : // each value means, and where its number came from, is written beside</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : // the field that holds it.</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : </span>
+<span id="L10"><span class="lineNum">      10</span>                 :<span class="tlaGNC tlaBgGNC">        2198 : TelemetryProcessor::TelemetryProcessor(const ProcessorConfig&amp; tuning, uint64_t imu_timeout_ms)</span></span>
+<span id="L11"><span class="lineNum">      11</span>                 :<span class="tlaGNC">        2198 :     : tuning_(tuning),</span></span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">        2198 :       attitude_filter_(tuning.complementary_alpha),</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :<span class="tlaGNC">        4396 :       imu_timeout_ms_(imu_timeout_ms)</span></span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : {</span>
+<span id="L15"><span class="lineNum">      15</span>                 :<span class="tlaGNC">        2198 : }</span></span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : </span>
+<span id="L17"><span class="lineNum">      17</span>                 :<span class="tlaGNC">     1720402 : TelemetryFrame TelemetryProcessor::process(const TelemetryFrame&amp; raw) {</span></span>
+<span id="L18"><span class="lineNum">      18</span>                 :             :     // Start from a copy so every raw field carries through by default.</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             :     // TelemetryFrame is a plain struct of numbers, so this is a memberwise</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             :     // copy with no allocation.</span>
+<span id="L21"><span class="lineNum">      21</span>                 :<span class="tlaGNC">     1720402 :     TelemetryFrame out = raw;</span></span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : </span>
+<span id="L23"><span class="lineNum">      23</span>                 :             :     // REQ-PROC-008: the first frame of a newly presented vehicle. The</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             :     // source says so (FrameFlag::NEW_VEHICLE), because no filter can tell a</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             :     // new vehicle from a violent manoeuvre: on the ADS-B source's switch of</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             :     // aircraft the Kalman filter read the step between two aircraft's</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     // altitudes as a climb nobody flew (FTS-VR-001 Entry 18 §18.5). Every</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     // estimate is discarded here, before the gates, and this frame's own</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     // readings begin again by the rules that run at power-on: a fresh</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             :     // altitude births the Kalman filter with zero velocity, a fresh IMU</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     // sample seeds a new attitude filter (a new object, since reset() keeps</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     // the angles for the re-seed of an outage), a fresh barometer reading is</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     // converted; until then each field is 0 and NO_COMPUTED_DATA, the</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             :     // &quot;never existed&quot; of the new vehicle (REQ-PROC-007). The detector is not</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             :     // told: a new vehicle's first reading is a reading, and a channel's</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             :     // health does not depend on whose reading it is.</span>
+<span id="L37"><span class="lineNum">      37</span>         [<span class="tlaGBC" title="Branch 0 was taken 22 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1720380 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (has_flag(raw, FrameFlag::NEW_VEHICLE)) {</span></span>
+<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC">          22 :         altitude_filter_.reset();</span></span>
+<span id="L39"><span class="lineNum">      39</span>                 :<span class="tlaGNC">          22 :         attitude_filter_ = ComplementaryFilter(tuning_.complementary_alpha);</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">          22 :         imu_last_fresh_ms_.reset();</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">          22 :         last_baro_altitude_m_ = 0.0f;</span></span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">          22 :         baro_ever_fresh_ = false;</span></span>
+<span id="L43"><span class="lineNum">      43</span>                 :<span class="tlaGNC">          22 :         gps_ever_fresh_ = false;</span></span>
+<span id="L44"><span class="lineNum">      44</span>                 :<span class="tlaGNC">          22 :         attitude_ever_seeded_ = false;</span></span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     }</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : </span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     // REQ-PROC-006: a reading enters a filter only when its channel is</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :     // NOMINAL and the reading was taken this cycle. Health is the</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     // detector's judgment over time; read_ok is this cycle's fact. Both</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :     // must hold: a NOMINAL GPS is stale on 49 of 50 cycles, and a frame</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :     // whose I2C read failed inside the timeout window carries the previous</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :     // sample on a channel that is still NOMINAL. Re-applying a copy would</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     // shrink the covariance as if new evidence had arrived and pin the</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             :     // state to a value that is no longer current (design.md section 5).</span>
+<span id="L55"><span class="lineNum">      55</span>   [<span class="tlaGBC" title="Branch 0 was taken 1688882 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 31520 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1685479 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 3403 times"> + </span>]:<span class="tlaGNC">     1720402 :     const bool baro_fresh = raw.baro_status == ChannelStatus::NOMINAL &amp;&amp; raw.baro_read_ok;</span></span>
+<span id="L56"><span class="lineNum">      56</span>   [<span class="tlaGBC" title="Branch 0 was taken 1692613 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 27789 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1690477 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2136 times"> + </span>]:<span class="tlaGNC">     1720402 :     const bool imu_fresh = raw.imu_status == ChannelStatus::NOMINAL &amp;&amp; raw.imu_read_ok;</span></span>
+<span id="L57"><span class="lineNum">      57</span>   [<span class="tlaGBC" title="Branch 0 was taken 1693412 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 26990 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 37336 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 1656076 times"> + </span>]:<span class="tlaGNC">     1720402 :     const bool gps_fresh = raw.gps_status == ChannelStatus::NOMINAL &amp;&amp; raw.gps_read_ok;</span></span>
+<span id="L58"><span class="lineNum">      58</span>                 :             : </span>
+<span id="L59"><span class="lineNum">      59</span>                 :             :     // REQ-PROC-001: barometric altitude from pressure, against the</span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :     // configured sea-level reference, converted only from a reading the</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :     // detector trusts and the driver took this cycle, and held otherwise:</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             :     // 0 before the first reading (the ISA formula on a pressure nobody</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             :     // measured would read 44 km), the last accepted conversion while the</span>
+<span id="L64"><span class="lineNum">      64</span>                 :             :     // barometer is DEGRADED, so the altitude of a reading FAULT-008</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             :     // discards never reaches the frame (REQ-PROC-007). A stale NOMINAL</span>
+<span id="L66"><span class="lineNum">      66</span>                 :             :     // frame carries the previous pressure, whose conversion is the held</span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :     // value anyway.</span>
+<span id="L68"><span class="lineNum">      68</span>         [<span class="tlaGBC" title="Branch 0 was taken 1685479 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 34923 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (baro_fresh) {</span></span>
+<span id="L69"><span class="lineNum">      69</span>                 :<span class="tlaGNC">     1685479 :         last_baro_altitude_m_ = pressure_to_altitude(raw.pressure_hpa, tuning_.sea_level_pressure_hpa);</span></span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC">     1685479 :         baro_ever_fresh_ = true;</span></span>
+<span id="L71"><span class="lineNum">      71</span>                 :             :     }</span>
+<span id="L72"><span class="lineNum">      72</span>                 :<span class="tlaGNC">     1720402 :     out.baro_altitude_m = last_baro_altitude_m_;</span></span>
+<span id="L73"><span class="lineNum">      73</span>                 :             : </span>
+<span id="L74"><span class="lineNum">      74</span>                 :             :     // REQ-PROC-002: pitch and roll from the complementary filter. The</span>
+<span id="L75"><span class="lineNum">      75</span>                 :             :     // gyroscope integrates over the time since the last sample this filter</span>
+<span id="L76"><span class="lineNum">      76</span>                 :             :     // accepted, not over the loop period, so a gap of stale frames is</span>
+<span id="L77"><span class="lineNum">      77</span>                 :             :     // rotation accounted for, not lost. On the first accepted sample the</span>
+<span id="L78"><span class="lineNum">      78</span>                 :             :     // interval is zero and the filter seeds itself from the accelerometer.</span>
+<span id="L79"><span class="lineNum">      79</span>                 :             :     // A DEGRADED or stale frame holds the angles; under DEGRADED they</span>
+<span id="L80"><span class="lineNum">      80</span>                 :             :     // leave flagged FAILURE_WARNING (judge, below), which is what FAULT-006</span>
+<span id="L81"><span class="lineNum">      81</span>                 :             :     // asks of the display.</span>
+<span id="L82"><span class="lineNum">      82</span>                 :             :     //</span>
+<span id="L83"><span class="lineNum">      83</span>                 :             :     // A gap longer than the IMU timeout is an outage, not rotation: one</span>
+<span id="L84"><span class="lineNum">      84</span>                 :             :     // rate sample times ten seconds, with a few degrees per second of</span>
+<span id="L85"><span class="lineNum">      85</span>                 :             :     // uncalibrated offset in it, would be tens of degrees of invented</span>
+<span id="L86"><span class="lineNum">      86</span>                 :             :     // tilt. The filter is re-seeded from the accelerometer instead. The</span>
+<span id="L87"><span class="lineNum">      87</span>                 :             :     // comparison is strictly greater, like the detector's, so a gap of</span>
+<span id="L88"><span class="lineNum">      88</span>                 :             :     // exactly the timeout is still integrated (TC-006 step 6).</span>
+<span id="L89"><span class="lineNum">      89</span>         [<span class="tlaGBC" title="Branch 0 was taken 1690477 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 29925 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (imu_fresh) {</span></span>
+<span id="L90"><span class="lineNum">      90</span>                 :<span class="tlaGNC">     1690477 :         float imu_dt = 0.0f;</span></span>
+<span id="L91"><span class="lineNum">      91</span>         [<span class="tlaGBC" title="Branch 0 was taken 1688286 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2191 times"> + </span>]:<span class="tlaGNC">     1690477 :         if (imu_last_fresh_ms_.has_value()) {</span></span>
+<span id="L92"><span class="lineNum">      92</span>                 :<span class="tlaGNC">     1688286 :             const uint64_t gap_ms = raw.timestamp_ms - *imu_last_fresh_ms_;</span></span>
+<span id="L93"><span class="lineNum">      93</span>         [<span class="tlaGBC" title="Branch 0 was taken 163 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1688123 times"> + </span>]:<span class="tlaGNC">     1688286 :             if (gap_ms &gt; imu_timeout_ms_) {</span></span>
+<span id="L94"><span class="lineNum">      94</span>                 :<span class="tlaGNC">         163 :                 attitude_filter_.reset();</span></span>
+<span id="L95"><span class="lineNum">      95</span>                 :             :             }</span>
+<span id="L96"><span class="lineNum">      96</span>                 :<span class="tlaGNC">     1688286 :             imu_dt = static_cast&lt;float&gt;(gap_ms) / 1000.0f;</span></span>
+<span id="L97"><span class="lineNum">      97</span>                 :             :         }</span>
+<span id="L98"><span class="lineNum">      98</span>                 :<span class="tlaGNC">     1690477 :         attitude_filter_.update(raw.accel_x, raw.accel_y, raw.accel_z,</span></span>
+<span id="L99"><span class="lineNum">      99</span>                 :<span class="tlaGNC">     1690477 :                                 raw.gyro_x, raw.gyro_y, raw.gyro_z, imu_dt);</span></span>
+<span id="L100"><span class="lineNum">     100</span>                 :<span class="tlaGNC">     1690477 :         imu_last_fresh_ms_ = raw.timestamp_ms;</span></span>
+<span id="L101"><span class="lineNum">     101</span>         [<span class="tlaGBC" title="Branch 0 was taken 1690475 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span>]:<span class="tlaGNC">     1690477 :         if (attitude_filter_.seeded()) {</span></span>
+<span id="L102"><span class="lineNum">     102</span>                 :<span class="tlaGNC">     1690475 :             attitude_ever_seeded_ = true;</span></span>
+<span id="L103"><span class="lineNum">     103</span>                 :             :         }</span>
+<span id="L104"><span class="lineNum">     104</span>                 :             :     }</span>
+<span id="L105"><span class="lineNum">     105</span>                 :<span class="tlaGNC">     1720402 :     out.pitch_deg = attitude_filter_.pitch_deg();</span></span>
+<span id="L106"><span class="lineNum">     106</span>                 :<span class="tlaGNC">     1720402 :     out.roll_deg = attitude_filter_.roll_deg();</span></span>
+<span id="L107"><span class="lineNum">     107</span>                 :             : </span>
+<span id="L108"><span class="lineNum">     108</span>                 :             :     // REQ-PROC-003: Kalman fusion of barometric and GPS altitude.</span>
+<span id="L109"><span class="lineNum">     109</span>                 :             :     // Prediction runs on every cycle the filter exists: time passes</span>
+<span id="L110"><span class="lineNum">     110</span>                 :             :     // whether or not a sensor reported, and the covariance must grow to</span>
+<span id="L111"><span class="lineNum">     111</span>                 :             :     // say so. Timestamps are integer ms; the filter works in seconds.</span>
+<span id="L112"><span class="lineNum">     112</span>         [<span class="tlaGBC" title="Branch 0 was taken 1718119 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2283 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (altitude_filter_.has_value()) {</span></span>
+<span id="L113"><span class="lineNum">     113</span>                 :<span class="tlaGNC">     1718119 :         const float dt = static_cast&lt;float&gt;(raw.timestamp_ms - previous_timestamp_ms_) / 1000.0f;</span></span>
+<span id="L114"><span class="lineNum">     114</span>                 :<span class="tlaGNC">     1718119 :         altitude_filter_-&gt;predict(dt);</span></span>
+<span id="L115"><span class="lineNum">     115</span>         [<span class="tlaGBC" title="Branch 0 was taken 2183 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 100 times"> + </span>]:<span class="tlaGNC">        2283 :     } else if (baro_fresh) {</span></span>
+<span id="L116"><span class="lineNum">     116</span>                 :             :         // No estimate exists yet, and this cycle measured the barometer,</span>
+<span id="L117"><span class="lineNum">     117</span>                 :             :         // so the filter is born here: at this barometric altitude, with</span>
+<span id="L118"><span class="lineNum">     118</span>                 :             :         // zero vertical velocity, and no predict because there is no</span>
+<span id="L119"><span class="lineNum">     119</span>                 :             :         // previous state. emplace() constructs the filter in place inside</span>
+<span id="L120"><span class="lineNum">     120</span>                 :             :         // the optional; the arguments go straight to the KalmanFilter1D</span>
+<span id="L121"><span class="lineNum">     121</span>                 :             :         // constructor. A frame whose barometer read failed cannot start</span>
+<span id="L122"><span class="lineNum">     122</span>                 :             :         // it: a filter born from an unmeasured pressure would start 44 km</span>
+<span id="L123"><span class="lineNum">     123</span>                 :             :         // up. Until a fresh reading arrives the fused fields keep the</span>
+<span id="L124"><span class="lineNum">     124</span>                 :             :         // zero every source leaves in them. The initial altitude variance</span>
+<span id="L125"><span class="lineNum">     125</span>                 :             :         // is the barometric measurement variance (REQ-PROC-004): the</span>
+<span id="L126"><span class="lineNum">     126</span>                 :             :         // filter is born from one such reading.</span>
+<span id="L127"><span class="lineNum">     127</span>                 :<span class="tlaGNC">        2183 :         altitude_filter_.emplace(out.baro_altitude_m,</span></span>
+<span id="L128"><span class="lineNum">     128</span>                 :<span class="tlaGNC">        2183 :                                  0.0f,</span></span>
+<span id="L129"><span class="lineNum">     129</span>                 :<span class="tlaGNC">        2183 :                                  tuning_.baro_measurement_variance_m2,</span></span>
+<span id="L130"><span class="lineNum">     130</span>                 :<span class="tlaGNC">        2183 :                                  tuning_.initial_velocity_variance,</span></span>
+<span id="L131"><span class="lineNum">     131</span>                 :<span class="tlaGNC">        2183 :                                  tuning_.accel_noise_variance);</span></span>
+<span id="L132"><span class="lineNum">     132</span>         [<span class="tlaGBC" title="Branch 0 was taken 21 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 79 times"> + </span>]:<span class="tlaGNC">         100 :     } else if (gps_fresh) {</span></span>
+<span id="L133"><span class="lineNum">     133</span>                 :             :         // No barometer has read yet but the GPS has: the filter is born</span>
+<span id="L134"><span class="lineNum">     134</span>                 :             :         // from the GPS reading, at the GPS variance, by the same rule</span>
+<span id="L135"><span class="lineNum">     135</span>                 :             :         // (REQ-PROC-003, REQ-PROC-004, since 0.12.0). The barometer is</span>
+<span id="L136"><span class="lineNum">     136</span>                 :             :         // tried first, above, so every session that reads one on its</span>
+<span id="L137"><span class="lineNum">     137</span>                 :             :         // first cycle is born as before, byte for byte; the ADS-B source</span>
+<span id="L138"><span class="lineNum">     138</span>                 :             :         // never reads one, and until this branch its altitude never</span>
+<span id="L139"><span class="lineNum">     139</span>                 :             :         // existed (design.md section 12).</span>
+<span id="L140"><span class="lineNum">     140</span>                 :<span class="tlaGNC">          21 :         altitude_filter_.emplace(raw.gps_altitude_m,</span></span>
+<span id="L141"><span class="lineNum">     141</span>                 :<span class="tlaGNC">          21 :                                  0.0f,</span></span>
+<span id="L142"><span class="lineNum">     142</span>                 :<span class="tlaGNC">          21 :                                  tuning_.gps_measurement_variance_m2,</span></span>
+<span id="L143"><span class="lineNum">     143</span>                 :<span class="tlaGNC">          21 :                                  tuning_.initial_velocity_variance,</span></span>
+<span id="L144"><span class="lineNum">     144</span>                 :<span class="tlaGNC">          21 :                                  tuning_.accel_noise_variance);</span></span>
+<span id="L145"><span class="lineNum">     145</span>                 :             :     }</span>
+<span id="L146"><span class="lineNum">     146</span>                 :             : </span>
+<span id="L147"><span class="lineNum">     147</span>         [<span class="tlaGBC" title="Branch 0 was taken 1720323 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 79 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (altitude_filter_.has_value()) {</span></span>
+<span id="L148"><span class="lineNum">     148</span>                 :             :         // Measurement updates, each behind its own freshness gate. Baro is</span>
+<span id="L149"><span class="lineNum">     149</span>                 :             :         // applied first because it is the primary altitude reference; GPS</span>
+<span id="L150"><span class="lineNum">     150</span>                 :             :         // refines it. On the filter's first cycle the baro update has zero</span>
+<span id="L151"><span class="lineNum">     151</span>                 :             :         // innovation (the state was set from this same reading), so it</span>
+<span id="L152"><span class="lineNum">     152</span>                 :             :         // only tightens the covariance.</span>
+<span id="L153"><span class="lineNum">     153</span>         [<span class="tlaGBC" title="Branch 0 was taken 1685479 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 34844 times"> + </span>]:<span class="tlaGNC">     1720323 :         if (baro_fresh) {</span></span>
+<span id="L154"><span class="lineNum">     154</span>                 :<span class="tlaGNC">     1685479 :             altitude_filter_-&gt;update(out.baro_altitude_m, tuning_.baro_measurement_variance_m2);</span></span>
+<span id="L155"><span class="lineNum">     155</span>                 :             :         }</span>
+<span id="L156"><span class="lineNum">     156</span>         [<span class="tlaGBC" title="Branch 0 was taken 37336 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1682987 times"> + </span>]:<span class="tlaGNC">     1720323 :         if (gps_fresh) {</span></span>
+<span id="L157"><span class="lineNum">     157</span>                 :<span class="tlaGNC">       37336 :             altitude_filter_-&gt;update(raw.gps_altitude_m, tuning_.gps_measurement_variance_m2);</span></span>
+<span id="L158"><span class="lineNum">     158</span>                 :<span class="tlaGNC">       37336 :             gps_ever_fresh_ = true;</span></span>
+<span id="L159"><span class="lineNum">     159</span>                 :             :         }</span>
+<span id="L160"><span class="lineNum">     160</span>                 :<span class="tlaGNC">     1720323 :         out.fused_altitude_m = altitude_filter_-&gt;altitude();</span></span>
+<span id="L161"><span class="lineNum">     161</span>                 :<span class="tlaGNC">     1720323 :         out.vertical_speed_mps = altitude_filter_-&gt;vertical_velocity();</span></span>
+<span id="L162"><span class="lineNum">     162</span>                 :             :     }</span>
+<span id="L163"><span class="lineNum">     163</span>                 :             : </span>
+<span id="L164"><span class="lineNum">     164</span>                 :<span class="tlaGNC">     1720402 :     previous_timestamp_ms_ = raw.timestamp_ms;</span></span>
+<span id="L165"><span class="lineNum">     165</span>                 :             : </span>
+<span id="L166"><span class="lineNum">     166</span>                 :             :     // Channel status (baro_status, imu_status, gps_status) is left as the</span>
+<span id="L167"><span class="lineNum">     167</span>                 :             :     // fault detector set it (REQ-FAULT-004); this class only reads it.</span>
+<span id="L168"><span class="lineNum">     168</span>                 :             : </span>
+<span id="L169"><span class="lineNum">     169</span>                 :             :     // REQ-PROC-007: every computed field is written above; judge each one</span>
+<span id="L170"><span class="lineNum">     170</span>                 :             :     // last, so the verdict and the value leave in the same frame.</span>
+<span id="L171"><span class="lineNum">     171</span>                 :<span class="tlaGNC">     1720402 :     judge(out);</span></span>
+<span id="L172"><span class="lineNum">     172</span>                 :             : </span>
+<span id="L173"><span class="lineNum">     173</span>                 :<span class="tlaGNC">     1720402 :     return out;</span></span>
+<span id="L174"><span class="lineNum">     174</span>                 :             : }</span>
+<span id="L175"><span class="lineNum">     175</span>                 :             : </span>
+<span id="L176"><span class="lineNum">     176</span>                 :             : // The validity of each computed field (REQ-PROC-007), by one ordered rule</span>
+<span id="L177"><span class="lineNum">     177</span>                 :             : // per field, the first that applies winning: &quot;never existed&quot; outranks &quot;not</span>
+<span id="L178"><span class="lineNum">     178</span>                 :             : // trusted now&quot;, so a flag is never raised over a number nobody measured,</span>
+<span id="L179"><span class="lineNum">     179</span>                 :             : // and NORMAL is what remains. The detector's status is the trust; this</span>
+<span id="L180"><span class="lineNum">     180</span>                 :             : // class adds only what it alone knows, whether an estimate exists. A stale</span>
+<span id="L181"><span class="lineNum">     181</span>                 :             : // NOMINAL cycle inside the timeout stays NORMAL: staleness is the</span>
+<span id="L182"><span class="lineNum">     182</span>                 :             : // detector's call (REQ-PROC-006), not a flag.</span>
+<span id="L183"><span class="lineNum">     183</span>                 :<span class="tlaGNC">     1720402 : void TelemetryProcessor::judge(TelemetryFrame&amp; out) const {</span></span>
+<span id="L184"><span class="lineNum">     184</span>                 :             :     // Barometric altitude depends on the barometer alone. != NOMINAL, not</span>
+<span id="L185"><span class="lineNum">     185</span>                 :             :     // == DEGRADED: the field is NORMAL only while its source is trusted.</span>
+<span id="L186"><span class="lineNum">     186</span>         [<span class="tlaGBC" title="Branch 0 was taken 4078 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1716324 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (!baro_ever_fresh_) {</span></span>
+<span id="L187"><span class="lineNum">     187</span>                 :<span class="tlaGNC">        4078 :         out.baro_altitude_validity = Validity::NO_COMPUTED_DATA;</span></span>
+<span id="L188"><span class="lineNum">     188</span>         [<span class="tlaGBC" title="Branch 0 was taken 27550 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1688774 times"> + </span>]:<span class="tlaGNC">     1716324 :     } else if (out.baro_status != ChannelStatus::NOMINAL) {</span></span>
+<span id="L189"><span class="lineNum">     189</span>                 :<span class="tlaGNC">       27550 :         out.baro_altitude_validity = Validity::FAILURE_WARNING;</span></span>
+<span id="L190"><span class="lineNum">     190</span>                 :             :     } else {</span>
+<span id="L191"><span class="lineNum">     191</span>                 :<span class="tlaGNC">     1688774 :         out.baro_altitude_validity = Validity::NORMAL;</span></span>
+<span id="L192"><span class="lineNum">     192</span>                 :             :     }</span>
+<span id="L193"><span class="lineNum">     193</span>                 :             : </span>
+<span id="L194"><span class="lineNum">     194</span>                 :             :     // Pitch and roll depend on the IMU and on a seeded filter: one verdict</span>
+<span id="L195"><span class="lineNum">     195</span>                 :             :     // for both, since one filter holds both angles from one seed. After a</span>
+<span id="L196"><span class="lineNum">     196</span>                 :             :     // reset the filter is unseeded until a usable accelerometer sample,</span>
+<span id="L197"><span class="lineNum">     197</span>                 :             :     // which on the recovery frame is the same frame; only an unusable one</span>
+<span id="L198"><span class="lineNum">     198</span>                 :             :     // leaves the held angles flagged.</span>
+<span id="L199"><span class="lineNum">     199</span>                 :<span class="tlaGNC">     1720402 :     Validity attitude = Validity::NORMAL;</span></span>
+<span id="L200"><span class="lineNum">     200</span>         [<span class="tlaGBC" title="Branch 0 was taken 3704 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1716698 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (!attitude_ever_seeded_) {</span></span>
+<span id="L201"><span class="lineNum">     201</span>                 :<span class="tlaGNC">        3704 :         attitude = Validity::NO_COMPUTED_DATA;</span></span>
+<span id="L202"><span class="lineNum">     202</span>   [<span class="tlaGBC" title="Branch 0 was taken 1692610 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 24088 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 1692609 times"> + </span> :<span class="tlaGNC">     1716698 :     } else if (out.imu_status != ChannelStatus::NOMINAL || !attitude_filter_.seeded()) {</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 24089 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 1692609 times"> + </span>]
+<span id="L203"><span class="lineNum">     203</span>                 :<span class="tlaGNC">       24089 :         attitude = Validity::FAILURE_WARNING;</span></span>
+<span id="L204"><span class="lineNum">     204</span>                 :             :     }</span>
+<span id="L205"><span class="lineNum">     205</span>                 :<span class="tlaGNC">     1720402 :     out.pitch_validity = attitude;</span></span>
+<span id="L206"><span class="lineNum">     206</span>                 :<span class="tlaGNC">     1720402 :     out.roll_validity = attitude;</span></span>
+<span id="L207"><span class="lineNum">     207</span>                 :             : </span>
+<span id="L208"><span class="lineNum">     208</span>                 :             :     // Fused altitude and vertical speed depend on an altitude source the</span>
+<span id="L209"><span class="lineNum">     209</span>                 :             :     // filter has taken a measurement from, NOMINAL now (FAULT-001: fused</span>
+<span id="L210"><span class="lineNum">     210</span>                 :             :     // altitude relies solely on GPS while the barometer is out; in ADS-B</span>
+<span id="L211"><span class="lineNum">     211</span>                 :             :     // mode there is no barometer and the GPS is the only source). With</span>
+<span id="L212"><span class="lineNum">     212</span>                 :             :     // neither the filter coasts on prediction and the estimate random-</span>
+<span id="L213"><span class="lineNum">     213</span>                 :             :     // walks: flagged at once and for as long as it lasts, never cleared by</span>
+<span id="L214"><span class="lineNum">     214</span>                 :             :     // time. A GPS that is NOMINAL but has never fixed does not contribute.</span>
+<span id="L215"><span class="lineNum">     215</span>                 :<span class="tlaGNC">     1720402 :     Validity fused = Validity::NORMAL;</span></span>
+<span id="L216"><span class="lineNum">     216</span>         [<span class="tlaGBC" title="Branch 0 was taken 79 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1720323 times"> + </span>]:<span class="tlaGNC">     1720402 :     if (!altitude_filter_.has_value()) {</span></span>
+<span id="L217"><span class="lineNum">     217</span>                 :<span class="tlaGNC">          79 :         fused = Validity::NO_COMPUTED_DATA;</span></span>
+<span id="L218"><span class="lineNum">     218</span>                 :             :     } else {</span>
+<span id="L219"><span class="lineNum">     219</span>                 :             :         // Each source contributes only if the filter has ever taken a</span>
+<span id="L220"><span class="lineNum">     220</span>                 :             :         // measurement from it and it is trusted now: a filter born from</span>
+<span id="L221"><span class="lineNum">     221</span>                 :             :         // the GPS beside a barometer that is NOMINAL but has never read</span>
+<span id="L222"><span class="lineNum">     222</span>                 :             :         // must not count the barometer, and the symmetric case likewise.</span>
+<span id="L223"><span class="lineNum">     223</span>   [<span class="tlaGBC" title="Branch 0 was taken 1716324 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 3999 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1688774 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 27550 times"> + </span>]:<span class="tlaGNC">     1720323 :         const bool baro_contributes = baro_ever_fresh_ &amp;&amp; out.baro_status == ChannelStatus::NOMINAL;</span></span>
+<span id="L224"><span class="lineNum">     224</span>   [<span class="tlaGBC" title="Branch 0 was taken 1720058 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 265 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1693203 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 26855 times"> + </span>]:<span class="tlaGNC">     1720323 :         const bool gps_contributes = gps_ever_fresh_ &amp;&amp; out.gps_status == ChannelStatus::NOMINAL;</span></span>
+<span id="L225"><span class="lineNum">     225</span>   [<span class="tlaGBC" title="Branch 0 was taken 31549 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1688774 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 22 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 31527 times"> + </span>]:<span class="tlaGNC">     1720323 :         if (!baro_contributes &amp;&amp; !gps_contributes) {</span></span>
+<span id="L226"><span class="lineNum">     226</span>                 :<span class="tlaGNC">          22 :             fused = Validity::FAILURE_WARNING;</span></span>
+<span id="L227"><span class="lineNum">     227</span>                 :             :         }</span>
+<span id="L228"><span class="lineNum">     228</span>                 :             :     }</span>
+<span id="L229"><span class="lineNum">     229</span>                 :<span class="tlaGNC">     1720402 :     out.fused_altitude_validity = fused;</span></span>
+<span id="L230"><span class="lineNum">     230</span>                 :<span class="tlaGNC">     1720402 :     out.vertical_speed_validity = fused;</span></span>
+<span id="L231"><span class="lineNum">     231</span>                 :<span class="tlaGNC">     1720402 : }</span></span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

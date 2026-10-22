@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/logging/log_format.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/logging</a> - log_format.cpp<span style="font-size: 80%;"> (source / <a href="log_format.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">34</td>
+            <td class="headerCovTableEntry">34</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">4</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">12</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;logging/log_format.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstring&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : </span>
+<span id="L5"><span class="lineNum">       5</span>                 :<span class="tlaGNC tlaBgGNC">         122 : LogFileHeader make_log_header(RunMode run_mode, RunMode source_mode) {</span></span>
+<span id="L6"><span class="lineNum">       6</span>                 :<span class="tlaGNC">         122 :     LogFileHeader h{};</span></span>
+<span id="L7"><span class="lineNum">       7</span>                 :<span class="tlaGNC">         122 :     std::memcpy(h.magic, &quot;FTLG&quot;, 4);</span></span>
+<span id="L8"><span class="lineNum">       8</span>                 :<span class="tlaGNC">         122 :     h.version = kLogFormatVersion;</span></span>
+<span id="L9"><span class="lineNum">       9</span>                 :<span class="tlaGNC">         122 :     h.frame_size = static_cast&lt;uint16_t&gt;(sizeof(TelemetryFrame));</span></span>
+<span id="L10"><span class="lineNum">      10</span>                 :<span class="tlaGNC">         122 :     h.event_size = static_cast&lt;uint16_t&gt;(sizeof(FaultEvent));</span></span>
+<span id="L11"><span class="lineNum">      11</span>                 :<span class="tlaGNC">         122 :     h.run_mode = static_cast&lt;uint8_t&gt;(run_mode);</span></span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">         122 :     h.source_mode = static_cast&lt;uint8_t&gt;(source_mode);</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :<span class="tlaGNC">         122 :     h.endian_marker = kEndianMarker;</span></span>
+<span id="L14"><span class="lineNum">      14</span>                 :<span class="tlaGNC">         122 :     return h;</span></span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : }</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : </span>
+<span id="L17"><span class="lineNum">      17</span>                 :<span class="tlaGNC">         132 : std::string header_problem(const LogFileHeader&amp; header) {</span></span>
+<span id="L18"><span class="lineNum">      18</span>                 :             :     // Checked in the order a reader would notice them: a file that is not</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             :     // ours at all, then a layout this build does not know, then the sizes</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             :     // and the byte order that pin the layout it does.</span>
+<span id="L21"><span class="lineNum">      21</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 130 times"> + </span>]:<span class="tlaGNC">         132 :     if (std::memcmp(header.magic, &quot;FTLG&quot;, 4) != 0) {</span></span>
+<span id="L22"><span class="lineNum">      22</span>                 :<span class="tlaGNC">           4 :         return &quot;bad magic: not a telemetry log&quot;;</span></span>
+<span id="L23"><span class="lineNum">      23</span>                 :             :     }</span>
+<span id="L24"><span class="lineNum">      24</span>   [<span class="tlaGBC" title="Branch 0 was taken 129 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 127 times"> + </span>]:<span class="tlaGNC">         130 :     if (header.version &lt; kOldestReadableLogFormatVersion || header.version &gt; kLogFormatVersion) {</span></span>
+<span id="L25"><span class="lineNum">      25</span>                 :<span class="tlaGNC">           6 :         return &quot;format version &quot; + std::to_string(header.version) + &quot;; this build reads &quot;</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :<span class="tlaGNC">           9 :              + std::to_string(kOldestReadableLogFormatVersion) + &quot; to &quot; + std::to_string(kLogFormatVersion);</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     }</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     // The size the header's version implies, not this build's: a version-2</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     // file says 104 and is right to.</span>
+<span id="L30"><span class="lineNum">      30</span>         [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 124 times"> + </span>]:<span class="tlaGNC">         127 :     if (header.frame_size != frame_size_for(header.version)) {</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :<span class="tlaGNC">           6 :         return &quot;frame size &quot; + std::to_string(header.frame_size) + &quot; in the header, &quot;</span></span>
+<span id="L32"><span class="lineNum">      32</span>                 :<span class="tlaGNC">          12 :              + std::to_string(frame_size_for(header.version)) + &quot; for version &quot;</span></span>
+<span id="L33"><span class="lineNum">      33</span>                 :<span class="tlaGNC">           9 :              + std::to_string(header.version) + &quot; in this build&quot;;</span></span>
+<span id="L34"><span class="lineNum">      34</span>                 :             :     }</span>
+<span id="L35"><span class="lineNum">      35</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 123 times"> + </span>]:<span class="tlaGNC">         124 :     if (header.event_size != sizeof(FaultEvent)) {</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">           2 :         return &quot;event size &quot; + std::to_string(header.event_size) + &quot; in the header, &quot;</span></span>
+<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">           3 :              + std::to_string(sizeof(FaultEvent)) + &quot; in this build&quot;;</span></span>
+<span id="L38"><span class="lineNum">      38</span>                 :             :     }</span>
+<span id="L39"><span class="lineNum">      39</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 122 times"> + </span>]:<span class="tlaGNC">         123 :     if (header.endian_marker != kEndianMarker) {</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">           2 :         return &quot;endianness marker does not match: written on a host with the other byte order&quot;;</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :             :     }</span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">         244 :     return &quot;&quot;;</span></span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : }</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : </span>
+<span id="L45"><span class="lineNum">      45</span>                 :<span class="tlaGNC">           4 : bool header_is_valid(const LogFileHeader&amp; header) {</span></span>
+<span id="L46"><span class="lineNum">      46</span>                 :<span class="tlaGNC">           4 :     return header_problem(header).empty();</span></span>
+<span id="L47"><span class="lineNum">      47</span>                 :             : }</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             : </span>
+<span id="L49"><span class="lineNum">      49</span>                 :<span class="tlaGNC">        8151 : std::array&lt;uint8_t, kFrameMessageBytes&gt; frame_message(const TelemetryFrame&amp; frame, const LogFileHeader&amp; header) {</span></span>
+<span id="L50"><span class="lineNum">      50</span>                 :<span class="tlaGNC">        8151 :     std::array&lt;uint8_t, kFrameMessageBytes&gt; out{};</span></span>
+<span id="L51"><span class="lineNum">      51</span>                 :<span class="tlaGNC">        8151 :     std::memcpy(out.data(), &amp;header, sizeof(header));</span></span>
+<span id="L52"><span class="lineNum">      52</span>                 :<span class="tlaGNC">        8151 :     out[sizeof(header)] = static_cast&lt;uint8_t&gt;(RecordType::FRAME);</span></span>
+<span id="L53"><span class="lineNum">      53</span>                 :<span class="tlaGNC">        8151 :     std::memcpy(out.data() + sizeof(header) + 1, &amp;frame, sizeof(frame));</span></span>
+<span id="L54"><span class="lineNum">      54</span>                 :<span class="tlaGNC">        8151 :     return out;</span></span>
+<span id="L55"><span class="lineNum">      55</span>                 :             : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

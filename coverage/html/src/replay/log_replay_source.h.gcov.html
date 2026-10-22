@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/replay/log_replay_source.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/replay</a> - log_replay_source.h<span style="font-size: 80%;"> (source / <a href="log_replay_source.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstddef&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;filesystem&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &lt;optional&gt;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &lt;vector&gt;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : </span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : #include &quot;data_source.h&quot;</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : #include &quot;logging/log_reader.h&quot;</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : </span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // DataSource that replays a recorded session (REQ-LOG-003, REQ-LOG-004).</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : //</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // The logger wrote *processed* frames. This source hands back *raw* ones:</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // before a frame leaves read_frame(), every computed field is zeroed, every</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // ChannelStatus the detector judged is reset to NOMINAL (NOT_AVAILABLE, the</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : // one a source asserts, is kept, REQ-FAULT-007) and every Validity to</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // NOT_JUDGED.</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // Timestamp, sensor fields, the read_ok flags and, since format version 3,</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : // the sequence number, the flags byte and the tail's raw fields are kept</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // exactly as logged, facts the source stated, while the voter's status, a</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // verdict the replay's voter recomputes, and the reserved field are zeroed; a version-1 or version-2 log's frames arrive the same way, as a</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // prefix with a zero tail (REQ-LOG-005). That is the raw-only contract</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // from data_source.h applied to replay: the detector recomputes status</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // from read_ok and the processor recomputes the rest. A replay that passed the logged results through would let the</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : // pipeline be skipped entirely and still &quot;match&quot;.</span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : //</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             : // Files are read in the order given, so rotated files replay as one</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : // session. Event records are skipped; replay reproduces them by re-running</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             : // the detector.</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             : //</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : // End of stream (REQ-LOG-006): has_next() answers from a one-frame</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             : // look-ahead, filled from the current file or the next readable one and</span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : // consumed only by read_frame(), so the loop can ask before every read and</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : // stop exactly at the log's end. exhausted() reports true once a look-ahead</span>
+<span id="L35"><span class="lineNum">      35</span>                 :             : // found nothing. A caller that never asks still gets the last frame again</span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : // from read_frame(), the fallback the loop no longer relies on.</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : class LogReplaySource : public DataSource {</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : public:</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             :     explicit LogReplaySource(std::vector&lt;std::filesystem::path&gt; files);</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : </span>
+<span id="L41"><span class="lineNum">      41</span>                 :             :     TelemetryFrame read_frame() override;</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             :     bool has_next() override;</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             : </span>
+<span id="L44"><span class="lineNum">      44</span>                 :<span class="tlaGNC tlaBgGNC">          16 :     bool exhausted() const { return exhausted_; }</span></span>
+<span id="L45"><span class="lineNum">      45</span>                 :<span class="tlaGNC">          10 :     size_t frames_read() const { return frames_read_; }</span></span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : </span>
+<span id="L47"><span class="lineNum">      47</span>                 :             : private:</span>
+<span id="L48"><span class="lineNum">      48</span>                 :             :     bool open_next_file();</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     static void strip_to_raw(TelemetryFrame&amp; frame);</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             : </span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :     std::vector&lt;std::filesystem::path&gt; files_;</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :     size_t next_file_ = 0;</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :     std::optional&lt;LogReader&gt; reader_;</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             :     std::optional&lt;TelemetryFrame&gt; next_;   // the look-ahead: what read_frame() hands out next</span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     TelemetryFrame last_{};</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :     size_t frames_read_ = 0;</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     bool exhausted_ = false;</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

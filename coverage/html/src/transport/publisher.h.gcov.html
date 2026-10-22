@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/transport/publisher.h</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/transport</a> - publisher.h<span style="font-size: 80%;"> (source / <a href="publisher.h.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">1</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">50.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">1</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">-</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #pragma once</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdint&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : </span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : #include &quot;telemetry_frame.h&quot;</span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : #include &quot;transport/session_message.h&quot;</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : </span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : // The output-side seam (REQ-TRANS-001, REQ-TRANS-002): what the processing</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : // loop sees of a transport. The loop holds base pointers and calls</span>
+<span id="L10"><span class="lineNum">      10</span>                 :             : // publish() once per processed frame; it never learns whether the frame</span>
+<span id="L11"><span class="lineNum">      11</span>                 :             : // went to a ZeroMQ socket, a UDP socket, or both, the same way it never</span>
+<span id="L12"><span class="lineNum">      12</span>                 :             : // learns which DataSource it reads (design.md section 9). The composition</span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : // root owns the concrete objects, checks their startup status, and prints</span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : // their summaries at exit. A third transport is a class and a flag, not a</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : // change to the loop.</span>
+<span id="L16"><span class="lineNum">      16</span>                 :             : //</span>
+<span id="L17"><span class="lineNum">      17</span>                 :             : // A publish never blocks and never throws (REQ-TRANS-003): each transport</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : // translates its own failures into the counters below at its boundary.</span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : //</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : // The session status (REQ-TRANS-004) travels the same way: publish_status</span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // sends the nineteen bytes of session_message through the same socket a</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // frame goes through, counted apart from frames, so a consumer can tell the</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             : // mode of the run and of the data, the end of the stream and the aircraft an</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             : // ADS-B run presents, which the frames cannot say.</span>
+<span id="L25"><span class="lineNum">      25</span>                 :             : </span>
+<span id="L26"><span class="lineNum">      26</span>                 :             : struct PublishStats {</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     uint64_t published = 0;       // frames the transport accepted</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     uint64_t status_published = 0; // session status messages it accepted (REQ-TRANS-004)</span>
+<span id="L29"><span class="lineNum">      29</span>                 :             :     uint64_t send_failures = 0;   // sends refused or thrown, frames and statuses alike; the loop went on</span>
+<span id="L30"><span class="lineNum">      30</span>                 :             :     int last_errno = 0;           // from the most recent failure, e.g. ETERM, ECONNREFUSED</span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : };</span>
+<span id="L32"><span class="lineNum">      32</span>                 :             : </span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : class Publisher {</span>
+<span id="L34"><span class="lineNum">      34</span>                 :             : public:</span>
+<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaGNC tlaBgGNC">          28 :     virtual ~Publisher() = default;</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : </span>
+<span id="L37"><span class="lineNum">      37</span>                 :             :     // Hands one frame to the transport and returns at once. false means the</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             :     // frame was not sent; stats() says how often that has happened.</span>
+<span id="L39"><span class="lineNum">      39</span>                 :             :     virtual bool publish(const TelemetryFrame&amp; frame) = 0;</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             : </span>
+<span id="L41"><span class="lineNum">      41</span>                 :             :     // Hands one session status to the transport and returns at once</span>
+<span id="L42"><span class="lineNum">      42</span>                 :             :     // (REQ-TRANS-004). false means it was not sent; counted like a frame.</span>
+<span id="L43"><span class="lineNum">      43</span>                 :             :     virtual bool publish_status(const SessionStatus&amp; status) = 0;</span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : </span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     virtual const PublishStats&amp; stats() const = 0;</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             : };</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

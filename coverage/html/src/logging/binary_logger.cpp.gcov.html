@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/logging/binary_logger.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/logging</a> - binary_logger.cpp<span style="font-size: 80%;"> (source / <a href="binary_logger.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">51</td>
+            <td class="headerCovTableEntry">51</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntry">7</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">12</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;logging/binary_logger.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;iomanip&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;sstream&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : </span>
+<span id="L6"><span class="lineNum">       6</span>                 :<span class="tlaGNC tlaBgGNC">         146 : std::filesystem::path log_file_path(const std::filesystem::path&amp; directory,</span></span>
+<span id="L7"><span class="lineNum">       7</span>                 :             :                                     const std::string&amp; prefix, int index) {</span>
+<span id="L8"><span class="lineNum">       8</span>                 :             :     // ostringstream with setw/setfill rather than snprintf: no buffer to</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             :     // size, and it composes with std::string without a cast.</span>
+<span id="L10"><span class="lineNum">      10</span>                 :<span class="tlaGNC">         146 :     std::ostringstream name;</span></span>
+<span id="L11"><span class="lineNum">      11</span>                 :<span class="tlaGNC">         146 :     name &lt;&lt; prefix &lt;&lt; '_' &lt;&lt; std::setw(3) &lt;&lt; std::setfill('0') &lt;&lt; index &lt;&lt; &quot;.bin&quot;;</span></span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">         292 :     return directory / name.str();</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :<span class="tlaGNC">         146 : }</span></span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : </span>
+<span id="L15"><span class="lineNum">      15</span>                 :<span class="tlaGNC">          80 : BinaryLogger::BinaryLogger(std::filesystem::path directory, std::string prefix,</span></span>
+<span id="L16"><span class="lineNum">      16</span>                 :<span class="tlaGNC">          80 :                            uint64_t max_file_bytes, LogFileHeader header)</span></span>
+<span id="L17"><span class="lineNum">      17</span>                 :<span class="tlaGNC">          80 :     : directory_(std::move(directory)),</span></span>
+<span id="L18"><span class="lineNum">      18</span>                 :<span class="tlaGNC">          80 :       prefix_(std::move(prefix)),</span></span>
+<span id="L19"><span class="lineNum">      19</span>                 :<span class="tlaGNC">          80 :       max_file_bytes_(max_file_bytes),</span></span>
+<span id="L20"><span class="lineNum">      20</span>                 :<span class="tlaGNC">          80 :       header_(header)</span></span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : {</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             :     // A file must be able to hold its header and at least one frame, or</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             :     // every write would rotate and the frame would never land.</span>
+<span id="L24"><span class="lineNum">      24</span>                 :<span class="tlaGNC">          80 :     const uint64_t minimum = sizeof(LogFileHeader) + 1 + sizeof(TelemetryFrame);</span></span>
+<span id="L25"><span class="lineNum">      25</span>         [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 77 times"> + </span>]:<span class="tlaGNC">          80 :     if (max_file_bytes_ &lt; minimum) {</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :<span class="tlaGNC">           3 :         max_file_bytes_ = minimum;</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     }</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : </span>
+<span id="L29"><span class="lineNum">      29</span>                 :<span class="tlaGNC">          80 :     std::error_code ec;</span></span>
+<span id="L30"><span class="lineNum">      30</span>                 :<span class="tlaGNC">          80 :     std::filesystem::create_directories(directory_, ec);</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :<span class="tlaGNC">          80 :     open_next_file();</span></span>
+<span id="L32"><span class="lineNum">      32</span>                 :<span class="tlaGNC">          80 : }</span></span>
+<span id="L33"><span class="lineNum">      33</span>                 :             : </span>
+<span id="L34"><span class="lineNum">      34</span>                 :<span class="tlaGNC">          95 : void BinaryLogger::open_next_file() {</span></span>
+<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaGNC">          95 :     file_index_++;</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :             :     // Assigning a fresh stream closes the previous file: the old</span>
+<span id="L37"><span class="lineNum">      37</span>                 :             :     // ofstream's destructor runs as part of the move-assignment.</span>
+<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC">         190 :     out_ = std::ofstream(log_file_path(directory_, prefix_, file_index_),</span></span>
+<span id="L39"><span class="lineNum">      39</span>                 :<span class="tlaGNC">          95 :                          std::ios::binary | std::ios::trunc);</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">          95 :     ok_ = out_.good();</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">          95 :     bytes_written_ = 0;</span></span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">          95 :     file_has_record_ = false;</span></span>
+<span id="L43"><span class="lineNum">      43</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 93 times"> + </span>]:<span class="tlaGNC">          95 :     if (!ok_) {</span></span>
+<span id="L44"><span class="lineNum">      44</span>                 :<span class="tlaGNC">           2 :         return;</span></span>
+<span id="L45"><span class="lineNum">      45</span>                 :             :     }</span>
+<span id="L46"><span class="lineNum">      46</span>                 :             :     // reinterpret_cast to bytes is safe here and only here: the header is</span>
+<span id="L47"><span class="lineNum">      47</span>                 :             :     // trivially copyable (static_assert in log_format.h).</span>
+<span id="L48"><span class="lineNum">      48</span>                 :<span class="tlaGNC">          93 :     out_.write(reinterpret_cast&lt;const char*&gt;(&amp;header_), sizeof(header_));</span></span>
+<span id="L49"><span class="lineNum">      49</span>                 :<span class="tlaGNC">          93 :     bytes_written_ += sizeof(header_);</span></span>
+<span id="L50"><span class="lineNum">      50</span>                 :             : }</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : </span>
+<span id="L52"><span class="lineNum">      52</span>                 :<span class="tlaGNC">       12724 : void BinaryLogger::write_record(RecordType type, const void* data, size_t size) {</span></span>
+<span id="L53"><span class="lineNum">      53</span>         [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 12721 times"> + </span>]:<span class="tlaGNC">       12724 :     if (!ok_) {</span></span>
+<span id="L54"><span class="lineNum">      54</span>                 :<span class="tlaGNC">           4 :         return;</span></span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     }</span>
+<span id="L56"><span class="lineNum">      56</span>                 :<span class="tlaGNC">       12721 :     const uint64_t record_bytes = 1 + size;</span></span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :     // Rotate before, not after: the decision is &quot;would this record</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :     // overflow&quot;, and it is only made once the file holds something, so a</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             :     // limit smaller than one record still produces one record per file.</span>
+<span id="L60"><span class="lineNum">      60</span>   [<span class="tlaGBC" title="Branch 0 was taken 12645 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 76 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 15 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 12630 times"> + </span>]:<span class="tlaGNC">       12721 :     if (file_has_record_ &amp;&amp; bytes_written_ + record_bytes &gt; max_file_bytes_) {</span></span>
+<span id="L61"><span class="lineNum">      61</span>                 :<span class="tlaGNC">          15 :         open_next_file();</span></span>
+<span id="L62"><span class="lineNum">      62</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 14 times"> + </span>]:<span class="tlaGNC">          15 :         if (!ok_) {</span></span>
+<span id="L63"><span class="lineNum">      63</span>                 :<span class="tlaGNC">           1 :             return;</span></span>
+<span id="L64"><span class="lineNum">      64</span>                 :             :         }</span>
+<span id="L65"><span class="lineNum">      65</span>                 :             :     }</span>
+<span id="L66"><span class="lineNum">      66</span>                 :<span class="tlaGNC">       12720 :     const uint8_t tag = static_cast&lt;uint8_t&gt;(type);</span></span>
+<span id="L67"><span class="lineNum">      67</span>                 :<span class="tlaGNC">       12720 :     out_.write(reinterpret_cast&lt;const char*&gt;(&amp;tag), 1);</span></span>
+<span id="L68"><span class="lineNum">      68</span>                 :<span class="tlaGNC">       12720 :     out_.write(static_cast&lt;const char*&gt;(data), static_cast&lt;std::streamsize&gt;(size));</span></span>
+<span id="L69"><span class="lineNum">      69</span>                 :<span class="tlaGNC">       12720 :     bytes_written_ += record_bytes;</span></span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC">       12720 :     file_has_record_ = true;</span></span>
+<span id="L71"><span class="lineNum">      71</span>                 :<span class="tlaGNC">       12720 :     ok_ = out_.good();</span></span>
+<span id="L72"><span class="lineNum">      72</span>                 :             : }</span>
+<span id="L73"><span class="lineNum">      73</span>                 :             : </span>
+<span id="L74"><span class="lineNum">      74</span>                 :<span class="tlaGNC">       12691 : void BinaryLogger::log_frame(const TelemetryFrame&amp; frame) {</span></span>
+<span id="L75"><span class="lineNum">      75</span>                 :<span class="tlaGNC">       12691 :     write_record(RecordType::FRAME, &amp;frame, sizeof(frame));</span></span>
+<span id="L76"><span class="lineNum">      76</span>                 :<span class="tlaGNC">       12691 : }</span></span>
+<span id="L77"><span class="lineNum">      77</span>                 :             : </span>
+<span id="L78"><span class="lineNum">      78</span>                 :<span class="tlaGNC">          33 : void BinaryLogger::log_event(const FaultEvent&amp; event) {</span></span>
+<span id="L79"><span class="lineNum">      79</span>                 :<span class="tlaGNC">          33 :     write_record(RecordType::FAULT_EVENT, &amp;event, sizeof(event));</span></span>
+<span id="L80"><span class="lineNum">      80</span>                 :<span class="tlaGNC">          33 : }</span></span>
+<span id="L81"><span class="lineNum">      81</span>                 :             : </span>
+<span id="L82"><span class="lineNum">      82</span>                 :<span class="tlaGNC">          49 : std::filesystem::path BinaryLogger::current_path() const {</span></span>
+<span id="L83"><span class="lineNum">      83</span>                 :<span class="tlaGNC">          49 :     return log_file_path(directory_, prefix_, file_index_);</span></span>
+<span id="L84"><span class="lineNum">      84</span>                 :             : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

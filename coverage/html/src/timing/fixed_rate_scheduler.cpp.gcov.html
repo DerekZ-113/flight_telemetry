@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/timing/fixed_rate_scheduler.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/timing</a> - fixed_rate_scheduler.cpp<span style="font-size: 80%;"> (source / <a href="fixed_rate_scheduler.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntry">26</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">4</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;timing/fixed_rate_scheduler.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :<span class="tlaGNC tlaBgGNC">          56 : FixedRateScheduler::FixedRateScheduler(Clock&amp; clock, uint64_t period_ns)</span></span>
+<span id="L4"><span class="lineNum">       4</span>                 :<span class="tlaGNC">          56 :     : clock_(clock),</span></span>
+<span id="L5"><span class="lineNum">       5</span>                 :<span class="tlaGNC">          56 :       period_ns_(period_ns)</span></span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : {</span>
+<span id="L7"><span class="lineNum">       7</span>                 :<span class="tlaGNC">          56 : }</span></span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : </span>
+<span id="L9"><span class="lineNum">       9</span>                 :<span class="tlaGNC">          32 : void FixedRateScheduler::start() {</span></span>
+<span id="L10"><span class="lineNum">      10</span>                 :<span class="tlaGNC">          32 :     next_deadline_ns_ = clock_.now_ns() + period_ns_;</span></span>
+<span id="L11"><span class="lineNum">      11</span>                 :<span class="tlaGNC">          32 :     started_ = true;</span></span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">          32 : }</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :             : </span>
+<span id="L14"><span class="lineNum">      14</span>                 :<span class="tlaGNC">        5891 : CycleTiming FixedRateScheduler::wait_for_next_cycle() {</span></span>
+<span id="L15"><span class="lineNum">      15</span>         [<span class="tlaGBC" title="Branch 0 was taken 30 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 5861 times"> + </span>]:<span class="tlaGNC">        5891 :     if (!started_) {</span></span>
+<span id="L16"><span class="lineNum">      16</span>                 :<span class="tlaGNC">          30 :         start();</span></span>
+<span id="L17"><span class="lineNum">      17</span>                 :             :     }</span>
+<span id="L18"><span class="lineNum">      18</span>                 :             : </span>
+<span id="L19"><span class="lineNum">      19</span>                 :<span class="tlaGNC">        5891 :     const uint64_t now = clock_.now_ns();</span></span>
+<span id="L20"><span class="lineNum">      20</span>                 :<span class="tlaGNC">        5891 :     uint64_t missed = 0;</span></span>
+<span id="L21"><span class="lineNum">      21</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 5890 times"> + </span>]:<span class="tlaGNC">        5891 :     if (now &gt;= next_deadline_ns_ + period_ns_) {</span></span>
+<span id="L22"><span class="lineNum">      22</span>                 :             :         // A whole period or more behind: skip the deadlines that already</span>
+<span id="L23"><span class="lineNum">      23</span>                 :             :         // passed, keep the grid. Integer division floors, so the new</span>
+<span id="L24"><span class="lineNum">      24</span>                 :             :         // deadline is the latest grid point at or before now.</span>
+<span id="L25"><span class="lineNum">      25</span>                 :<span class="tlaGNC">           1 :         missed = (now - next_deadline_ns_) / period_ns_;</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :<span class="tlaGNC">           1 :         next_deadline_ns_ += missed * period_ns_;</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     }</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             : </span>
+<span id="L29"><span class="lineNum">      29</span>                 :<span class="tlaGNC">        5891 :     clock_.sleep_until_ns(next_deadline_ns_);</span></span>
+<span id="L30"><span class="lineNum">      30</span>                 :<span class="tlaGNC">        5891 :     const uint64_t actual = clock_.now_ns();</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :             : </span>
+<span id="L32"><span class="lineNum">      32</span>                 :             :     CycleTiming timing;</span>
+<span id="L33"><span class="lineNum">      33</span>                 :<span class="tlaGNC">        5891 :     timing.cycle = cycle_;</span></span>
+<span id="L34"><span class="lineNum">      34</span>                 :<span class="tlaGNC">        5891 :     timing.scheduled_ns = next_deadline_ns_;</span></span>
+<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaGNC">        5891 :     timing.actual_ns = actual;</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">        5891 :     timing.jitter_ns = static_cast&lt;int64_t&gt;(actual) - static_cast&lt;int64_t&gt;(next_deadline_ns_);</span></span>
+<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">        5891 :     timing.missed_cycles = missed;</span></span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : </span>
+<span id="L39"><span class="lineNum">      39</span>                 :             :     // The requirement, in one line: the next deadline is the previous</span>
+<span id="L40"><span class="lineNum">      40</span>                 :             :     // deadline plus the period, not &quot;now plus the period&quot;.</span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">        5891 :     next_deadline_ns_ += period_ns_;</span></span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">        5891 :     cycle_++;</span></span>
+<span id="L43"><span class="lineNum">      43</span>                 :<span class="tlaGNC">        5891 :     return timing;</span></span>
+<span id="L44"><span class="lineNum">      44</span>                 :             : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

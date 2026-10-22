@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - src/drivers/opensky_client.cpp</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">src/drivers</a> - opensky_client.cpp<span style="font-size: 80%;"> (source / <a href="opensky_client.cpp.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">92.1&nbsp;%</td>
+            <td class="headerCovTableEntry">165</td>
+            <td class="headerCovTableEntry">152</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-10-22 03:48:23</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntry">14</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntryHi">91.7&nbsp;%</td>
+            <td class="headerCovTableEntry">96</td>
+            <td class="headerCovTableEntry">88</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">             Branch data     Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>                 :             : #include &quot;drivers/opensky_client.h&quot;</span>
+<span id="L2"><span class="lineNum">       2</span>                 :             : </span>
+<span id="L3"><span class="lineNum">       3</span>                 :             : #include &lt;cstdio&gt;</span>
+<span id="L4"><span class="lineNum">       4</span>                 :             : #include &lt;cstdlib&gt;</span>
+<span id="L5"><span class="lineNum">       5</span>                 :             : </span>
+<span id="L6"><span class="lineNum">       6</span>                 :             : namespace {</span>
+<span id="L7"><span class="lineNum">       7</span>                 :             : </span>
+<span id="L8"><span class="lineNum">       8</span>                 :             : // The box's edges as the service reads them: four decimals is a tenth of</span>
+<span id="L9"><span class="lineNum">       9</span>                 :             : // a metre, more than the file carries.</span>
+<span id="L10"><span class="lineNum">      10</span>                 :<span class="tlaGNC tlaBgGNC">         132 : std::string decimal(double value) {</span></span>
+<span id="L11"><span class="lineNum">      11</span>                 :             :     char buffer[32];</span>
+<span id="L12"><span class="lineNum">      12</span>                 :<span class="tlaGNC">         132 :     std::snprintf(buffer, sizeof(buffer), &quot;%.4f&quot;, value);</span></span>
+<span id="L13"><span class="lineNum">      13</span>                 :<span class="tlaGNC">         264 :     return buffer;</span></span>
+<span id="L14"><span class="lineNum">      14</span>                 :             : }</span>
+<span id="L15"><span class="lineNum">      15</span>                 :             : </span>
+<span id="L16"><span class="lineNum">      16</span>                 :<span class="tlaGNC">         918 : bool unreserved(unsigned char c) {</span></span>
+<span id="L17"><span class="lineNum">      17</span>   [<span class="tlaGBC" title="Branch 0 was taken 821 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 820 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 97 times"> + </span> :<span class="tlaGNC">         918 :     return (c &gt;= 'A' &amp;&amp; c &lt;= 'Z') || (c &gt;= 'a' &amp;&amp; c &lt;= 'z') || (c &gt;= '0' &amp;&amp; c &lt;= '9') || c == '-' || c == '.' ||</span></span>
+<span class="lineNum">        </span> <span class="tlaGBC" title="Branch 4 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 5 was taken 819 times"> + </span><span class="tlaGBC" title="Branch 6 was taken 11 times"> + </span><span class="tlaGBC" title="Branch 7 was taken 87 times"> + </span><span class="tlaGBC" title="Branch 8 was taken 3 times"> + </span> 
+<span class="lineNum">        </span> <span class="tlaGBC" title="Branch 9 was taken 8 times"> + </span><span class="tlaGBC" title="Branch 10 was taken 7 times"> + </span><span class="tlaGBC" title="Branch 11 was taken 83 times"> + </span><span class="tlaGBC" title="Branch 12 was taken 6 times"> + </span><span class="tlaGBC" title="Branch 13 was taken 1 time"> + </span> 
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 14 was taken 5 times"> + </span><span class="tlaGBC" title="Branch 15 was taken 1 time"> + </span>]
+<span id="L18"><span class="lineNum">      18</span>   [<span class="tlaGBC" title="Branch 0 was taken 822 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 96 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 4 times"> + </span>]:<span class="tlaGNC">        1836 :            c == '_' || c == '~';</span></span>
+<span id="L19"><span class="lineNum">      19</span>                 :             : }</span>
+<span id="L20"><span class="lineNum">      20</span>                 :             : </span>
+<span id="L21"><span class="lineNum">      21</span>                 :             : // A poll that yielded nothing: the status, the HTTP status when there was</span>
+<span id="L22"><span class="lineNum">      22</span>                 :             : // one, and libcurl's text when there was none.</span>
+<span id="L23"><span class="lineNum">      23</span>                 :<span class="tlaGNC">          18 : FetchResult failure(FetchStatus status, const HttpResponse&amp; response) {</span></span>
+<span id="L24"><span class="lineNum">      24</span>                 :<span class="tlaGNC">          18 :     FetchResult result;</span></span>
+<span id="L25"><span class="lineNum">      25</span>                 :<span class="tlaGNC">          18 :     result.status = status;</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :             :     // One decision for both fields, the copy of libcurl's text, which can</span>
+<span id="L27"><span class="lineNum">      27</span>                 :             :     // throw, on a line of its own (FTS-VR-001 Entry 23 §23.4); the defaults</span>
+<span id="L28"><span class="lineNum">      28</span>                 :             :     // are 0 and empty.</span>
+<span id="L29"><span class="lineNum">      29</span>         [<span class="tlaGBC" title="Branch 0 was taken 15 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 3 times"> + </span>]:<span class="tlaGNC">          18 :     if (response.transport_ok) {</span></span>
+<span id="L30"><span class="lineNum">      30</span>                 :<span class="tlaGNC">          15 :         result.http_status = response.status;</span></span>
+<span id="L31"><span class="lineNum">      31</span>                 :             :     } else {</span>
+<span id="L32"><span class="lineNum">      32</span>                 :<span class="tlaGNC">           3 :         result.detail = response.error;</span></span>
+<span id="L33"><span class="lineNum">      33</span>                 :             :     }</span>
+<span id="L34"><span class="lineNum">      34</span>                 :<span class="tlaGNC">          18 :     return result;</span></span>
+<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaUNC tlaBgUNC">           0 : }</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :             : </span>
+<span id="L37"><span class="lineNum">      37</span>                 :             : }  // namespace</span>
+<span id="L38"><span class="lineNum">      38</span>                 :             : </span>
+<span id="L39"><span class="lineNum">      39</span>                 :<span class="tlaGNC tlaBgGNC">           8 : const char* fetch_status_name(FetchStatus status) {</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">           8 :     switch (status) {  // LCOV_EXCL_BR_LINE: exhaustive over enum class, no-match branch unreachable</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::OK:                return &quot;ok&quot;;</span></span>
+<span id="L42"><span class="lineNum">      42</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::TOKEN_REFUSED:     return &quot;token refused&quot;;</span></span>
+<span id="L43"><span class="lineNum">      43</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::TOKEN_UNAVAILABLE: return &quot;token unavailable&quot;;</span></span>
+<span id="L44"><span class="lineNum">      44</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::UNAUTHORIZED:      return &quot;unauthorized&quot;;</span></span>
+<span id="L45"><span class="lineNum">      45</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::RATE_LIMITED:      return &quot;rate limited&quot;;</span></span>
+<span id="L46"><span class="lineNum">      46</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::HTTP_ERROR:        return &quot;http error&quot;;</span></span>
+<span id="L47"><span class="lineNum">      47</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::TRANSPORT_ERROR:   return &quot;transport error&quot;;</span></span>
+<span id="L48"><span class="lineNum">      48</span>                 :<span class="tlaGNC">           1 :         case FetchStatus::MALFORMED:         return &quot;malformed&quot;;</span></span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :     }</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :     return &quot;UNKNOWN&quot;;  // LCOV_EXCL_LINE (unreachable: the switch covers every enumerator)</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             : }</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             : </span>
+<span id="L53"><span class="lineNum">      53</span>                 :<span class="tlaGNC">          33 : OpenSkyClient::OpenSkyClient(HttpClient&amp; http, Clock&amp; clock, opensky_json::Credentials credentials, const AdsbBox&amp; box,</span></span>
+<span id="L54"><span class="lineNum">      54</span>                 :<span class="tlaGNC">          33 :                              const std::string&amp; origin_override)</span></span>
+<span id="L55"><span class="lineNum">      55</span>                 :<span class="tlaGNC">          33 :     : http_(http), clock_(clock), credentials_(std::move(credentials)) {</span></span>
+<span id="L56"><span class="lineNum">      56</span>                 :<span class="tlaGNC">          33 :     token_url_ = with_origin(kTokenUrl, origin_override);</span></span>
+<span id="L57"><span class="lineNum">      57</span>                 :<span class="tlaGNC">         132 :     states_url_ = with_origin(kStatesUrl, origin_override) + &quot;?lamin=&quot; + decimal(box.lat_min) +</span></span>
+<span id="L58"><span class="lineNum">      58</span>                 :<span class="tlaGNC">          99 :                   &quot;&amp;lomin=&quot; + decimal(box.lon_min) + &quot;&amp;lamax=&quot; + decimal(box.lat_max) + &quot;&amp;lomax=&quot; + decimal(box.lon_max);</span></span>
+<span id="L59"><span class="lineNum">      59</span>                 :<span class="tlaGNC">          33 : }</span></span>
+<span id="L60"><span class="lineNum">      60</span>                 :             : </span>
+<span id="L61"><span class="lineNum">      61</span>                 :<span class="tlaGNC">          83 : std::string OpenSkyClient::form_encode(const std::string&amp; value) {</span></span>
+<span id="L62"><span class="lineNum">      62</span>                 :<span class="tlaGNC">          83 :     std::string out;</span></span>
+<span id="L63"><span class="lineNum">      63</span>         [<span class="tlaGBC" title="Branch 0 was taken 918 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 83 times"> + </span>]:<span class="tlaGNC">        1001 :     for (const char ch : value) {</span></span>
+<span id="L64"><span class="lineNum">      64</span>                 :<span class="tlaGNC">         918 :         const unsigned char c = static_cast&lt;unsigned char&gt;(ch);</span></span>
+<span id="L65"><span class="lineNum">      65</span>         [<span class="tlaGBC" title="Branch 0 was taken 914 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 4 times"> + </span>]:<span class="tlaGNC">         918 :         if (unreserved(c)) {</span></span>
+<span id="L66"><span class="lineNum">      66</span>                 :<span class="tlaGNC">         914 :             out += ch;</span></span>
+<span id="L67"><span class="lineNum">      67</span>                 :             :         } else {</span>
+<span id="L68"><span class="lineNum">      68</span>                 :             :             char escaped[4];</span>
+<span id="L69"><span class="lineNum">      69</span>                 :<span class="tlaGNC">           4 :             std::snprintf(escaped, sizeof(escaped), &quot;%%%02X&quot;, c);</span></span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC">           4 :             out += escaped;</span></span>
+<span id="L71"><span class="lineNum">      71</span>                 :             :         }</span>
+<span id="L72"><span class="lineNum">      72</span>                 :             :     }</span>
+<span id="L73"><span class="lineNum">      73</span>                 :<span class="tlaGNC">          83 :     return out;</span></span>
+<span id="L74"><span class="lineNum">      74</span>                 :<span class="tlaUNC tlaBgUNC">           0 : }</span></span>
+<span id="L75"><span class="lineNum">      75</span>                 :             : </span>
+<span id="L76"><span class="lineNum">      76</span>                 :<span class="tlaGNC tlaBgGNC">          68 : std::string OpenSkyClient::with_origin(const std::string&amp; url, const std::string&amp; origin) {</span></span>
+<span id="L77"><span class="lineNum">      77</span>         [<span class="tlaGBC" title="Branch 0 was taken 63 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 5 times"> + </span>]:<span class="tlaGNC">          68 :     if (origin.empty()) {</span></span>
+<span id="L78"><span class="lineNum">      78</span>                 :<span class="tlaGNC">          63 :         return url;</span></span>
+<span id="L79"><span class="lineNum">      79</span>                 :             :     }</span>
+<span id="L80"><span class="lineNum">      80</span>                 :<span class="tlaGNC">           5 :     const size_t scheme_end = url.find(&quot;://&quot;);</span></span>
+<span id="L81"><span class="lineNum">      81</span>         [<span class="tlaGBC" title="Branch 0 was taken 5 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">           5 :     const size_t path = scheme_end == std::string::npos ? std::string::npos : url.find('/', scheme_end + 3);</span></span>
+<span id="L82"><span class="lineNum">      82</span>                 :<span class="tlaGNC">           5 :     std::string base = origin;</span></span>
+<span id="L83"><span class="lineNum">      83</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 3 times"> + </span>]:<span class="tlaGNC">           5 :     if (base.back() == '/') {</span></span>
+<span id="L84"><span class="lineNum">      84</span>                 :<span class="tlaGNC">           2 :         base.pop_back();</span></span>
+<span id="L85"><span class="lineNum">      85</span>                 :             :     }</span>
+<span id="L86"><span class="lineNum">      86</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 5 times"> + </span>]:<span class="tlaGNC">           5 :     if (path == std::string::npos) {</span></span>
+<span id="L87"><span class="lineNum">      87</span>                 :<span class="tlaUNC tlaBgUNC">           0 :         return base;</span></span>
+<span id="L88"><span class="lineNum">      88</span>                 :             :     }</span>
+<span id="L89"><span class="lineNum">      89</span>                 :<span class="tlaGNC tlaBgGNC">           5 :     return base + url.substr(path);</span></span>
+<span id="L90"><span class="lineNum">      90</span>                 :<span class="tlaGNC">           5 : }</span></span>
+<span id="L91"><span class="lineNum">      91</span>                 :             : </span>
+<span id="L92"><span class="lineNum">      92</span>                 :<span class="tlaGNC">           9 : bool OpenSkyClient::has_token() const { return has_token_; }</span></span>
+<span id="L93"><span class="lineNum">      93</span>                 :<span class="tlaGNC">          91 : const OpenSkyCounters&amp; OpenSkyClient::counters() const { return counters_; }</span></span>
+<span id="L94"><span class="lineNum">      94</span>                 :<span class="tlaGNC">           1 : const std::string&amp; OpenSkyClient::token_url() const { return token_url_; }</span></span>
+<span id="L95"><span class="lineNum">      95</span>                 :<span class="tlaGNC">           1 : const std::string&amp; OpenSkyClient::states_url() const { return states_url_; }</span></span>
+<span id="L96"><span class="lineNum">      96</span>                 :             : </span>
+<span id="L97"><span class="lineNum">      97</span>                 :<span class="tlaGNC">          79 : bool OpenSkyClient::token_valid_now() const {</span></span>
+<span id="L98"><span class="lineNum">      98</span>   [<span class="tlaGBC" title="Branch 0 was taken 45 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 34 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 43 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span>]:<span class="tlaGNC">          79 :     return has_token_ &amp;&amp; clock_.now_ns() &lt; token_expires_at_ns_;</span></span>
+<span id="L99"><span class="lineNum">      99</span>                 :             : }</span>
+<span id="L100"><span class="lineNum">     100</span>                 :             : </span>
+<span id="L101"><span class="lineNum">     101</span>                 :             : // The one place the secret travels (REQ-CFG-004): the token request's</span>
+<span id="L102"><span class="lineNum">     102</span>                 :             : // body, form-encoded. The response names the token and its lifetime; the</span>
+<span id="L103"><span class="lineNum">     103</span>                 :             : // margin is taken off here so the expiry test is one comparison.</span>
+<span id="L104"><span class="lineNum">     104</span>                 :<span class="tlaGNC">          40 : OpenSkyClient::TokenOutcome OpenSkyClient::request_token() {</span></span>
+<span id="L105"><span class="lineNum">     105</span>                 :<span class="tlaGNC">          40 :     counters_.token_requests++;</span></span>
+<span id="L106"><span class="lineNum">     106</span>                 :<span class="tlaGNC">          40 :     has_token_ = false;</span></span>
+<span id="L107"><span class="lineNum">     107</span>                 :<span class="tlaGNC">          40 :     token_.clear();</span></span>
+<span id="L108"><span class="lineNum">     108</span>                 :<span class="tlaGNC">          80 :     const std::string body = &quot;grant_type=client_credentials&amp;client_id=&quot; + form_encode(credentials_.client_id) +</span></span>
+<span id="L109"><span class="lineNum">     109</span>                 :<span class="tlaGNC">         120 :                              &quot;&amp;client_secret=&quot; + form_encode(credentials_.client_secret);</span></span>
+<span id="L110"><span class="lineNum">     110</span>                 :<span class="tlaGNC">          40 :     const HttpResponse response = http_.post_form(token_url_, body);</span></span>
+<span id="L111"><span class="lineNum">     111</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 39 times"> + </span>]:<span class="tlaGNC">          40 :     if (!response.transport_ok) {</span></span>
+<span id="L112"><span class="lineNum">     112</span>                 :<span class="tlaGNC">           1 :         counters_.token_unavailable++;</span></span>
+<span id="L113"><span class="lineNum">     113</span>                 :<span class="tlaGNC">           1 :         counters_.last_error_code = response.error_code;</span></span>
+<span id="L114"><span class="lineNum">     114</span>                 :<span class="tlaGNC">           1 :         return TokenOutcome::UNAVAILABLE;</span></span>
+<span id="L115"><span class="lineNum">     115</span>                 :             :     }</span>
+<span id="L116"><span class="lineNum">     116</span>                 :<span class="tlaGNC">          39 :     counters_.last_http_status = response.status;</span></span>
+<span id="L117"><span class="lineNum">     117</span>   [<span class="tlaGBC" title="Branch 0 was taken 38 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 36 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span> :<span class="tlaGNC">          39 :     const bool refused = response.status == 400 || response.status == 401 || response.status == 403;</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 5 was taken 35 times"> + </span>]
+<span id="L118"><span class="lineNum">     118</span>         [<span class="tlaGBC" title="Branch 0 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 35 times"> + </span>]:<span class="tlaGNC">          39 :     if (refused) {</span></span>
+<span id="L119"><span class="lineNum">     119</span>                 :<span class="tlaGNC">           4 :         counters_.token_refused++;</span></span>
+<span id="L120"><span class="lineNum">     120</span>                 :<span class="tlaGNC">           4 :         return TokenOutcome::REFUSED;</span></span>
+<span id="L121"><span class="lineNum">     121</span>                 :             :     }</span>
+<span id="L122"><span class="lineNum">     122</span>   [<span class="tlaGBC" title="Branch 0 was taken 35 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 33 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span>]:<span class="tlaGNC">          35 :     const bool success = response.status &gt;= 200 &amp;&amp; response.status &lt; 300;</span></span>
+<span id="L123"><span class="lineNum">     123</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 33 times"> + </span>]:<span class="tlaGNC">          35 :     if (!success) {</span></span>
+<span id="L124"><span class="lineNum">     124</span>                 :<span class="tlaGNC">           2 :         counters_.token_unavailable++;</span></span>
+<span id="L125"><span class="lineNum">     125</span>                 :<span class="tlaGNC">           2 :         return TokenOutcome::UNAVAILABLE;</span></span>
+<span id="L126"><span class="lineNum">     126</span>                 :             :     }</span>
+<span id="L127"><span class="lineNum">     127</span>                 :<span class="tlaGNC">          33 :     const opensky_json::TokenParse parsed = opensky_json::parse_token(response.body);</span></span>
+<span id="L128"><span class="lineNum">     128</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 32 times"> + </span>]:<span class="tlaGNC">          33 :     if (!parsed.ok) {</span></span>
+<span id="L129"><span class="lineNum">     129</span>                 :<span class="tlaGNC">           1 :         counters_.token_unavailable++;</span></span>
+<span id="L130"><span class="lineNum">     130</span>                 :<span class="tlaGNC">           1 :         return TokenOutcome::UNAVAILABLE;</span></span>
+<span id="L131"><span class="lineNum">     131</span>                 :             :     }</span>
+<span id="L132"><span class="lineNum">     132</span>                 :<span class="tlaGNC">          32 :     token_ = parsed.access_token;</span></span>
+<span id="L133"><span class="lineNum">     133</span>                 :<span class="tlaGNC">          32 :     has_token_ = true;</span></span>
+<span id="L134"><span class="lineNum">     134</span>                 :<span class="tlaGNC">          32 :     const int64_t usable_s = parsed.expires_in_s &gt; kTokenRefreshMarginS ? parsed.expires_in_s - kTokenRefreshMarginS : 0;</span></span>
+<span id="L135"><span class="lineNum">     135</span>                 :<span class="tlaGNC">          32 :     token_expires_at_ns_ = clock_.now_ns() + static_cast&lt;uint64_t&gt;(usable_s) * 1'000'000'000ull;</span></span>
+<span id="L136"><span class="lineNum">     136</span>                 :<span class="tlaGNC">          32 :     return TokenOutcome::OK;</span></span>
+<span id="L137"><span class="lineNum">     137</span>                 :<span class="tlaGNC">          40 : }</span></span>
+<span id="L138"><span class="lineNum">     138</span>                 :             : </span>
+<span id="L139"><span class="lineNum">     139</span>                 :<span class="tlaGNC">          79 : FetchResult OpenSkyClient::fetch_states() {</span></span>
+<span id="L140"><span class="lineNum">     140</span>                 :<span class="tlaGNC">          79 :     counters_.polls++;</span></span>
+<span id="L141"><span class="lineNum">     141</span>                 :<span class="tlaGNC">          79 :     const bool valid = token_valid_now();</span></span>
+<span id="L142"><span class="lineNum">     142</span>         [<span class="tlaGBC" title="Branch 0 was taken 36 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 43 times"> + </span>]:<span class="tlaGNC">          79 :     if (!valid) {</span></span>
+<span id="L143"><span class="lineNum">     143</span>                 :<span class="tlaGNC">          36 :         const TokenOutcome outcome = request_token();</span></span>
+<span id="L144"><span class="lineNum">     144</span>         [<span class="tlaGBC" title="Branch 0 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 32 times"> + </span>]:<span class="tlaGNC">          36 :         if (outcome == TokenOutcome::REFUSED) {</span></span>
+<span id="L145"><span class="lineNum">     145</span>                 :<span class="tlaGNC">           4 :             FetchResult result;</span></span>
+<span id="L146"><span class="lineNum">     146</span>                 :<span class="tlaGNC">           4 :             result.status = FetchStatus::TOKEN_REFUSED;</span></span>
+<span id="L147"><span class="lineNum">     147</span>                 :<span class="tlaGNC">           4 :             result.http_status = counters_.last_http_status;</span></span>
+<span id="L148"><span class="lineNum">     148</span>                 :<span class="tlaGNC">           4 :             return result;</span></span>
+<span id="L149"><span class="lineNum">     149</span>                 :<span class="tlaGNC">           4 :         }</span></span>
+<span id="L150"><span class="lineNum">     150</span>         [<span class="tlaGBC" title="Branch 0 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 28 times"> + </span>]:<span class="tlaGNC">          32 :         if (outcome == TokenOutcome::UNAVAILABLE) {</span></span>
+<span id="L151"><span class="lineNum">     151</span>                 :<span class="tlaGNC">           4 :             FetchResult result;</span></span>
+<span id="L152"><span class="lineNum">     152</span>                 :<span class="tlaGNC">           4 :             result.status = FetchStatus::TOKEN_UNAVAILABLE;</span></span>
+<span id="L153"><span class="lineNum">     153</span>                 :<span class="tlaGNC">           4 :             result.http_status = counters_.last_http_status;</span></span>
+<span id="L154"><span class="lineNum">     154</span>                 :<span class="tlaGNC">           4 :             return result;</span></span>
+<span id="L155"><span class="lineNum">     155</span>                 :<span class="tlaGNC">           4 :         }</span></span>
+<span id="L156"><span class="lineNum">     156</span>                 :             :     }</span>
+<span id="L157"><span class="lineNum">     157</span>                 :             : </span>
+<span id="L158"><span class="lineNum">     158</span>                 :<span class="tlaGNC">          71 :     HttpResponse response = http_.get(states_url_, token_);</span></span>
+<span id="L159"><span class="lineNum">     159</span>   [<span class="tlaGBC" title="Branch 0 was taken 69 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 65 times"> + </span>]:<span class="tlaGNC">          71 :     if (response.transport_ok &amp;&amp; response.status == 401) {</span></span>
+<span id="L160"><span class="lineNum">     160</span>                 :             :         // The token the server rejected is gone, whatever this client's</span>
+<span id="L161"><span class="lineNum">     161</span>                 :             :         // clock said: one refresh, one retry of the same poll (FAULT-013).</span>
+<span id="L162"><span class="lineNum">     162</span>                 :<span class="tlaGNC">           4 :         counters_.auth++;</span></span>
+<span id="L163"><span class="lineNum">     163</span>                 :<span class="tlaGNC">           4 :         const TokenOutcome outcome = request_token();</span></span>
+<span id="L164"><span class="lineNum">     164</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 4 times"> + </span>]:<span class="tlaGNC">           4 :         if (outcome == TokenOutcome::REFUSED) {</span></span>
+<span id="L165"><span class="lineNum">     165</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             FetchResult result;</span></span>
+<span id="L166"><span class="lineNum">     166</span>                 :<span class="tlaUNC">           0 :             result.status = FetchStatus::TOKEN_REFUSED;</span></span>
+<span id="L167"><span class="lineNum">     167</span>                 :<span class="tlaUNC">           0 :             result.http_status = counters_.last_http_status;</span></span>
+<span id="L168"><span class="lineNum">     168</span>                 :<span class="tlaUNC">           0 :             return result;</span></span>
+<span id="L169"><span class="lineNum">     169</span>                 :<span class="tlaUNC">           0 :         }</span></span>
+<span id="L170"><span class="lineNum">     170</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 4 times"> + </span>]:<span class="tlaGNC tlaBgGNC">           4 :         if (outcome == TokenOutcome::UNAVAILABLE) {</span></span>
+<span id="L171"><span class="lineNum">     171</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             FetchResult result;</span></span>
+<span id="L172"><span class="lineNum">     172</span>                 :<span class="tlaUNC">           0 :             result.status = FetchStatus::TOKEN_UNAVAILABLE;</span></span>
+<span id="L173"><span class="lineNum">     173</span>                 :<span class="tlaUNC">           0 :             result.http_status = counters_.last_http_status;</span></span>
+<span id="L174"><span class="lineNum">     174</span>                 :<span class="tlaUNC">           0 :             return result;</span></span>
+<span id="L175"><span class="lineNum">     175</span>                 :<span class="tlaUNC">           0 :         }</span></span>
+<span id="L176"><span class="lineNum">     176</span>                 :<span class="tlaGNC tlaBgGNC">           4 :         response = http_.get(states_url_, token_);</span></span>
+<span id="L177"><span class="lineNum">     177</span>   [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 2 times"> + </span>]:<span class="tlaGNC">           4 :         if (response.transport_ok &amp;&amp; response.status == 401) {</span></span>
+<span id="L178"><span class="lineNum">     178</span>                 :<span class="tlaGNC">           1 :             counters_.auth++;</span></span>
+<span id="L179"><span class="lineNum">     179</span>                 :<span class="tlaGNC">           1 :             counters_.unauthorized++;</span></span>
+<span id="L180"><span class="lineNum">     180</span>                 :<span class="tlaGNC">           1 :             counters_.last_http_status = 401;</span></span>
+<span id="L181"><span class="lineNum">     181</span>                 :<span class="tlaGNC">           1 :             return failure(FetchStatus::UNAUTHORIZED, response);</span></span>
+<span id="L182"><span class="lineNum">     182</span>                 :             :         }</span>
+<span id="L183"><span class="lineNum">     183</span>                 :             :     }</span>
+<span id="L184"><span class="lineNum">     184</span>         [<span class="tlaGBC" title="Branch 0 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 67 times"> + </span>]:<span class="tlaGNC">          70 :     if (!response.transport_ok) {</span></span>
+<span id="L185"><span class="lineNum">     185</span>                 :<span class="tlaGNC">           3 :         counters_.transport_errors++;</span></span>
+<span id="L186"><span class="lineNum">     186</span>                 :<span class="tlaGNC">           3 :         counters_.last_error_code = response.error_code;</span></span>
+<span id="L187"><span class="lineNum">     187</span>                 :<span class="tlaGNC">           3 :         return failure(FetchStatus::TRANSPORT_ERROR, response);</span></span>
+<span id="L188"><span class="lineNum">     188</span>                 :             :     }</span>
+<span id="L189"><span class="lineNum">     189</span>                 :<span class="tlaGNC">          67 :     counters_.last_http_status = response.status;</span></span>
+<span id="L190"><span class="lineNum">     190</span>         [<span class="tlaGBC" title="Branch 0 was taken 7 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 60 times"> + </span>]:<span class="tlaGNC">          67 :     if (response.status == 429) {</span></span>
+<span id="L191"><span class="lineNum">     191</span>                 :<span class="tlaGNC">           7 :         counters_.rate_limited++;</span></span>
+<span id="L192"><span class="lineNum">     192</span>                 :<span class="tlaGNC">           7 :         FetchResult result = failure(FetchStatus::RATE_LIMITED, response);</span></span>
+<span id="L193"><span class="lineNum">     193</span>                 :<span class="tlaGNC">           7 :         const std::string* retry_after = response.header(&quot;x-rate-limit-retry-after-seconds&quot;);</span></span>
+<span id="L194"><span class="lineNum">     194</span>         [<span class="tlaGBC" title="Branch 0 was taken 5 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span>]:<span class="tlaGNC">           7 :         if (retry_after != nullptr) {</span></span>
+<span id="L195"><span class="lineNum">     195</span>                 :<span class="tlaGNC">           5 :             char* end = nullptr;</span></span>
+<span id="L196"><span class="lineNum">     196</span>                 :<span class="tlaGNC">           5 :             const long long seconds = std::strtoll(retry_after-&gt;c_str(), &amp;end, 10);</span></span>
+<span id="L197"><span class="lineNum">     197</span>   [<span class="tlaGBC" title="Branch 0 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 2 was taken 4 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">           5 :             const bool parsed = end != retry_after-&gt;c_str() &amp;&amp; *end == '\0' &amp;&amp; seconds &gt;= 0;</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 4 times"> + </span><span class="tlaUNC" title="Branch 5 was not taken"> - </span>]
+<span id="L198"><span class="lineNum">     198</span>         [<span class="tlaGBC" title="Branch 0 was taken 4 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span>]:<span class="tlaGNC">           5 :             if (parsed) {</span></span>
+<span id="L199"><span class="lineNum">     199</span>                 :<span class="tlaGNC">           4 :                 result.retry_after_s = seconds;</span></span>
+<span id="L200"><span class="lineNum">     200</span>                 :<span class="tlaGNC">           4 :                 counters_.last_retry_after_s = seconds;</span></span>
+<span id="L201"><span class="lineNum">     201</span>                 :             :             }</span>
+<span id="L202"><span class="lineNum">     202</span>                 :             :         }</span>
+<span id="L203"><span class="lineNum">     203</span>                 :<span class="tlaGNC">           7 :         return result;</span></span>
+<span id="L204"><span class="lineNum">     204</span>                 :<span class="tlaGNC">           7 :     }</span></span>
+<span id="L205"><span class="lineNum">     205</span>   [<span class="tlaGBC" title="Branch 0 was taken 60 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 54 times"> + </span><span class="tlaGBC" title="Branch 3 was taken 6 times"> + </span>]:<span class="tlaGNC">          60 :     const bool success = response.status &gt;= 200 &amp;&amp; response.status &lt; 300;</span></span>
+<span id="L206"><span class="lineNum">     206</span>         [<span class="tlaGBC" title="Branch 0 was taken 6 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 54 times"> + </span>]:<span class="tlaGNC">          60 :     if (!success) {</span></span>
+<span id="L207"><span class="lineNum">     207</span>                 :<span class="tlaGNC">           6 :         counters_.http_errors++;</span></span>
+<span id="L208"><span class="lineNum">     208</span>                 :<span class="tlaGNC">           6 :         return failure(FetchStatus::HTTP_ERROR, response);</span></span>
+<span id="L209"><span class="lineNum">     209</span>                 :             :     }</span>
+<span id="L210"><span class="lineNum">     210</span>                 :<span class="tlaGNC">          54 :     opensky_json::StatesParse parsed = opensky_json::parse_states(response.body);</span></span>
+<span id="L211"><span class="lineNum">     211</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 53 times"> + </span>]:<span class="tlaGNC">          54 :     if (!parsed.ok) {</span></span>
+<span id="L212"><span class="lineNum">     212</span>                 :<span class="tlaGNC">           1 :         counters_.malformed++;</span></span>
+<span id="L213"><span class="lineNum">     213</span>                 :<span class="tlaGNC">           1 :         FetchResult result = failure(FetchStatus::MALFORMED, response);</span></span>
+<span id="L214"><span class="lineNum">     214</span>                 :<span class="tlaGNC">           1 :         result.detail = parsed.problem;</span></span>
+<span id="L215"><span class="lineNum">     215</span>                 :<span class="tlaGNC">           1 :         return result;</span></span>
+<span id="L216"><span class="lineNum">     216</span>                 :<span class="tlaGNC">           1 :     }</span></span>
+<span id="L217"><span class="lineNum">     217</span>                 :<span class="tlaGNC">          53 :     counters_.ok++;</span></span>
+<span id="L218"><span class="lineNum">     218</span>                 :<span class="tlaGNC">          53 :     counters_.rows_skipped += parsed.document.rows_skipped;</span></span>
+<span id="L219"><span class="lineNum">     219</span>                 :<span class="tlaGNC">          53 :     FetchResult result;</span></span>
+<span id="L220"><span class="lineNum">     220</span>                 :<span class="tlaGNC">          53 :     result.status = FetchStatus::OK;</span></span>
+<span id="L221"><span class="lineNum">     221</span>                 :<span class="tlaGNC">          53 :     result.http_status = response.status;</span></span>
+<span id="L222"><span class="lineNum">     222</span>                 :<span class="tlaGNC">          53 :     result.document = std::move(parsed.document);</span></span>
+<span id="L223"><span class="lineNum">     223</span>                 :<span class="tlaGNC">          53 :     return result;</span></span>
+<span id="L224"><span class="lineNum">     224</span>                 :<span class="tlaGNC">          71 : }</span></span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>
