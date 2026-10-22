@@ -4,7 +4,7 @@
 
 Embedded flight telemetry for a Raspberry Pi in C++17: barometer, IMU and GPS fused into altitude and attitude at 50 Hz, with per-channel fault detection. Three ideas run through it. A deterministic core: a binary log replays bit for bit through the same pipeline. Requirements traceability: every line of code traces to a written requirement and a test. Redundancy with voting: three identical processing lanes behind one detector, a majority voter choosing the output. DO-178C-aligned practices, not certification.
 
-**Status.** Built and verified on simulated and replayed data and, since 2026-10-20, on the Raspberry Pi: the barometer, IMU and GPS drivers, the pipeline with Kalman constants measured on a stationary capture, the detector, the three lanes and the voter, logging and replay, both transports, the bridge and the PFD, the ADS-B source, and the fault-injection campaign of record. Five requirements remain partial, each with what it lacks in [the matrix](docs/traceability_matrix.md). Results: [verification_results.md](docs/verification_results.md).
+**Status.** Built and verified on simulated and replayed data and, since 2026-10-20, on the Raspberry Pi: the barometer, IMU and GPS drivers, the pipeline with Kalman constants measured on a stationary capture, the detector, the three lanes and the voter, logging and replay, both transports, the bridge and the PFD, the ADS-B source, and the fault-injection campaign of record. Four requirements remain partial, each with what it lacks in [the matrix](docs/traceability_matrix.md). Results: [verification_results.md](docs/verification_results.md).
 
 ## Architecture
 

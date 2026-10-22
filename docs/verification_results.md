@@ -3480,7 +3480,7 @@ What moved since Entry 27 §27.9, each by a commit of this release's chain:
 | REQ-PROC-004 | The GPS variance is the datasheet's until a capture with the receiver fixing is analysed; TC-015 step 9 failed as written on the pressure-repeat count (§9.6, §9.9), and a second stationary capture under the amended card would serve it |
 | REQ-FAULT-003 | The detector's own event for a GPS fix-quality fault (FAULT-003b): the frame carries the fix quality and the satellite count since format version 3, and the rule that judges them is still to be written (FTS-DD-001 §11.2) |
 | REQ-TIME-003 | One cycle 16.8 ms late on the Pi (§20.10, open), so the maximum is not yet shown under every normal condition |
-| REQ-TEST-004 | cppcheck's gate blocks only on a `v*` tag, so the tag's own run is the first to exercise it; it is recorded after the tag |
+| REQ-TEST-004 | cppcheck's gate blocks only on a `v*` tag, so the tag's own run is the first to exercise it; it is recorded after the tag (Verified by that run, §29.7) |
 
 ### 29.3 The findings
 
@@ -3517,7 +3517,7 @@ It claims what this record shows: every requirement traced to code and a test, t
 
 ### 29.6 Open
 
-- The `v0.1.0` tag's own run: the passing build on the tagged commit, and cppcheck's gate exercised (REQ-TEST-004). Recorded after the tag.
+- The `v0.1.0` tag's own run: the passing build on the tagged commit, and cppcheck's gate exercised (REQ-TEST-004). Recorded after the tag. (Recorded in §29.7: the gate passed, and REQ-TEST-004 is Verified.)
 - The open findings of §29.3 and the partial requirements of §29.2; a second stationary capture of unit 3 on another day serves both REQ-PROC-009's condition and TC-015 step 9 (§9.7); the gyroscope's stuck margin of 3 (FTS-NP-001 §8).
 - FTS-TM-001's REQ-FAULT-003 row says FAULT-003b "waits for the frame to carry the field"; the frame has carried it since format version 3, as FTS-FM-001, FTS-DD-001 §11.2 and FTS-TP-001 say. Flagged, not changed.
 - "Every push" outside the README, CLAUDE.md and the workflow's header, which name the triggers precisely since this release: the rationale of REQ-TEST-005 and REQ-TEST-007 (an SRD wording revision), the matrix's REQ-TEST-002 to REQ-TEST-004 rows, and the command reference.
@@ -3525,3 +3525,40 @@ It claims what this record shows: every requirement traced to code and a test, t
 - The first release's demo video.
 
 Closed by this entry: Entry 26 §26.9's first release, its tag's name and the four places, and Entry 28 §28.5's README item.
+
+### 29.7 The tag's run
+
+**The first tag, pushed too early.** At 04:03 UTC on 2026-10-22, `v0.1.0` was created on `origin/main` and pushed before pull request 8 was merged, so it named `c510034`, the merge of pull request 7, whose tree holds none of this release's chain. Its run, 39720260636, was cancelled during its integration tests: `page` and `sanitize` had passed, and the C++ job its 581 Google Tests on that tree, and the job never reached cppcheck, so the run measured nothing this entry claims. The tag was deleted on GitHub and on the Mac; nothing had been made from it.
+
+**The tag of record.** Pull request 8 was retitled with its requirement IDs, marked ready and merged as `be95c57`, whose tree equals the release commit `36ae956`'s. `v0.1.0` is an annotated tag on `be95c57`, created only after `git diff --quiet 36ae956 origin/main` held, and pushed at 04:13 UTC.
+
+Expected, from this entry as committed before the tag: the code §29.1 measured, so §29.1's figures exactly, and cppcheck's gate exercised (§29.6).
+
+CI run 39721176081 on `v0.1.0` (`be95c57`), 2026-10-22 04:13:29 to 04:18:10 UTC, from the tag's push. All three jobs passed.
+
+| Check | Result |
+|---|---|
+| Runner | `ubuntu-24.04` on all three jobs: image 20261012.334.1 on the C++ job and `page`, 20261018.339.1 on `sanitize` |
+| Google Test (GCC 13.3.0, `-DWARNINGS_AS_ERRORS=ON -DENABLE_COVERAGE=ON`) | 585 of 585 in 23.9 s, none skipped; no warning in the build |
+| pytest (Python 3.13.16, against the instrumented binaries) | 186 of 186 in 140.4 s |
+| lcov over `src/` | lines 98.4% (3,207 of 3,259), functions 97.3% (355 of 365), branches 94.9% (1,522 of 1,604) |
+| cppcheck (2.13.0), the report step | 0 findings in 43 files; its output equal, line for line, to the committed `static_analysis/cppcheck.txt` |
+| cppcheck, the gate on release tags (`--error-exitcode=1`) | run for the first time: 0 findings in 43 files, the step passed |
+| `sanitize` job | ctest 585 of 585 in 35.6 s, the one skip by name (§27.8); no `AddressSanitizer`, `LeakSanitizer` or `runtime error:` line |
+| `page` job | 89 of 89 in 13 files in 4.91 s; statements 99.17%, branches 99.04%, functions 97.84%, lines 99.71%; the build clean in 82 ms |
+| Wall time | the C++ job 4 min 39 s; `sanitize` 1 min 37 s; `page` 15 s |
+
+Per-scope branch coverage: processing, config, timing and logging 100.0%, transport 88.8%, replay 97.8%, drivers 91.3%, overall 94.9%.
+
+| Expectation | Measured |
+|---|---|
+| §29.1's figures exactly | the same tests, lines, functions, branches and scopes, and cppcheck's 43 files: met |
+| cppcheck's gate exercised on the tag | run on the tag, 0 findings, the step passed: met |
+
+Two more runs on the same tree gave the same figures: pull request 8's on the release commit, 39720099768 (pytest in 142.5 s), and the merge's on `main`, 39721067658 (pytest in 134.4 s), which skipped the gate as its condition requires. The measurement of record stays §29.1's run, whose reports are committed; this run reproduces it on the tagged commit.
+
+**FTS-TP-001 §4's release is complete:** a passing build on a tagged commit, its coverage and cppcheck reports committed under `coverage/` and `static_analysis/` and summarized here.
+
+**REQ-TEST-004 is Verified:** cppcheck runs on every build, and the first release-tagged build had zero findings at FTS-TP-001's severity levels under the gate that fails on any. FTS-SRD-001's 68 statements stand at 64 Verified and 4 Partial (FTS-TM-001 §11); §29.2's other four are unchanged.
+
+**Flagged, not changed:** FTS-TP-001 §7 still says ten requirements are Partial, where the matrix counts four. Entry 20 flagged its earlier count the same way and left it for its author.
