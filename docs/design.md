@@ -1,9 +1,9 @@
 # Flight Telemetry System — Software Design Description
 
 > **Document ID:** FTS-DD-001
-> **Version:** 0.1.0
+> **Version:** 0.2.0
 > **Status:** Draft
-> **Last Updated:** 2026-10-21
+> **Last Updated:** 2026-11-19
 > **Related:** FTS-SRD-001 (requirements), FTS-TM-001 (traceability), FTS-TP-001 (test plan), FTS-FM-001 (fault model), FTS-FI-001 (fault-injection report)
 
 ## 1. Purpose and Scope
@@ -18,7 +18,7 @@ It is not an API reference, a build guide, or a tutorial. Interfaces are documen
 
 This project assumes Design Assurance Level C under DO-178C. DAL C corresponds to a *major* failure condition: a failure that significantly reduces safety margins or significantly increases crew workload, but from which a safe landing remains possible. A telemetry display that shows wrong altitude or attitude fits that class. It could mislead a pilot and raise workload; on its own it does not cause loss of the aircraft, because certified primary instruments remain.
 
-The practical consequence is in DO-178C Table A-5 (verification of verification process outputs). At DAL C the structural coverage objectives are statement coverage and decision coverage. Modified Condition/Decision Coverage is required only at DAL A. This is the formal basis for the branch coverage thresholds in FTS-TP-001 Section 6 and for MC/DC being out of scope there. The thresholds are not arbitrary targets; they are the DAL C ceiling.
+The practical consequence is in DO-178C Table A-7 (verification of verification process results). At DAL C the structural coverage objective is statement coverage; DAL B adds decision coverage, and DAL A adds Modified Condition/Decision Coverage. This project measures and gates on branch coverage (FTS-TP-001 Section 6), which is stricter than the statement coverage its assumed level asks for, and MC/DC is out of scope. Gating on branch coverage is not a claim to meet DAL B: the thresholds are 70 to 90 percent per scope, not full coverage, and the assumed level stays DAL C.
 
 DAL C is an assumption for a development system, not a certification claim. No safety assessment (ARP4761) has been performed, and none is planned. The level was chosen because it is the lowest level at which structural coverage is required, which makes it the lowest level at which the coverage tooling in this project has a reason to exist.
 
